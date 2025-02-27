@@ -170,12 +170,16 @@ members = [
     "tool/dos",
     "tool/cargo-registry",
     "tool/tokens",
+    "service/grpc-proto",
+    "service/grpc-geyser",
+    "service/grpc-client",
+    "service/grpc-server",
 ]
 
 resolver = "2"
 
 [workspace.package]
-version = "2.2.0"
+version = "2.1.13"
 authors = ["Bovey Maintainers <maintainers@solana.xyz>"]
 repository = "https://github.com/nabob-labs/solana"
 homepage = "https://solana.xyz/"
@@ -361,13 +365,18 @@ solana-tps-client = { path = "tool/tps-client" }
 solana-cli = { path = "tool/cli" }
 solana-genesis = { path = "tool/genesis" }
 solana-clap-v3-utils = { path = "tool/clap-v3-utils" }
-solana-keygen = { path = "tool/keygen" }
-solana-zk-keygen = { path = "tool/zk-keygen" }
+#solana-keygen = { path = "tool/keygen" }
+#solana-zk-keygen = { path = "tool/zk-keygen" }
 solana-local-cluster = { path = "tool/local-cluster" }
 solana-bench-tps = { path = "tool/bench-tps" }
-solana-dos = { path = "tool/dos" }
-solana-cargo-registry = { path = "tool/cargo-registry" }
-solana-tokens = { path = "tool/tokens" }
+#solana-dos = { path = "tool/dos" }
+#solana-cargo-registry = { path = "tool/cargo-registry" }
+#solana-tokens = { path = "tool/tokens" }
+
+# Service
+solana-grpc-proto = { path = "service/grpc-proto" }
+solana-grpc-geyser = { path = "service/grpc-geyser" }
+solana-grpc-client = { path = "service/grpc-client" }
 
 Inflector = "0.11.4"
 aquamarine = "0.3.3"
