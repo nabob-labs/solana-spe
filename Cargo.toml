@@ -170,10 +170,6 @@ members = [
     "tool/dos",
     "tool/cargo-registry",
     "tool/tokens",
-    "service/grpc-proto",
-    "service/grpc-geyser",
-    "service/grpc-client",
-    "service/grpc-server",
 ]
 
 resolver = "2"
@@ -181,7 +177,7 @@ resolver = "2"
 [workspace.package]
 version = "2.1.13"
 authors = ["Bovey Maintainers <maintainers@solana.xyz>"]
-repository = "https://github.com/nabob-labs/solana"
+repository = "https://github.com/nabob-labs/solana-spe"
 homepage = "https://solana.xyz/"
 license = "Apache-2.0"
 edition = "2021"
@@ -372,11 +368,6 @@ solana-bench-tps = { path = "tool/bench-tps" }
 #solana-dos = { path = "tool/dos" }
 #solana-cargo-registry = { path = "tool/cargo-registry" }
 #solana-tokens = { path = "tool/tokens" }
-
-# Service
-solana-grpc-proto = { path = "service/grpc-proto" }
-solana-grpc-geyser = { path = "service/grpc-geyser" }
-solana-grpc-client = { path = "service/grpc-client" }
 
 Inflector = "0.11.4"
 aquamarine = "0.3.3"
