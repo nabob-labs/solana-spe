@@ -361,13 +361,13 @@ solana-tps-client = { path = "tool/tps-client" }
 solana-cli = { path = "tool/cli" }
 solana-genesis = { path = "tool/genesis" }
 solana-clap-v3-utils = { path = "tool/clap-v3-utils" }
-#solana-keygen = { path = "tool/keygen" }
-#solana-zk-keygen = { path = "tool/zk-keygen" }
+solana-keygen = { path = "tool/keygen" }
+solana-zk-keygen = { path = "tool/zk-keygen" }
 solana-local-cluster = { path = "tool/local-cluster" }
 solana-bench-tps = { path = "tool/bench-tps" }
-#solana-dos = { path = "tool/dos" }
-#solana-cargo-registry = { path = "tool/cargo-registry" }
-#solana-tokens = { path = "tool/tokens" }
+solana-dos = { path = "tool/dos" }
+solana-cargo-registry = { path = "tool/cargo-registry" }
+solana-tokens = { path = "tool/tokens" }
 
 Inflector = "0.11.4"
 aquamarine = "0.3.3"
