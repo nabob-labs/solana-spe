@@ -1,6 +1,5 @@
 use {
     super::*,
-    solana_program_runtime::invoke_context::SerializedAccountMetadata,
     solana_rbpf::{error::EbpfError, memory_region::MemoryRegion},
     std::slice,
 };
@@ -71,16 +70,14 @@ declare_builtin_function!(
 
         if invoke_context
             .get_feature_set()
-            .is_active(&solana_feature_set::bpf_account_data_direct_mapping::id())
+            .is_active(&feature_set::bpf_account_data_direct_mapping::id())
         {
             let cmp_result = translate_type_mut::<i32>(
                 memory_mapping,
                 cmp_result_addr,
                 invoke_context.get_check_aligned(),
             )?;
-            let syscall_context = invoke_context.get_syscall_context()?;
-
-            *cmp_result = memcmp_non_contiguous(s1_addr, s2_addr, n, &syscall_context.accounts_metadata, memory_mapping)?;
+            *cmp_result = memcmp_non_contiguous(s1_addr, s2_addr, n, memory_mapping)?;
         } else {
             let s1 = translate_slice::<u8>(
                 memory_mapping,
@@ -129,11 +126,9 @@ declare_builtin_function!(
 
         if invoke_context
             .get_feature_set()
-            .is_active(&solana_feature_set::bpf_account_data_direct_mapping::id())
+            .is_active(&feature_set::bpf_account_data_direct_mapping::id())
         {
-            let syscall_context = invoke_context.get_syscall_context()?;
-
-            memset_non_contiguous(dst_addr, c as u8, n, &syscall_context.accounts_metadata, memory_mapping)
+            memset_non_contiguous(dst_addr, c as u8, n, memory_mapping)
         } else {
             let s = translate_slice_mut::<u8>(
                 memory_mapping,
@@ -156,17 +151,9 @@ fn memmove(
 ) -> Result<u64, Error> {
     if invoke_context
         .get_feature_set()
-        .is_active(&solana_feature_set::bpf_account_data_direct_mapping::id())
+        .is_active(&feature_set::bpf_account_data_direct_mapping::id())
     {
-        let syscall_context = invoke_context.get_syscall_context()?;
-
-        memmove_non_contiguous(
-            dst_addr,
-            src_addr,
-            n,
-            &syscall_context.accounts_metadata,
-            memory_mapping,
-        )
+        memmove_non_contiguous(dst_addr, src_addr, n, memory_mapping)
     } else {
         let dst_ptr = translate_slice_mut::<u8>(
             memory_mapping,
@@ -192,7 +179,6 @@ fn memmove_non_contiguous(
     dst_addr: u64,
     src_addr: u64,
     n: u64,
-    accounts: &[SerializedAccountMetadata],
     memory_mapping: &MemoryMapping,
 ) -> Result<u64, Error> {
     let reverse = dst_addr.wrapping_sub(src_addr) < n;
@@ -202,7 +188,6 @@ fn memmove_non_contiguous(
         AccessType::Store,
         dst_addr,
         n,
-        accounts,
         memory_mapping,
         reverse,
         |src_host_addr, dst_host_addr, chunk_len| {
@@ -229,7 +214,6 @@ fn memcmp_non_contiguous(
     src_addr: u64,
     dst_addr: u64,
     n: u64,
-    accounts: &[SerializedAccountMetadata],
     memory_mapping: &MemoryMapping,
 ) -> Result<i32, Error> {
     let memcmp_chunk = |s1_addr, s2_addr, chunk_len| {
@@ -253,7 +237,6 @@ fn memcmp_non_contiguous(
         AccessType::Load,
         dst_addr,
         n,
-        accounts,
         memory_mapping,
         false,
         memcmp_chunk,
@@ -291,11 +274,9 @@ fn memset_non_contiguous(
     dst_addr: u64,
     c: u8,
     n: u64,
-    accounts: &[SerializedAccountMetadata],
     memory_mapping: &MemoryMapping,
 ) -> Result<u64, Error> {
-    let dst_chunk_iter =
-        MemoryChunkIterator::new(memory_mapping, accounts, AccessType::Store, dst_addr, n)?;
+    let dst_chunk_iter = MemoryChunkIterator::new(memory_mapping, AccessType::Store, dst_addr, n)?;
     for item in dst_chunk_iter {
         let (dst_region, dst_vm_addr, dst_len) = item?;
         let dst_host_addr = Result::from(dst_region.vm_to_host(dst_vm_addr, dst_len as u64))?;
@@ -311,7 +292,6 @@ fn iter_memory_pair_chunks<T, F>(
     dst_access: AccessType,
     dst_addr: u64,
     n_bytes: u64,
-    accounts: &[SerializedAccountMetadata],
     memory_mapping: &MemoryMapping,
     reverse: bool,
     mut fun: F,
@@ -321,10 +301,10 @@ where
     F: FnMut(*const u8, *const u8, usize) -> Result<T, Error>,
 {
     let mut src_chunk_iter =
-        MemoryChunkIterator::new(memory_mapping, accounts, src_access, src_addr, n_bytes)
+        MemoryChunkIterator::new(memory_mapping, src_access, src_addr, n_bytes)
             .map_err(EbpfError::from)?;
     let mut dst_chunk_iter =
-        MemoryChunkIterator::new(memory_mapping, accounts, dst_access, dst_addr, n_bytes)
+        MemoryChunkIterator::new(memory_mapping, dst_access, dst_addr, n_bytes)
             .map_err(EbpfError::from)?;
 
     let mut src_chunk = None;
@@ -412,21 +392,17 @@ where
 
 struct MemoryChunkIterator<'a> {
     memory_mapping: &'a MemoryMapping<'a>,
-    accounts: &'a [SerializedAccountMetadata],
     access_type: AccessType,
     initial_vm_addr: u64,
     vm_addr_start: u64,
     // exclusive end index (start + len, so one past the last valid address)
     vm_addr_end: u64,
     len: u64,
-    account_index: Option<usize>,
-    is_account: Option<bool>,
 }
 
 impl<'a> MemoryChunkIterator<'a> {
     fn new(
         memory_mapping: &'a MemoryMapping,
-        accounts: &'a [SerializedAccountMetadata],
         access_type: AccessType,
         vm_addr: u64,
         len: u64,
@@ -437,17 +413,13 @@ impl<'a> MemoryChunkIterator<'a> {
             len,
             "unknown",
         ))?;
-
         Ok(MemoryChunkIterator {
             memory_mapping,
-            accounts,
             access_type,
             initial_vm_addr: vm_addr,
             len,
             vm_addr_start: vm_addr,
             vm_addr_end,
-            account_index: None,
-            is_account: None,
         })
     }
 
@@ -488,40 +460,6 @@ impl<'a> Iterator for MemoryChunkIterator<'a> {
             }
         };
 
-        let region_is_account;
-
-        let mut account_index = self.account_index.unwrap_or_default();
-        self.account_index = Some(account_index);
-
-        loop {
-            if let Some(account) = self.accounts.get(account_index) {
-                let account_addr = account.vm_data_addr;
-                let resize_addr = account_addr.saturating_add(account.original_data_len as u64);
-
-                if resize_addr < region.vm_addr {
-                    // region is after this account, move on next one
-                    account_index = account_index.saturating_add(1);
-                    self.account_index = Some(account_index);
-                } else {
-                    region_is_account =
-                        region.vm_addr == account_addr || region.vm_addr == resize_addr;
-                    break;
-                }
-            } else {
-                // address is after all the accounts
-                region_is_account = false;
-                break;
-            }
-        }
-
-        if let Some(is_account) = self.is_account {
-            if is_account != region_is_account {
-                return Some(Err(SyscallError::InvalidLength.into()));
-            }
-        } else {
-            self.is_account = Some(region_is_account);
-        }
-
         let vm_addr = self.vm_addr_start;
 
         let chunk_len = if region.vm_addr_end <= self.vm_addr_end {
@@ -553,41 +491,6 @@ impl<'a> DoubleEndedIterator for MemoryChunkIterator<'a> {
                 return Some(Err(e));
             }
         };
-
-        let region_is_account;
-
-        let mut account_index = self
-            .account_index
-            .unwrap_or_else(|| self.accounts.len().saturating_sub(1));
-        self.account_index = Some(account_index);
-
-        loop {
-            let Some(account) = self.accounts.get(account_index) else {
-                // address is after all the accounts
-                region_is_account = false;
-                break;
-            };
-
-            let account_addr = account.vm_data_addr;
-            let resize_addr = account_addr.saturating_add(account.original_data_len as u64);
-
-            if account_index > 0 && account_addr > region.vm_addr {
-                account_index = account_index.saturating_sub(1);
-
-                self.account_index = Some(account_index);
-            } else {
-                region_is_account = region.vm_addr == account_addr || region.vm_addr == resize_addr;
-                break;
-            }
-        }
-
-        if let Some(is_account) = self.is_account {
-            if is_account != region_is_account {
-                return Some(Err(SyscallError::InvalidLength.into()));
-            }
-        } else {
-            self.is_account = Some(region_is_account);
-        }
 
         let chunk_len = if region.vm_addr >= self.vm_addr_start {
             // consume the whole region
@@ -633,7 +536,7 @@ mod tests {
         let memory_mapping = MemoryMapping::new(vec![], &config, &SBPFVersion::V2).unwrap();
 
         let mut src_chunk_iter =
-            MemoryChunkIterator::new(&memory_mapping, &[], AccessType::Load, 0, 1).unwrap();
+            MemoryChunkIterator::new(&memory_mapping, AccessType::Load, 0, 1).unwrap();
         src_chunk_iter.next().unwrap().unwrap();
     }
 
@@ -647,7 +550,7 @@ mod tests {
         let memory_mapping = MemoryMapping::new(vec![], &config, &SBPFVersion::V2).unwrap();
 
         let mut src_chunk_iter =
-            MemoryChunkIterator::new(&memory_mapping, &[], AccessType::Load, u64::MAX, 1).unwrap();
+            MemoryChunkIterator::new(&memory_mapping, AccessType::Load, u64::MAX, 1).unwrap();
         src_chunk_iter.next().unwrap().unwrap();
     }
 
@@ -666,14 +569,9 @@ mod tests {
         .unwrap();
 
         // check oob at the lower bound on the first next()
-        let mut src_chunk_iter = MemoryChunkIterator::new(
-            &memory_mapping,
-            &[],
-            AccessType::Load,
-            MM_PROGRAM_START - 1,
-            42,
-        )
-        .unwrap();
+        let mut src_chunk_iter =
+            MemoryChunkIterator::new(&memory_mapping, AccessType::Load, MM_PROGRAM_START - 1, 42)
+                .unwrap();
         assert_matches!(
             src_chunk_iter.next().unwrap().unwrap_err().downcast_ref().unwrap(),
             EbpfError::AccessViolation(AccessType::Load, addr, 42, "unknown") if *addr == MM_PROGRAM_START - 1
@@ -682,7 +580,7 @@ mod tests {
         // check oob at the upper bound. Since the memory mapping isn't empty,
         // this always happens on the second next().
         let mut src_chunk_iter =
-            MemoryChunkIterator::new(&memory_mapping, &[], AccessType::Load, MM_PROGRAM_START, 43)
+            MemoryChunkIterator::new(&memory_mapping, AccessType::Load, MM_PROGRAM_START, 43)
                 .unwrap();
         assert!(src_chunk_iter.next().unwrap().is_ok());
         assert_matches!(
@@ -692,7 +590,7 @@ mod tests {
 
         // check oob at the upper bound on the first next_back()
         let mut src_chunk_iter =
-            MemoryChunkIterator::new(&memory_mapping, &[], AccessType::Load, MM_PROGRAM_START, 43)
+            MemoryChunkIterator::new(&memory_mapping, AccessType::Load, MM_PROGRAM_START, 43)
                 .unwrap()
                 .rev();
         assert_matches!(
@@ -701,15 +599,10 @@ mod tests {
         );
 
         // check oob at the upper bound on the 2nd next_back()
-        let mut src_chunk_iter = MemoryChunkIterator::new(
-            &memory_mapping,
-            &[],
-            AccessType::Load,
-            MM_PROGRAM_START - 1,
-            43,
-        )
-        .unwrap()
-        .rev();
+        let mut src_chunk_iter =
+            MemoryChunkIterator::new(&memory_mapping, AccessType::Load, MM_PROGRAM_START - 1, 43)
+                .unwrap()
+                .rev();
         assert!(src_chunk_iter.next().unwrap().is_ok());
         assert_matches!(
             src_chunk_iter.next().unwrap().unwrap_err().downcast_ref().unwrap(),
@@ -732,25 +625,15 @@ mod tests {
         .unwrap();
 
         // check lower bound
-        let mut src_chunk_iter = MemoryChunkIterator::new(
-            &memory_mapping,
-            &[],
-            AccessType::Load,
-            MM_PROGRAM_START - 1,
-            1,
-        )
-        .unwrap();
+        let mut src_chunk_iter =
+            MemoryChunkIterator::new(&memory_mapping, AccessType::Load, MM_PROGRAM_START - 1, 1)
+                .unwrap();
         assert!(src_chunk_iter.next().unwrap().is_err());
 
         // check upper bound
-        let mut src_chunk_iter = MemoryChunkIterator::new(
-            &memory_mapping,
-            &[],
-            AccessType::Load,
-            MM_PROGRAM_START + 42,
-            1,
-        )
-        .unwrap();
+        let mut src_chunk_iter =
+            MemoryChunkIterator::new(&memory_mapping, AccessType::Load, MM_PROGRAM_START + 42, 1)
+                .unwrap();
         assert!(src_chunk_iter.next().unwrap().is_err());
 
         for (vm_addr, len) in [
@@ -762,7 +645,7 @@ mod tests {
         ] {
             for rev in [true, false] {
                 let iter =
-                    MemoryChunkIterator::new(&memory_mapping, &[], AccessType::Load, vm_addr, len)
+                    MemoryChunkIterator::new(&memory_mapping, AccessType::Load, vm_addr, len)
                         .unwrap();
                 let res = if rev {
                     to_chunk_vec(iter.rev())
@@ -807,7 +690,7 @@ mod tests {
         ] {
             for rev in [false, true] {
                 let iter =
-                    MemoryChunkIterator::new(&memory_mapping, &[], AccessType::Load, vm_addr, len)
+                    MemoryChunkIterator::new(&memory_mapping, AccessType::Load, vm_addr, len)
                         .unwrap();
                 let res = if rev {
                     expected.reverse();
@@ -847,7 +730,6 @@ mod tests {
                 AccessType::Load,
                 MM_PROGRAM_START + 8,
                 8,
-                &[],
                 &memory_mapping,
                 false,
                 |_src, _dst, _len| Ok::<_, Error>(0),
@@ -863,7 +745,6 @@ mod tests {
                 AccessType::Load,
                 MM_PROGRAM_START + 2,
                 3,
-                &[],
                 &memory_mapping,
                 false,
                 |_src, _dst, _len| Ok::<_, Error>(0),
@@ -891,14 +772,7 @@ mod tests {
         )
         .unwrap();
 
-        memmove_non_contiguous(
-            MM_PROGRAM_START,
-            MM_PROGRAM_START + 8,
-            4,
-            &[],
-            &memory_mapping,
-        )
-        .unwrap();
+        memmove_non_contiguous(MM_PROGRAM_START, MM_PROGRAM_START + 8, 4, &memory_mapping).unwrap();
     }
 
     #[test_case(&[], (0, 0, 0); "no regions")]
@@ -945,7 +819,6 @@ mod tests {
             MM_PROGRAM_START + dst_offset as u64,
             MM_PROGRAM_START + src_offset as u64,
             len as u64,
-            &[],
             &memory_mapping,
         )
         .unwrap();
@@ -977,7 +850,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            memset_non_contiguous(MM_PROGRAM_START, 0x33, 9, &[], &memory_mapping).unwrap(),
+            memset_non_contiguous(MM_PROGRAM_START, 0x33, 9, &memory_mapping).unwrap(),
             0
         );
     }
@@ -1005,7 +878,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            memset_non_contiguous(MM_PROGRAM_START + 1, 0x55, 7, &[], &memory_mapping).unwrap(),
+            memset_non_contiguous(MM_PROGRAM_START + 1, 0x55, 7, &memory_mapping).unwrap(),
             0
         );
         assert_eq!(&mem1, &[0x11]);
@@ -1036,14 +909,8 @@ mod tests {
 
         // non contiguous src
         assert_eq!(
-            memcmp_non_contiguous(
-                MM_PROGRAM_START,
-                MM_PROGRAM_START + 9,
-                9,
-                &[],
-                &memory_mapping
-            )
-            .unwrap(),
+            memcmp_non_contiguous(MM_PROGRAM_START, MM_PROGRAM_START + 9, 9, &memory_mapping)
+                .unwrap(),
             0
         );
 
@@ -1053,7 +920,6 @@ mod tests {
                 MM_PROGRAM_START + 10,
                 MM_PROGRAM_START + 1,
                 8,
-                &[],
                 &memory_mapping
             )
             .unwrap(),
@@ -1066,7 +932,6 @@ mod tests {
                 MM_PROGRAM_START + 1,
                 MM_PROGRAM_START + 11,
                 5,
-                &[],
                 &memory_mapping
             )
             .unwrap(),

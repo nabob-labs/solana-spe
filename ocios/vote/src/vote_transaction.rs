@@ -63,13 +63,6 @@ impl VoteTransaction {
     pub fn last_voted_slot_hash(&self) -> Option<(Slot, Hash)> {
         Some((self.last_voted_slot()?, self.hash()))
     }
-
-    pub fn is_full_tower_vote(&self) -> bool {
-        matches!(
-            self,
-            VoteTransaction::VoteStateUpdate(_) | VoteTransaction::TowerSync(_)
-        )
-    }
 }
 
 impl From<Vote> for VoteTransaction {

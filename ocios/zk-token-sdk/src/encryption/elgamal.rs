@@ -6,7 +6,6 @@
 //! A twisted ElGamal ciphertext consists of two components:
 //! - A Pedersen commitment that encodes a message to be encrypted
 //! - A "decryption handle" that binds the Pedersen opening to a specific public key
-//!
 //! In contrast to the traditional ElGamal encryption scheme, the twisted ElGamal encodes messages
 //! directly as a Pedersen commitment. Therefore, proof systems that are designed specifically for
 //! Pedersen commitments can be used on the twisted ElGamal ciphertexts.
@@ -33,8 +32,8 @@ use {
         traits::Identity,
     },
     serde::{Deserialize, Serialize},
-    solana_derivation_path::DerivationPath,
     solana_sdk::{
+        derivation_path::DerivationPath,
         signature::Signature,
         signer::{
             keypair::generate_seed_from_seed_phrase_and_passphrase, EncodableKey, EncodableKeypair,
@@ -359,7 +358,7 @@ impl ElGamalPubkey {
     #[allow(non_snake_case)]
     pub fn new(secret: &ElGamalSecretKey) -> Self {
         let s = &secret.0;
-        assert_ne!(s, &Scalar::ZERO);
+        assert!(s != &Scalar::zero());
 
         ElGamalPubkey(s.invert() * &(*H))
     }
@@ -378,11 +377,10 @@ impl ElGamalPubkey {
         if bytes.len() != ELGAMAL_PUBKEY_LEN {
             return None;
         }
-        let Ok(compressed_ristretto) = CompressedRistretto::from_slice(bytes) else {
-            return None;
-        };
 
-        compressed_ristretto.decompress().map(ElGamalPubkey)
+        Some(ElGamalPubkey(
+            CompressedRistretto::from_slice(bytes).decompress()?,
+        ))
     }
 
     /// Encrypts an amount under the public key.
@@ -442,12 +440,8 @@ impl TryFrom<&[u8]> for ElGamalPubkey {
             return Err(ElGamalError::PubkeyDeserialization);
         }
 
-        let Ok(compressed_ristretto) = CompressedRistretto::from_slice(bytes) else {
-            return Err(ElGamalError::PubkeyDeserialization);
-        };
-
         Ok(ElGamalPubkey(
-            compressed_ristretto
+            CompressedRistretto::from_slice(bytes)
                 .decompress()
                 .ok_or(ElGamalError::PubkeyDeserialization)?,
         ))
@@ -558,9 +552,7 @@ impl ElGamalSecretKey {
     #[deprecated(since = "2.0.0", note = "please use `try_from()` instead")]
     pub fn from_bytes(bytes: &[u8]) -> Option<ElGamalSecretKey> {
         match bytes.try_into() {
-            Ok(bytes) => Scalar::from_canonical_bytes(bytes)
-                .map(ElGamalSecretKey)
-                .into(),
+            Ok(bytes) => Scalar::from_canonical_bytes(bytes).map(ElGamalSecretKey),
             _ => None,
         }
     }
@@ -619,7 +611,6 @@ impl TryFrom<&[u8]> for ElGamalSecretKey {
         match bytes.try_into() {
             Ok(bytes) => Ok(ElGamalSecretKey::from(
                 Scalar::from_canonical_bytes(bytes)
-                    .into_option()
                     .ok_or(ElGamalError::SecretKeyDeserialization)?,
             )),
             _ => Err(ElGamalError::SecretKeyDeserialization),
@@ -808,11 +799,9 @@ impl DecryptHandle {
             return None;
         }
 
-        let Ok(compressed_ristretto) = CompressedRistretto::from_slice(bytes) else {
-            return None;
-        };
-
-        compressed_ristretto.decompress().map(DecryptHandle)
+        Some(DecryptHandle(
+            CompressedRistretto::from_slice(bytes).decompress()?,
+        ))
     }
 }
 

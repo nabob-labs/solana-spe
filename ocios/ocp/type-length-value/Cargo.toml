@@ -22,7 +22,7 @@ solana-program = { workspace = true }
 spl-discriminator = { workspace = true }
 spl-pod = { workspace = true }
 spl-program-error = { workspace = true }
-spl-type-length-value-derive = { workspace = true, optional = true }
+spl-type-length-value-derive  = { workspace = true, optional = true }
 
 [features]
 derive = ["dep:spl-type-length-value-derive"]

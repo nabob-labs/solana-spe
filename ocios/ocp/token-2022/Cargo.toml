@@ -18,7 +18,7 @@ crate-type = [
 
 [dependencies]
 arrayref = "0.3.7"
-base64 = { version = "0.22.1",optional = true }
+base64 = { version = "0.22.1", optional = true }
 bytemuck = { version = "1.16.1", features = ["derive"] }
 num-derive = "0.4"
 num-traits = "0.2"
@@ -35,7 +35,7 @@ spl-token-group-interface = { workspace = true }
 spl-token-metadata-interface = { workspace = true }
 spl-transfer-hook-interface = { workspace = true }
 spl-type-length-value = { workspace = true }
-thiserror = "1.0"
+thiserror = { workspace = true }
 
 [dev-dependencies]
 lazy_static = "1.5.0"
@@ -43,7 +43,7 @@ proptest = "1.5"
 serde_json = "1.0.117"
 serial_test = "3.1.1"
 #solana-program-test = { workspace = true }
-solana-sdk = { workspace = true}
+solana-sdk = { workspace = true }
 spl-tlv-account-resolution = { workspace = true }
 
 [features]
@@ -63,6 +63,3 @@ serde-traits = [
 test-sbf = []
 token-group = []
 zk-ops = []
-
-[lints]
-workspace = true

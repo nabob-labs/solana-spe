@@ -123,7 +123,7 @@ pub mod solana_sdk {
     };
 
     pub mod account {
-        use {crate::pubkey::Pubkey, solana_clock::Epoch};
+        use crate::{clock::Epoch, pubkey::Pubkey};
         #[derive(Clone)]
         pub struct Account {
             pub lamports: u64,

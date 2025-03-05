@@ -6,13 +6,8 @@ use crate::{
     UNIT_LEN,
 };
 use {
-    crate::{
-        pod::{impl_from_bytes, impl_from_str},
-        range_proof::*,
-    },
-    base64::{prelude::BASE64_STANDARD, Engine},
+    crate::range_proof::*,
     bytemuck::{Pod, Zeroable},
-    std::fmt,
 };
 
 /// The `RangeProof` type as a `Pod` restricted to proofs on 64-bit numbers.
@@ -46,22 +41,6 @@ impl TryFrom<PodRangeProofU64> for RangeProof {
     }
 }
 
-const RANGE_PROOF_U64_MAX_BASE64_LEN: usize = 896;
-
-impl fmt::Display for PodRangeProofU64 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", BASE64_STANDARD.encode(self.0))
-    }
-}
-
-impl_from_str!(
-    TYPE = PodRangeProofU64,
-    BYTES_LEN = RANGE_PROOF_U64_LEN,
-    BASE64_LEN = RANGE_PROOF_U64_MAX_BASE64_LEN
-);
-
-impl_from_bytes!(TYPE = PodRangeProofU64, BYTES_LEN = RANGE_PROOF_U64_LEN);
-
 /// The `RangeProof` type as a `Pod` restricted to proofs on 128-bit numbers.
 #[derive(Clone, Copy)]
 #[repr(transparent)]
@@ -93,22 +72,6 @@ impl TryFrom<PodRangeProofU128> for RangeProof {
     }
 }
 
-const RANGE_PROOF_U128_MAX_BASE64_LEN: usize = 984;
-
-impl fmt::Display for PodRangeProofU128 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", BASE64_STANDARD.encode(self.0))
-    }
-}
-
-impl_from_str!(
-    TYPE = PodRangeProofU128,
-    BYTES_LEN = RANGE_PROOF_U128_LEN,
-    BASE64_LEN = RANGE_PROOF_U128_MAX_BASE64_LEN
-);
-
-impl_from_bytes!(TYPE = PodRangeProofU128, BYTES_LEN = RANGE_PROOF_U128_LEN);
-
 /// The `RangeProof` type as a `Pod` restricted to proofs on 256-bit numbers.
 #[derive(Clone, Copy)]
 #[repr(transparent)]
@@ -139,22 +102,6 @@ impl TryFrom<PodRangeProofU256> for RangeProof {
         Self::from_bytes(&pod_proof.0)
     }
 }
-
-const RANGE_PROOF_U256_MAX_BASE64_LEN: usize = 1068;
-
-impl fmt::Display for PodRangeProofU256 {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", BASE64_STANDARD.encode(self.0))
-    }
-}
-
-impl_from_str!(
-    TYPE = PodRangeProofU256,
-    BYTES_LEN = RANGE_PROOF_U256_LEN,
-    BASE64_LEN = RANGE_PROOF_U256_MAX_BASE64_LEN
-);
-
-impl_from_bytes!(TYPE = PodRangeProofU256, BYTES_LEN = RANGE_PROOF_U256_LEN);
 
 #[cfg(not(target_os = "solana"))]
 fn copy_range_proof_modulo_inner_product_proof(proof: &RangeProof, buf: &mut [u8]) {

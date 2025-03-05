@@ -85,13 +85,13 @@ fn verify_reachable_ports(
     }
     if verify_address(&node.info.tpu(Protocol::UDP).ok()) {
         udp_sockets.extend(node.sockets.tpu.iter());
-        udp_sockets.extend(&node.sockets.tpu_quic);
+        udp_sockets.push(&node.sockets.tpu_quic);
     }
     if verify_address(&node.info.tpu_forwards(Protocol::UDP).ok()) {
         udp_sockets.extend(node.sockets.tpu_forwards.iter());
-        udp_sockets.extend(&node.sockets.tpu_forwards_quic);
+        udp_sockets.push(&node.sockets.tpu_forwards_quic);
     }
-    if verify_address(&node.info.tpu_vote(Protocol::UDP).ok()) {
+    if verify_address(&node.info.tpu_vote().ok()) {
         udp_sockets.extend(node.sockets.tpu_vote.iter());
     }
     if verify_address(&node.info.tvu(Protocol::UDP).ok()) {
@@ -446,7 +446,7 @@ pub fn attempt_download_genesis_and_snapshot(
         )
         .unwrap_or_else(|err| {
             // Consider failures here to be more likely due to user error (eg,
-            // incorrect `solana-validator` command-line arguments) rather than the
+            // incorrect `agave-validator` command-line arguments) rather than the
             // RPC node failing.
             //
             // Power users can always use the `--no-check-vote-account` option to

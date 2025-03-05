@@ -30,7 +30,7 @@ use {
     solana_sdk::{
         instruction::{AccountMeta, Instruction},
         message::Message,
-        pubkey::Pubkey,
+        pubkey::{write_pubkey_file, Pubkey},
         signature::{
             keypair_from_seed, keypair_from_seed_and_derivation_path, write_keypair,
             write_keypair_file, Keypair, Signer,
@@ -50,10 +50,9 @@ use {
 };
 
 mod smallest_length_44_public_key {
-    use solana_sdk::pubkey::Pubkey;
+    use solana_sdk::{pubkey, pubkey::Pubkey};
 
-    pub(super) static PUBKEY: Pubkey =
-        Pubkey::from_str_const("21111111111111111111111111111111111111111111");
+    pub(super) static PUBKEY: Pubkey = pubkey!("21111111111111111111111111111111111111111111");
 
     #[test]
     fn assert_length() {
@@ -424,21 +423,6 @@ fn app<'a>(num_threads: &'a str, crate_version: &'a str) -> Command<'a> {
         )
 }
 
-fn write_pubkey_file(outfile: &str, pubkey: Pubkey) -> Result<(), Box<dyn std::error::Error>> {
-    use std::io::Write;
-
-    let printable = format!("{pubkey}");
-    let serialized = serde_json::to_string(&printable)?;
-
-    if let Some(outdir) = std::path::Path::new(&outfile).parent() {
-        std::fs::create_dir_all(outdir)?;
-    }
-    let mut f = std::fs::File::create(outfile)?;
-    f.write_all(&serialized.into_bytes())?;
-
-    Ok(())
-}
-
 fn main() -> Result<(), Box<dyn error::Error>> {
     let default_num_threads = num_cpus::get().to_string();
     let matches = app(&default_num_threads, solana_version::version!())
@@ -719,7 +703,7 @@ fn do_main(matches: &ArgMatches) -> Result<(), Box<dyn error::Error>> {
                                     .count
                                     .fetch_sub(1, Ordering::Relaxed);
                                 if !no_outfile {
-                                    write_keypair_file(&keypair, format!("{}.json", keypair.pubkey()))
+                                    write_keypair_file(&keypair, &format!("{}.json", keypair.pubkey()))
                                         .unwrap();
                                     println!(
                                         "Wrote keypair to {}",
@@ -759,7 +743,7 @@ fn do_main(matches: &ArgMatches) -> Result<(), Box<dyn error::Error>> {
                 )],
                 Some(&keypair.pubkey()),
             )
-                .serialize();
+            .serialize();
             let signature = keypair.try_sign_message(&simple_message)?;
             let pubkey_bs58 = matches.try_get_one::<String>("pubkey")?.unwrap();
             let pubkey = bs58::decode(pubkey_bs58).into_vec().unwrap();
@@ -782,14 +766,6 @@ mod tests {
         super::*,
         tempfile::{tempdir, TempDir},
     };
-
-    fn read_pubkey_file(infile: &str) -> Result<Pubkey, Box<dyn std::error::Error>> {
-        let f = std::fs::File::open(infile)?;
-        let printable: String = serde_json::from_reader(f)?;
-
-        use std::str::FromStr;
-        Ok(Pubkey::from_str(&printable)?)
-    }
 
     fn process_test_command(args: &[&str]) -> Result<(), Box<dyn error::Error>> {
         let default_num_threads = num_cpus::get().to_string();
@@ -850,7 +826,7 @@ mod tests {
             &correct_pubkey.to_string(),
             &keypair_path,
         ])
-            .unwrap();
+        .unwrap();
 
         // success case using a config file
         process_test_command(&[
@@ -860,7 +836,7 @@ mod tests {
             "--config",
             &config_path,
         ])
-            .unwrap();
+        .unwrap();
 
         // fail case using a keypair file
         let incorrect_pubkey = Pubkey::new_unique();
@@ -870,8 +846,8 @@ mod tests {
             &incorrect_pubkey.to_string(),
             &keypair_path,
         ])
-            .unwrap_err()
-            .to_string();
+        .unwrap_err()
+        .to_string();
 
         let expected = format!("Verification for public key: {incorrect_pubkey}: Failed");
         assert_eq!(result, expected);
@@ -884,8 +860,8 @@ mod tests {
             "--config",
             &config_path,
         ])
-            .unwrap_err()
-            .to_string();
+        .unwrap_err()
+        .to_string();
 
         let expected = format!("Verification for public key: {incorrect_pubkey}: Failed");
         assert_eq!(result, expected);
@@ -904,7 +880,7 @@ mod tests {
             "--config",
             &alt_config_path,
         ])
-            .unwrap();
+        .unwrap();
 
         process_test_command(&[
             "solana-keygen",
@@ -914,8 +890,8 @@ mod tests {
             "--config",
             &config_path,
         ])
-            .unwrap_err()
-            .to_string();
+        .unwrap_err()
+        .to_string();
 
         let expected = format!("Verification for public key: {incorrect_pubkey}: Failed");
         assert_eq!(result, expected);
@@ -940,9 +916,9 @@ mod tests {
                 "--outfile",
                 &outfile_path,
             ])
-                .unwrap();
+            .unwrap();
 
-            let result_pubkey = read_pubkey_file(&outfile_path).unwrap();
+            let result_pubkey = solana_sdk::pubkey::read_pubkey_file(&outfile_path).unwrap();
             assert_eq!(result_pubkey, expected_pubkey);
         }
 
@@ -959,9 +935,9 @@ mod tests {
                 "--outfile",
                 &outfile_path,
             ])
-                .unwrap();
+            .unwrap();
 
-            let result_pubkey = read_pubkey_file(&outfile_path).unwrap();
+            let result_pubkey = solana_sdk::pubkey::read_pubkey_file(&outfile_path).unwrap();
             assert_eq!(result_pubkey, expected_pubkey);
         }
 
@@ -983,9 +959,9 @@ mod tests {
                 "--outfile",
                 &outfile_path,
             ])
-                .unwrap();
+            .unwrap();
 
-            let result_pubkey = read_pubkey_file(&outfile_path).unwrap();
+            let result_pubkey = solana_sdk::pubkey::read_pubkey_file(&outfile_path).unwrap();
             assert_eq!(result_pubkey, expected_pubkey);
         }
 
@@ -1001,7 +977,7 @@ mod tests {
                 "--outfile",
                 &outfile_path,
             ])
-                .unwrap();
+            .unwrap();
 
             let result = process_test_command(&[
                 "solana-keygen",
@@ -1011,8 +987,8 @@ mod tests {
                 "--outfile",
                 &outfile_path,
             ])
-                .unwrap_err()
-                .to_string();
+            .unwrap_err()
+            .to_string();
 
             let expected = format!("Refusing to overwrite {outfile_path} without --force flag");
             assert_eq!(result, expected);
@@ -1037,7 +1013,7 @@ mod tests {
             &outfile_path,
             "--no-bip39-passphrase",
         ])
-            .unwrap();
+        .unwrap();
 
         // refuse to overwrite file
         let result = process_test_command(&[
@@ -1047,8 +1023,8 @@ mod tests {
             &outfile_path,
             "--no-bip39-passphrase",
         ])
-            .unwrap_err()
-            .to_string();
+        .unwrap_err()
+        .to_string();
 
         let expected = format!("Refusing to overwrite {outfile_path} without --force flag");
         assert_eq!(result, expected);
@@ -1060,7 +1036,7 @@ mod tests {
             "--no-bip39-passphrase",
             "--no-outfile",
         ])
-            .unwrap();
+        .unwrap();
 
         // sanity check on languages and word count combinations
         let languages = [
@@ -1087,7 +1063,7 @@ mod tests {
                     "--word-count",
                     word_count,
                 ])
-                    .unwrap();
+                .unwrap();
             }
         }
 
@@ -1100,7 +1076,7 @@ mod tests {
             "--derivation-path",
             // empty derivation path
         ])
-            .unwrap();
+        .unwrap();
 
         process_test_command(&[
             "solana-keygen",
@@ -1110,7 +1086,7 @@ mod tests {
             "--derivation-path",
             "m/44'/501'/0'/0'", // default derivation path
         ])
-            .unwrap();
+        .unwrap();
 
         let result = process_test_command(&[
             "solana-keygen",
@@ -1120,8 +1096,8 @@ mod tests {
             "--derivation-path",
             "-", // invalid derivation path
         ])
-            .unwrap_err()
-            .to_string();
+        .unwrap_err()
+        .to_string();
 
         let expected = "invalid derivation path: invalid prefix: -";
         assert_eq!(result, expected);
@@ -1139,7 +1115,7 @@ mod tests {
             "--starts-with",
             "a:1",
         ])
-            .unwrap();
+        .unwrap();
 
         process_test_command(&[
             "solana-keygen",
@@ -1150,17 +1126,6 @@ mod tests {
             "--ends-with",
             "b:1",
         ])
-            .unwrap();
-    }
-
-    #[test]
-    fn test_read_write_pubkey() -> Result<(), std::boxed::Box<dyn std::error::Error>> {
-        let filename = "test_pubkey.json";
-        let pubkey = solana_sdk::pubkey::new_rand();
-        write_pubkey_file(filename, pubkey)?;
-        let read = read_pubkey_file(filename)?;
-        assert_eq!(read, pubkey);
-        std::fs::remove_file(filename)?;
-        Ok(())
+        .unwrap();
     }
 }

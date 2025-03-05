@@ -15,11 +15,5 @@ proc-macro2 = { workspace = true }
 quote = { workspace = true }
 syn = { workspace = true, features = ["full", "extra-traits"] }
 
-[features]
-default = []
-# activate the frozen-abi feature when we actually want to do frozen-abi testing,
-# otherwise leave it off because it requires nightly Rust
-frozen-abi = []
-
-[lints]
-workspace = true
+[build-dependencies]
+rustc_version = { workspace = true }

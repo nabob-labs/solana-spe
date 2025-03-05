@@ -2,7 +2,9 @@
 #![cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
+pub mod hash;
 pub mod instructions;
+pub mod pubkey;
 pub mod system_instruction;
 
 /// Initialize Javascript logging and panic handler

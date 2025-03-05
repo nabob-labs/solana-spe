@@ -3,8 +3,7 @@
 use {
     crate::{
         accounts_background_service::{AbsRequestSender, SnapshotRequest, SnapshotRequestKind},
-        bank::{bank_hash_details, epoch_accounts_hash_utils, Bank, SquashTiming},
-        bank_hash_cache::DumpedSlotSubscription,
+        bank::{epoch_accounts_hash_utils, Bank, SquashTiming},
         installed_scheduler_pool::{
             BankWithScheduler, InstalledSchedulerPoolArc, SchedulingContext,
         },
@@ -15,8 +14,9 @@ use {
     solana_measure::measure::Measure,
     solana_program_runtime::loaded_programs::{BlockRelation, ForkGraph},
     solana_sdk::{
-        clock::{BankId, Slot, MAX_PROCESSING_AGE},
+        clock::{Epoch, Slot, MAX_PROCESSING_AGE},
         hash::Hash,
+        timing,
     },
     std::{
         collections::{hash_map::Entry, BTreeMap, HashMap, HashSet},
@@ -83,8 +83,6 @@ pub struct BankForks {
     in_vote_only_mode: Arc<AtomicBool>,
     highest_slot_at_startup: Slot,
     scheduler_pool: Option<InstalledSchedulerPoolArc>,
-
-    dumped_slot_subscribers: Vec<DumpedSlotSubscription>,
 }
 
 impl Index<u64> for BankForks {
@@ -136,7 +134,6 @@ impl BankForks {
             in_vote_only_mode: Arc::new(AtomicBool::new(false)),
             highest_slot_at_startup: 0,
             scheduler_pool: None,
-            dumped_slot_subscribers: vec![],
         }));
 
         root_bank.set_fork_graph_in_program_cache(Arc::downgrade(&bank_forks));
@@ -295,41 +292,6 @@ impl BankForks {
 
     pub fn working_bank_with_scheduler(&self) -> &BankWithScheduler {
         &self.banks[&self.highest_slot()]
-    }
-
-    /// Register to be notified when a bank has been dumped (due to duplicate block handling)
-    /// from bank_forks.
-    pub fn register_dumped_slot_subscriber(&mut self, notifier: DumpedSlotSubscription) {
-        self.dumped_slot_subscribers.push(notifier);
-    }
-
-    /// Clears associated banks from BankForks and notifies subscribers that a dump has occured.
-    pub fn dump_slots<'a, I>(&mut self, slots: I) -> (Vec<(Slot, BankId)>, Vec<BankWithScheduler>)
-    where
-        I: Iterator<Item = &'a Slot>,
-    {
-        // Notify subscribers. It is fine that the lock is immediately released, since the bank_forks
-        // lock is held until the end of this function, so subscribers will not be able to interact
-        // with bank_forks anyway.
-        for subscriber in &self.dumped_slot_subscribers {
-            let mut lock = subscriber.lock().unwrap();
-            *lock = true;
-        }
-
-        slots
-            .map(|slot| {
-                // Clear the banks from BankForks
-                let bank = self
-                    .remove(*slot)
-                    .expect("BankForks should not have been purged yet");
-                bank_hash_details::write_bank_hash_details_file(&bank)
-                    .map_err(|err| {
-                        warn!("Unable to write bank hash details file: {err}");
-                    })
-                    .ok();
-                ((*slot, bank.bank_id()), bank)
-            })
-            .unzip()
     }
 
     /// Sends an EpochAccountsHash request if one of the `banks` crosses the EAH boundary.
@@ -541,7 +503,7 @@ impl BankForks {
             "bank-forks_set_root",
             (
                 "elapsed_ms",
-                set_root_start.elapsed().as_millis() as usize,
+                timing::duration_as_ms(&set_root_start.elapsed()) as usize,
                 i64
             ),
             ("slot", root, i64),
@@ -616,7 +578,7 @@ impl BankForks {
             ),
             (
                 "program_cache_prune_ms",
-                program_cache_prune_start.elapsed().as_millis() as i64,
+                timing::duration_as_ms(&program_cache_prune_start.elapsed()),
                 i64
             ),
             ("dropped_banks_len", set_root_metrics.dropped_banks_len, i64),
@@ -768,6 +730,10 @@ impl ForkGraph for BankForks {
                     .unwrap_or(BlockRelation::Unrelated)
             })
             .unwrap_or(BlockRelation::Unknown)
+    }
+
+    fn slot_epoch(&self, slot: Slot) -> Option<Epoch> {
+        self.banks.get(&slot).map(|bank| bank.epoch())
     }
 }
 

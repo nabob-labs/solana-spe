@@ -2,14 +2,13 @@
 //! and provides an interface for sending data which is restricted by the
 //! server's flow control.
 use {
-    async_lock::Mutex,
+    async_mutex::Mutex,
     async_trait::async_trait,
     futures::future::TryFutureExt,
     log::*,
     quinn::{
-        crypto::rustls::QuicClientConfig, ClientConfig, ClosedStream, ConnectError, Connection,
-        ConnectionError, Endpoint, EndpointConfig, IdleTimeout, TokioRuntime, TransportConfig,
-        WriteError,
+        ClientConfig, ConnectError, Connection, ConnectionError, Endpoint, EndpointConfig,
+        IdleTimeout, TokioRuntime, TransportConfig, WriteError,
     },
     solana_connection_cache::{
         client_connection::ClientStats, connection_cache_stats::ConnectionCacheStats,
@@ -19,10 +18,7 @@ use {
     solana_net_utils::VALIDATOR_PORT_RANGE,
     solana_rpc_client_api::client_error::ErrorKind as ClientErrorKind,
     solana_sdk::{
-        quic::{
-            QUIC_CONNECTION_HANDSHAKE_TIMEOUT, QUIC_KEEP_ALIVE, QUIC_MAX_TIMEOUT,
-            QUIC_SEND_FAIRNESS,
-        },
+        quic::{QUIC_CONNECTION_HANDSHAKE_TIMEOUT, QUIC_KEEP_ALIVE, QUIC_MAX_TIMEOUT},
         signature::Keypair,
         transport::Result as TransportResult,
     },
@@ -38,63 +34,31 @@ use {
     tokio::{sync::OnceCell, time::timeout},
 };
 
-#[derive(Debug)]
-pub struct SkipServerVerification(Arc<rustls::crypto::CryptoProvider>);
+pub struct SkipServerVerification;
 
 impl SkipServerVerification {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self(Arc::new(rustls::crypto::ring::default_provider())))
+        Arc::new(Self)
     }
 }
 
-impl rustls::client::danger::ServerCertVerifier for SkipServerVerification {
-    fn verify_tls12_signature(
-        &self,
-        message: &[u8],
-        cert: &rustls::pki_types::CertificateDer<'_>,
-        dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        rustls::crypto::verify_tls12_signature(
-            message,
-            cert,
-            dss,
-            &self.0.signature_verification_algorithms,
-        )
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        message: &[u8],
-        cert: &rustls::pki_types::CertificateDer<'_>,
-        dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        rustls::crypto::verify_tls13_signature(
-            message,
-            cert,
-            dss,
-            &self.0.signature_verification_algorithms,
-        )
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        self.0.signature_verification_algorithms.supported_schemes()
-    }
-
+impl rustls::client::ServerCertVerifier for SkipServerVerification {
     fn verify_server_cert(
         &self,
-        _end_entity: &rustls::pki_types::CertificateDer<'_>,
-        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
-        _server_name: &rustls::pki_types::ServerName<'_>,
+        _end_entity: &rustls::Certificate,
+        _intermediates: &[rustls::Certificate],
+        _server_name: &rustls::ServerName,
+        _scts: &mut dyn Iterator<Item = &[u8]>,
         _ocsp_response: &[u8],
-        _now: rustls::pki_types::UnixTime,
-    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::danger::ServerCertVerified::assertion())
+        _now: std::time::SystemTime,
+    ) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::ServerCertVerified::assertion())
     }
 }
 
 pub struct QuicClientCertificate {
-    pub certificate: rustls::pki_types::CertificateDer<'static>,
-    pub key: rustls::pki_types::PrivateKeyDer<'static>,
+    pub certificate: rustls::Certificate,
+    pub key: rustls::PrivateKey,
 }
 
 /// A lazy-initialized Quic Endpoint
@@ -112,8 +76,6 @@ pub enum QuicError {
     ConnectionError(#[from] ConnectionError),
     #[error(transparent)]
     ConnectError(#[from] ConnectError),
-    #[error(transparent)]
-    ClosedStream(#[from] ClosedStream),
 }
 
 impl From<QuicError> for ClientErrorKind {
@@ -149,23 +111,22 @@ impl QuicLazyInitializedEndpoint {
         };
 
         let mut crypto = rustls::ClientConfig::builder()
-            .dangerous()
+            .with_safe_defaults()
             .with_custom_certificate_verifier(SkipServerVerification::new())
             .with_client_auth_cert(
                 vec![self.client_certificate.certificate.clone()],
-                self.client_certificate.key.clone_key(),
+                self.client_certificate.key.clone(),
             )
             .expect("Failed to set QUIC client certificates");
         crypto.enable_early_data = true;
         crypto.alpn_protocols = vec![ALPN_TPU_PROTOCOL_ID.to_vec()];
 
-        let mut config = ClientConfig::new(Arc::new(QuicClientConfig::try_from(crypto).unwrap()));
+        let mut config = ClientConfig::new(Arc::new(crypto));
         let mut transport_config = TransportConfig::default();
 
         let timeout = IdleTimeout::try_from(QUIC_MAX_TIMEOUT).unwrap();
         transport_config.max_idle_timeout(Some(timeout));
         transport_config.keep_alive_interval(Some(QUIC_KEEP_ALIVE));
-        transport_config.send_fairness(QUIC_SEND_FAIRNESS);
         config.transport_config(Arc::new(transport_config));
 
         endpoint.set_default_client_config(config);

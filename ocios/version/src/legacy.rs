@@ -1,7 +1,7 @@
 use {
     crate::compute_commit,
     serde_derive::{Deserialize, Serialize},
-    solana_sanitize::Sanitize,
+    solana_sdk::sanitize::Sanitize,
     std::{convert::TryInto, fmt},
 };
 
@@ -41,8 +41,11 @@ impl From<LegacyVersion1> for LegacyVersion2 {
 
 impl Default for LegacyVersion2 {
     fn default() -> Self {
-        let feature_set =
-            u32::from_le_bytes(solana_feature_set::ID.as_ref()[..4].try_into().unwrap());
+        let feature_set = u32::from_le_bytes(
+            solana_sdk::feature_set::ID.as_ref()[..4]
+                .try_into()
+                .unwrap(),
+        );
         Self {
             major: env!("CARGO_PKG_VERSION_MAJOR").parse().unwrap(),
             minor: env!("CARGO_PKG_VERSION_MINOR").parse().unwrap(),

@@ -3,6 +3,7 @@
 use {
     super::state::TowerSync,
     crate::{
+        clock::{Slot, UnixTimestamp},
         hash::Hash,
         instruction::{AccountMeta, Instruction},
         pubkey::Pubkey,
@@ -17,7 +18,6 @@ use {
         },
     },
     serde_derive::{Deserialize, Serialize},
-    solana_clock::{Slot, UnixTimestamp},
 };
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
@@ -209,19 +209,6 @@ impl VoteInstruction {
         }
     }
 
-    /// Only to be used on vote instructions (guard with is_simple_vote), panics otherwise
-    pub fn hash(&self) -> Hash {
-        assert!(self.is_simple_vote());
-        match self {
-            Self::Vote(v) | Self::VoteSwitch(v, _) => v.hash,
-            Self::UpdateVoteState(vote_state_update)
-            | Self::UpdateVoteStateSwitch(vote_state_update, _)
-            | Self::CompactUpdateVoteState(vote_state_update)
-            | Self::CompactUpdateVoteStateSwitch(vote_state_update, _) => vote_state_update.hash,
-            Self::TowerSync(tower_sync) | Self::TowerSyncSwitch(tower_sync, _) => tower_sync.hash,
-            _ => panic!("Tried to get hash on non simple vote instruction"),
-        }
-    }
     /// Only to be used on vote instructions (guard with is_simple_vote),  panics otherwise
     pub fn timestamp(&self) -> Option<UnixTimestamp> {
         assert!(self.is_simple_vote());

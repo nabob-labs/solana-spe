@@ -1,4 +1,3 @@
-pub use solana_transaction_status_client_types::ParsedInstruction;
 use {
     crate::{
         extract_memos::{spl_memo_id_v1, spl_memo_id_v3},
@@ -74,6 +73,15 @@ pub enum ParseInstructionError {
 
     #[error("Internal error, please report")]
     SerdeJsonError(#[from] serde_json::error::Error),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ParsedInstruction {
+    pub program: String,
+    pub program_id: String,
+    pub parsed: Value,
+    pub stack_height: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]

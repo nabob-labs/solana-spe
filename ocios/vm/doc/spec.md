@@ -139,25 +139,28 @@ pub trait TransactionProcessingCallback {
 Consumers can customize this plug-in to use their own Solana account source,
 caching, and more.
 
-### `SVMTransaction`
+### `SanitizedTransaction`
 
-An SVM transaction is a transaction that has undergone the
+A "sanitized" Solana transaction is a transaction that has undergone the
 various checks required to evaluate a transaction against the Solana protocol
 ruleset. Some of these rules include signature verification and validation
 of account indices (`num_readonly_signers`, etc.).
 
-A `SVMTransaction` is a trait that can access:
+A `SanitizedTransaction` contains:
 
-- `signatures`: the hash of the transaction message encrypted using
+- `SanitizedMessage`: Enum with two kinds of messages - `LegacyMessage` and
+  `LoadedMessage` - both of which contain:
+    - `MessageHeader`: Vector of `Pubkey` of accounts used in the transaction.
+    - `Hash` of recent block.
+    - Vector of `CompiledInstruction`.
+    - In addition, `LoadedMessage` contains a vector of
+      `MessageAddressTableLookup` - list of address table lookups to
+      load additional accounts for this transaction.
+- A Hash of the message
+- A boolean flag `is_simple_vote_tx` - shortcut for determining if the
+  transaction is merely a simple vote transaction produced by a validator.
+- A vector of `Signature` - the hash of the transaction message encrypted using
   the signing key (for each signer in the transaction).
-- `static_account_keys`: Slice of `Pubkey` of accounts used in the transaction.
-- `account_keys`: Pubkeys of all accounts used in the transaction, including
-  those from address table lookups.
-- `recent_blockhash`: Hash of a recent block.
-- `instructions_iter`: An iterator over the transaction's instructions.
-- `message_address_table_lookups`: An iterator over the transaction's
-  address table lookups. These are only used in V0 transactions, for legacy
-  transactions the iterator is empty.
 
 ### `TransactionCheckResult`
 
@@ -203,9 +206,11 @@ The output of the transaction batch processor's
 
 - `error_metrics`: Error metrics for transactions that were processed.
 - `execute_timings`: Timings for transaction batch execution.
-- `processing_results`: Vector of results indicating whether a transaction was
-  processed or could not be processed for some reason. Note that processed
-  transactions can still have failed!
+- `execution_results`: Vector of results indicating whether a transaction was
+  executed or could not be executed. Note executed transactions can still have
+  failed!
+- `loaded_transactions`: Vector of loaded transactions from transactions that
+  were processed.
 
 # Functional Model
 
@@ -227,6 +232,12 @@ In bank context `load_and_execute_sanitized_transactions` is called from
 from `load_execute_and_commit_transactions` which receives a batch of
 transactions from its caller.
 
+Multiple results of `load_and_execute_sanitized_transactions` are aggregated in
+the struct `LoadAndExecuteSanitizedTransactionsOutput`
+ - `LoadAndExecuteSanitizedTransactionsOutput` contains
+  - vector of `TransactionLoadResult`
+  - vector of `TransactionExecutionResult`
+
 Steps of `load_and_execute_sanitized_transactions`
 
 1. Steps of preparation for execution
@@ -242,10 +253,10 @@ Steps of `load_and_execute_sanitized_transactions`
         - Return the replenished local program cache.
 
 2. Load accounts (call to `load_accounts` function)
-   - For each `SVMTransaction` and `TransactionCheckResult`, we:
+   - For each `SanitizedTransaction` and `TransactionCheckResult`, we:
         - Calculate the number of signatures in transaction and its cost.
         - Call `load_transaction_accounts`
-            - The function is interwined with the struct `SVMInstruction`
+            - The function is interwined with the struct `CompiledInstruction`
             - Load accounts from accounts DB
             - Extract data from accounts
             - Verify if we've reached the maximum account data size

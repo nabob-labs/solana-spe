@@ -42,6 +42,7 @@
 #[allow(deprecated)]
 use {
     crate::{
+        decode_error::DecodeError,
         instruction::{AccountMeta, Instruction},
         nonce,
         pubkey::Pubkey,
@@ -49,7 +50,6 @@ use {
         sysvar::{recent_blockhashes, rent},
     },
     num_derive::{FromPrimitive, ToPrimitive},
-    solana_decode_error::DecodeError,
     thiserror::Error,
 };
 
@@ -103,7 +103,7 @@ static_assertions::const_assert_eq!(MAX_PERMITTED_DATA_LENGTH, 10_485_760);
 /// An instruction to the system program.
 #[cfg_attr(
     feature = "frozen-abi",
-    frozen_abi(digest = "2LnVTnJg7LxB1FawNZLoQEY8yiYx3MT3paTdx4s5kAXU"),
+    frozen_abi(digest = "5e22s2kFu9Do77hdcCyxyhuKHD8ThAB6Q6dNaLTCjL5M"),
     derive(AbiExample, AbiEnumVisitor)
 )]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]

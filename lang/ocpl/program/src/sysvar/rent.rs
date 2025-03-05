@@ -39,7 +39,7 @@
 //!     Ok(())
 //! }
 //! #
-//! # use solana_sysvar_id::SysvarId;
+//! # use solana_program::sysvar::SysvarId;
 //! # let p = Rent::id();
 //! # let l = &mut 1009200;
 //! # let d = &mut vec![152, 13, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 64, 100];
@@ -82,7 +82,7 @@
 //!     Ok(())
 //! }
 //! #
-//! # use solana_sysvar_id::SysvarId;
+//! # use solana_program::sysvar::SysvarId;
 //! # let p = Rent::id();
 //! # let l = &mut 1009200;
 //! # let d = &mut vec![152, 13, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 64, 100];
@@ -126,11 +126,10 @@
 //! #
 //! # Ok::<(), anyhow::Error>(())
 //! ```
+pub use crate::rent::Rent;
 use crate::{impl_sysvar_get, program_error::ProgramError, sysvar::Sysvar};
-pub use solana_rent::{
-    sysvar::{check_id, id, ID},
-    Rent,
-};
+
+crate::declare_sysvar_id!("SysvarRent111111111111111111111111111111111", Rent);
 
 impl Sysvar for Rent {
     impl_sysvar_get!(sol_get_rent_sysvar);

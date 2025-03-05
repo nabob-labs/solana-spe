@@ -1,12 +1,13 @@
 use {
+    crate::account_rent_state::RentState,
     solana_sdk::{
         account::ReadableAccount,
+        message::SanitizedMessage,
         native_loader,
+        rent::Rent,
         transaction::Result,
         transaction_context::{IndexOfAccount, TransactionContext},
     },
-    solana_svm_rent_collector::{rent_state::RentState, svm_rent_collector::SVMRentCollector},
-    solana_svm_transaction::svm_message::SVMMessage,
 };
 
 #[derive(PartialEq, Debug)]
@@ -16,9 +17,9 @@ pub(crate) struct TransactionAccountStateInfo {
 
 impl TransactionAccountStateInfo {
     pub(crate) fn new(
+        rent: &Rent,
         transaction_context: &TransactionContext,
-        message: &impl SVMMessage,
-        rent_collector: &dyn SVMRentCollector,
+        message: &SanitizedMessage,
     ) -> Vec<Self> {
         (0..message.account_keys().len())
             .map(|i| {
@@ -32,7 +33,7 @@ impl TransactionAccountStateInfo {
                         // balances; however they will never be loaded as writable
                         debug_assert!(!native_loader::check_id(account.owner()));
 
-                        Some(rent_collector.get_account_rent_state(&account))
+                        Some(RentState::from_account(&account, rent))
                     } else {
                         None
                     };
@@ -53,12 +54,11 @@ impl TransactionAccountStateInfo {
         pre_state_infos: &[Self],
         post_state_infos: &[Self],
         transaction_context: &TransactionContext,
-        rent_collector: &dyn SVMRentCollector,
     ) -> Result<()> {
         for (i, (pre_state_info, post_state_info)) in
             pre_state_infos.iter().zip(post_state_infos).enumerate()
         {
-            rent_collector.check_rent_state(
+            RentState::check_rent_state(
                 pre_state_info.rent_state.as_ref(),
                 post_state_info.rent_state.as_ref(),
                 transaction_context,
@@ -72,14 +72,16 @@ impl TransactionAccountStateInfo {
 #[cfg(test)]
 mod test {
     use {
-        super::*,
+        crate::{
+            account_rent_state::RentState,
+            transaction_account_state_info::TransactionAccountStateInfo,
+        },
         solana_sdk::{
             account::AccountSharedData,
             hash::Hash,
             instruction::CompiledInstruction,
             message::{LegacyMessage, Message, MessageHeader, SanitizedMessage},
             rent::Rent,
-            rent_collector::RentCollector,
             reserved_account_keys::ReservedAccountKeys,
             signature::{Keypair, Signer},
             transaction::TransactionError,
@@ -89,7 +91,7 @@ mod test {
 
     #[test]
     fn test_new() {
-        let rent_collector = RentCollector::default();
+        let rent = Rent::default();
         let key1 = Keypair::new();
         let key2 = Keypair::new();
         let key3 = Keypair::new();
@@ -124,14 +126,8 @@ mod test {
             (key3.pubkey(), AccountSharedData::default()),
         ];
 
-        let context = TransactionContext::new(
-            transaction_accounts,
-            rent_collector.get_rent().clone(),
-            20,
-            20,
-        );
-        let result =
-            TransactionAccountStateInfo::new(&context, &sanitized_message, &rent_collector);
+        let context = TransactionContext::new(transaction_accounts, rent.clone(), 20, 20);
+        let result = TransactionAccountStateInfo::new(&rent, &context, &sanitized_message);
         assert_eq!(
             result,
             vec![
@@ -149,7 +145,7 @@ mod test {
     #[test]
     #[should_panic(expected = "message and transaction context out of sync, fatal")]
     fn test_new_panic() {
-        let rent_collector = RentCollector::default();
+        let rent = Rent::default();
         let key1 = Keypair::new();
         let key2 = Keypair::new();
         let key3 = Keypair::new();
@@ -184,19 +180,12 @@ mod test {
             (key3.pubkey(), AccountSharedData::default()),
         ];
 
-        let context = TransactionContext::new(
-            transaction_accounts,
-            rent_collector.get_rent().clone(),
-            20,
-            20,
-        );
-        let _result =
-            TransactionAccountStateInfo::new(&context, &sanitized_message, &rent_collector);
+        let context = TransactionContext::new(transaction_accounts, rent.clone(), 20, 20);
+        let _result = TransactionAccountStateInfo::new(&rent, &context, &sanitized_message);
     }
 
     #[test]
     fn test_verify_changes() {
-        let rent_collector = RentCollector::default();
         let key1 = Keypair::new();
         let key2 = Keypair::new();
         let pre_rent_state = vec![
@@ -222,7 +211,6 @@ mod test {
             &pre_rent_state,
             &post_rent_state,
             &context,
-            &rent_collector,
         );
         assert!(result.is_ok());
 
@@ -246,7 +234,6 @@ mod test {
             &pre_rent_state,
             &post_rent_state,
             &context,
-            &rent_collector,
         );
         assert_eq!(
             result.err(),

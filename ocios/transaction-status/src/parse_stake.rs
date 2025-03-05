@@ -284,7 +284,6 @@ pub fn parse_stake(
                 }),
             })
         }
-        #[allow(deprecated)]
         StakeInstruction::Redelegate => {
             check_num_stake_accounts(&instruction.accounts, 5)?;
             Ok(ParsedInstructionEnum {

@@ -1,9 +1,8 @@
 #[cfg(test)]
 use arbitrary::Arbitrary;
 use {
-    crate::pubkey::Pubkey,
+    crate::{clock::Epoch, pubkey::Pubkey},
     serde_derive::{Deserialize, Serialize},
-    solana_clock::Epoch,
     std::collections::BTreeMap,
 };
 

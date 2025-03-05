@@ -19,6 +19,7 @@ crate-type = [
 [dependencies]
 num_enum = "0.7.2"
 solana-program = { workspace = true }
+
 [dev-dependencies]
 #solana-program-test = { workspace = true }
 solana-sdk = { workspace = true }

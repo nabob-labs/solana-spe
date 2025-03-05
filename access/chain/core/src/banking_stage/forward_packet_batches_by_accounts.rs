@@ -6,9 +6,8 @@ use {
         cost_model::CostModel,
         cost_tracker::{CostTracker, UpdatedCosts},
     },
-    solana_feature_set::FeatureSet,
     solana_perf::packet::Packet,
-    solana_sdk::transaction::SanitizedTransaction,
+    solana_sdk::{feature_set::FeatureSet, transaction::SanitizedTransaction},
     std::sync::Arc,
 };
 
@@ -167,10 +166,9 @@ mod tests {
     use {
         super::*,
         crate::banking_stage::unprocessed_packet_batches::DeserializedPacket,
-        solana_feature_set::FeatureSet,
         solana_sdk::{
-            compute_budget::ComputeBudgetInstruction, message::Message, pubkey::Pubkey,
-            system_instruction, transaction::Transaction,
+            compute_budget::ComputeBudgetInstruction, feature_set::FeatureSet, message::Message,
+            pubkey::Pubkey, system_instruction, transaction::Transaction,
         },
     };
 

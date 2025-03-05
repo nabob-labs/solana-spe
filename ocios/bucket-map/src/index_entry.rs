@@ -83,9 +83,7 @@ impl BucketOccupied for BucketWithHeader {
 #[derive(Debug)]
 pub struct IndexBucketUsingBitVecBits<T: PartialEq + 'static> {
     /// 2 bits per entry that represent a 4 state enum tag
-    pub enum_tag_first_bit: BitVec,
-    /// second will be empty in all healthy cases because in real use, we only use enum values 0 and 2 (and we use the high bit for first)
-    pub enum_tag_second_bit: BitVec,
+    pub enum_tag: BitVec,
     /// number of elements allocated
     capacity: u64,
     _phantom: PhantomData<&'static T>,
@@ -93,28 +91,13 @@ pub struct IndexBucketUsingBitVecBits<T: PartialEq + 'static> {
 
 impl<T: Copy + PartialEq + 'static> IndexBucketUsingBitVecBits<T> {
     /// set the 2 bits (first and second) in `enum_tag`
-    pub(crate) fn set_bits(&mut self, ix: u64, first: bool, second: bool) {
-        self.enum_tag_first_bit.set(ix, first);
-        if self.enum_tag_second_bit.is_empty() {
-            if !second {
-                // enum_tag_second_bit can remain empty.
-                // The first time someone sets the second bit, we have to allocate and check it.
-                return;
-            }
-            self.enum_tag_second_bit = BitVec::new_fill(false, self.capacity);
-        }
-        self.enum_tag_second_bit.set(ix, second);
+    fn set_bits(&mut self, ix: u64, first: bool, second: bool) {
+        self.enum_tag.set(ix * 2, first);
+        self.enum_tag.set(ix * 2 + 1, second);
     }
     /// get the 2 bits (first and second) in `enum_tag`
     fn get_bits(&self, ix: u64) -> (bool, bool) {
-        (
-            self.enum_tag_first_bit.get(ix),
-            if self.enum_tag_second_bit.is_empty() {
-                false
-            } else {
-                self.enum_tag_second_bit.get(ix)
-            },
-        )
+        (self.enum_tag.get(ix * 2), self.enum_tag.get(ix * 2 + 1))
     }
     /// turn the tag into bits and store them
     fn set_enum_tag(&mut self, ix: u64, value: OccupiedEnumTag) {
@@ -132,6 +115,7 @@ impl<T: Copy + PartialEq + 'static> IndexBucketUsingBitVecBits<T> {
 impl<T: Copy + PartialEq + 'static> BucketOccupied for IndexBucketUsingBitVecBits<T> {
     fn occupy(&mut self, element: &mut [u8], ix: usize) {
         assert!(self.is_free(element, ix));
+        self.set_enum_tag(ix as u64, OccupiedEnumTag::ZeroSlots);
     }
     fn free(&mut self, element: &mut [u8], ix: usize) {
         assert!(!self.is_free(element, ix));
@@ -146,10 +130,8 @@ impl<T: Copy + PartialEq + 'static> BucketOccupied for IndexBucketUsingBitVecBit
     }
     fn new(capacity: Capacity) -> Self {
         Self {
-            // up to 2 bits per element
-            // 1 bit per element in the ideal case, so don't allocate the 2nd bits until necessary
-            enum_tag_first_bit: BitVec::new_fill(false, capacity.capacity()),
-            enum_tag_second_bit: BitVec::new(),
+            // note: twice as many bits allocated as `num_elements` because we store 2 bits per element
+            enum_tag: BitVec::new_fill(false, capacity.capacity() * 2),
             capacity: capacity.capacity(),
             _phantom: PhantomData,
         }
@@ -313,7 +295,6 @@ enum OccupiedEnumTag {
     #[default]
     Free = 0,
     ZeroSlots = 1,
-    /// this should be value 2 so that we can store Free and OneSlotInIndex in only 1 bit. These are the primary states.
     OneSlotInIndex = 2,
     MultipleSlots = 3,
 }
@@ -401,6 +382,7 @@ impl<T: Copy + PartialEq + 'static> IndexEntryPlaceInBucket<T> {
     }
 
     pub fn init(&self, index_bucket: &mut BucketStorage<IndexBucket<T>>, pubkey: &Pubkey) {
+        self.set_slot_count_enum_value(index_bucket, OccupiedEnum::ZeroSlots);
         let index_entry = index_bucket.get_mut::<IndexEntry<T>>(self.ix);
         index_entry.key = *pubkey;
     }

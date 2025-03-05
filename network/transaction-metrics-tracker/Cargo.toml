@@ -8,6 +8,7 @@ license.workspace = true
 edition.workspace = true
 
 [dependencies]
+Inflector = { workspace = true }
 base64 = { workspace = true }
 bincode = { workspace = true }
 # Update this borsh dependency to the workspace version once
@@ -16,7 +17,6 @@ log = { workspace = true }
 rand = { workspace = true }
 solana-perf = { workspace = true }
 solana-sdk = { workspace = true }
-solana-short-vec = { workspace = true }
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]

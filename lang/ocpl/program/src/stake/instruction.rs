@@ -1,15 +1,13 @@
-// Remove the following `allow` when the `Redelegate` variant is renamed to
-// `Unused` starting from v3.
-// Required to avoid warnings from uses of deprecated types during trait derivations.
-#![allow(deprecated)]
-
+#[allow(deprecated)]
+use crate::stake::config;
 use {
     crate::{
+        clock::{Epoch, UnixTimestamp},
+        decode_error::DecodeError,
         instruction::{AccountMeta, Instruction},
         program_error::ProgramError,
         pubkey::Pubkey,
         stake::{
-            config,
             program::id,
             state::{Authorized, Lockup, StakeAuthorize, StakeStateV2},
         },
@@ -18,8 +16,6 @@ use {
     log::*,
     num_derive::{FromPrimitive, ToPrimitive},
     serde_derive::{Deserialize, Serialize},
-    solana_clock::{Epoch, UnixTimestamp},
-    solana_decode_error::DecodeError,
     thiserror::Error,
 };
 
@@ -310,7 +306,6 @@ pub enum StakeInstruction {
     ///   3. `[]` Unused account, formerly the stake config
     ///   4. `[SIGNER]` Stake authority
     ///
-    #[deprecated(since = "2.1.0", note = "Redelegate will not be enabled")]
     Redelegate,
 
     /// Move stake between accounts with the same authorities and lockups, using Staker authority.
@@ -731,6 +726,7 @@ pub fn delegate_stake(
         AccountMeta::new_readonly(*vote_pubkey, false),
         AccountMeta::new_readonly(sysvar::clock::id(), false),
         AccountMeta::new_readonly(sysvar::stake_history::id(), false),
+        #[allow(deprecated)]
         // For backwards compatibility we pass the stake config, although this account is unused
         AccountMeta::new_readonly(config::id(), false),
         AccountMeta::new_readonly(*authorized_pubkey, true),
@@ -836,6 +832,7 @@ fn _redelegate(
         AccountMeta::new(*stake_pubkey, false),
         AccountMeta::new(*uninitialized_stake_pubkey, false),
         AccountMeta::new_readonly(*vote_pubkey, false),
+        #[allow(deprecated)]
         // For backwards compatibility we pass the stake config, although this account is unused
         AccountMeta::new_readonly(config::id(), false),
         AccountMeta::new_readonly(*authorized_pubkey, true),
@@ -843,7 +840,6 @@ fn _redelegate(
     Instruction::new_with_bincode(id(), &StakeInstruction::Redelegate, account_metas)
 }
 
-#[deprecated(since = "2.1.0", note = "Redelegate will not be enabled")]
 pub fn redelegate(
     stake_pubkey: &Pubkey,
     authorized_pubkey: &Pubkey,
@@ -862,7 +858,6 @@ pub fn redelegate(
     ]
 }
 
-#[deprecated(since = "2.1.0", note = "Redelegate will not be enabled")]
 pub fn redelegate_with_seed(
     stake_pubkey: &Pubkey,
     authorized_pubkey: &Pubkey,

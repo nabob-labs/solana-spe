@@ -1,6 +1,5 @@
 use {
     crate::repair::{quic_endpoint::RemoteRequest, serve_repair::ServeRepair},
-    bytes::Bytes,
     crossbeam_channel::{unbounded, Receiver, Sender},
     solana_ledger::blockstore::Blockstore,
     solana_perf::{packet::PacketBatch, recycler::Recycler},
@@ -9,12 +8,11 @@ use {
         streamer::{self, StreamerReceiveStats},
     },
     std::{
-        net::{SocketAddr, UdpSocket},
+        net::UdpSocket,
         sync::{atomic::AtomicBool, Arc},
         thread::{self, Builder, JoinHandle},
         time::Duration,
     },
-    tokio::sync::mpsc::Sender as AsyncSender,
 };
 
 pub struct ServeRepairService {
@@ -22,11 +20,10 @@ pub struct ServeRepairService {
 }
 
 impl ServeRepairService {
-    pub(crate) fn new(
+    pub fn new(
         serve_repair: ServeRepair,
         remote_request_sender: Sender<RemoteRequest>,
         remote_request_receiver: Receiver<RemoteRequest>,
-        repair_response_quic_sender: AsyncSender<(SocketAddr, Bytes)>,
         blockstore: Arc<Blockstore>,
         serve_repair_socket: UdpSocket,
         socket_addr_space: SocketAddrSpace,
@@ -64,13 +61,8 @@ impl ServeRepairService {
             socket_addr_space,
             Some(stats_reporter_sender),
         );
-        let t_listen = serve_repair.listen(
-            blockstore,
-            remote_request_receiver,
-            response_sender,
-            repair_response_quic_sender,
-            exit,
-        );
+        let t_listen =
+            serve_repair.listen(blockstore, remote_request_receiver, response_sender, exit);
 
         let thread_hdls = vec![t_receiver, t_packet_adapter, t_responder, t_listen];
         Self { thread_hdls }
@@ -94,7 +86,8 @@ pub(crate) fn adapt_repair_requests_packets(
             let request = RemoteRequest {
                 remote_pubkey: None,
                 remote_address: packet.meta().socket_addr(),
-                bytes: Bytes::from(bytes),
+                bytes,
+                response_sender: None,
             };
             if remote_request_sender.send(request).is_err() {
                 return; // The receiver end of the channel is disconnected.

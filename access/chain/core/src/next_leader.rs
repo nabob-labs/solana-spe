@@ -1,10 +1,6 @@
 use {
-    crate::banking_stage::LikeClusterInfo,
     itertools::Itertools,
-    solana_gossip::{
-        cluster_info::ClusterInfo,
-        contact_info::{ContactInfo, Protocol},
-    },
+    solana_gossip::{cluster_info::ClusterInfo, contact_info::ContactInfo},
     solana_poh::poh_recorder::PohRecorder,
     solana_sdk::{clock::FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET, pubkey::Pubkey},
     std::{net::SocketAddr, sync::RwLock},
@@ -29,7 +25,7 @@ pub(crate) fn upcoming_leader_tpu_vote_sockets(
         .dedup()
         .filter_map(|leader_pubkey| {
             cluster_info
-                .lookup_contact_info(&leader_pubkey, |node| node.tpu_vote(Protocol::UDP))?
+                .lookup_contact_info(&leader_pubkey, ContactInfo::tpu_vote)?
                 .ok()
         })
         // dedup again since leaders could potentially share the same tpu vote socket
@@ -38,16 +34,14 @@ pub(crate) fn upcoming_leader_tpu_vote_sockets(
 }
 
 pub(crate) fn next_leader_tpu_vote(
-    cluster_info: &impl LikeClusterInfo,
+    cluster_info: &ClusterInfo,
     poh_recorder: &RwLock<PohRecorder>,
 ) -> Option<(Pubkey, SocketAddr)> {
-    next_leader(cluster_info, poh_recorder, |node| {
-        node.tpu_vote(Protocol::UDP)
-    })
+    next_leader(cluster_info, poh_recorder, ContactInfo::tpu_vote)
 }
 
 pub(crate) fn next_leader<F, E>(
-    cluster_info: &impl LikeClusterInfo,
+    cluster_info: &ClusterInfo,
     poh_recorder: &RwLock<PohRecorder>,
     port_selector: F,
 ) -> Option<(Pubkey, SocketAddr)>

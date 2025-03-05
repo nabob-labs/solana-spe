@@ -11,9 +11,8 @@ use {
     log::*,
     rand::distributions::{Distribution, Uniform},
     rayon::prelude::*,
-    solana_client::nonce_utils,
+    solana_client::{nonce_utils, rpc_request::MAX_MULTIPLE_ACCOUNTS},
     solana_metrics::{self, datapoint_info},
-    solana_rpc_client_api::request::MAX_MULTIPLE_ACCOUNTS,
     solana_sdk::{
         account::Account,
         clock::{DEFAULT_MS_PER_SLOT, DEFAULT_S_PER_SLOT, MAX_PROCESSING_AGE},
@@ -25,7 +24,7 @@ use {
         pubkey::Pubkey,
         signature::{Keypair, Signer},
         system_instruction,
-        timing::timestamp,
+        timing::{duration_as_ms, duration_as_s, duration_as_us, timestamp},
         transaction::Transaction,
     },
     solana_tps_client::*,
@@ -233,12 +232,12 @@ where
             "Done. {:.2} thousand signatures per second, {:.2} us per signature, {} ms total time, {:?}",
             bsps * 1_000_000_f64,
             nsps / 1_000_f64,
-            duration.as_millis(),
+            duration_as_ms(&duration),
             blockhash,
         );
         datapoint_info!(
             "bench-tps-generate_txs",
-            ("duration", duration.as_micros() as i64, i64)
+            ("duration", duration_as_us(&duration), i64)
         );
 
         transactions
@@ -1029,12 +1028,12 @@ fn do_tx_transfers<T: TpsClient + ?Sized>(
             total_tx_sent_count.fetch_add(num_txs, Ordering::Relaxed);
             info!(
                 "Tx send done. {} ms {} tps",
-                transfer_start.elapsed().as_millis(),
-                num_txs as f32 / transfer_start.elapsed().as_secs_f32(),
+                duration_as_ms(&transfer_start.elapsed()),
+                num_txs as f32 / duration_as_s(&transfer_start.elapsed()),
             );
             datapoint_info!(
                 "bench-tps-do_tx_transfers",
-                ("duration", transfer_start.elapsed().as_micros() as i64, i64),
+                ("duration", duration_as_us(&transfer_start.elapsed()), i64),
                 ("count", num_txs, i64)
             );
         }
@@ -1107,7 +1106,7 @@ fn compute_and_report_stats(
     );
     info!(
         "\tAverage TPS: {}",
-        max_tx_count as f32 / tx_send_elapsed.as_secs_f32()
+        max_tx_count as f32 / duration_as_s(tx_send_elapsed)
     );
 }
 
@@ -1224,10 +1223,10 @@ pub fn fund_keypairs<T: 'static + TpsClient + Send + Sync + ?Sized>(
 mod tests {
     use {
         super::*,
-        solana_feature_set::FeatureSet,
         solana_runtime::{bank::Bank, bank_client::BankClient, bank_forks::BankForks},
         solana_sdk::{
             commitment_config::CommitmentConfig,
+            feature_set::FeatureSet,
             fee_calculator::FeeRateGovernor,
             genesis_config::{create_genesis_config, GenesisConfig},
             native_token::sol_to_lamports,

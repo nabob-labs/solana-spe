@@ -57,21 +57,23 @@ impl AccountsDb {
         notify_stats.report();
     }
 
-    pub fn notify_account_at_accounts_update(
+    pub fn notify_account_at_accounts_update<P>(
         &self,
         slot: Slot,
         account: &AccountSharedData,
         txn: &Option<&SanitizedTransaction>,
         pubkey: &Pubkey,
-        write_version: u64,
-    ) {
+        write_version_producer: &mut P,
+    ) where
+        P: Iterator<Item = u64>,
+    {
         if let Some(accounts_update_notifier) = &self.accounts_update_notifier {
             accounts_update_notifier.notify_account_update(
                 slot,
                 account,
                 txn,
                 pubkey,
-                write_version,
+                write_version_producer.next().unwrap(),
             );
         }
     }

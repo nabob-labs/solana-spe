@@ -186,7 +186,7 @@ pub struct ForkStats {
     pub vote_threshold: Vec<ThresholdDecision>,
     pub is_locked_out: bool,
     pub voted_stakes: VotedStakes,
-    pub duplicate_confirmed_hash: Option<Hash>,
+    pub is_supermajority_confirmed: bool,
     pub computed: bool,
     pub lockout_intervals: LockoutIntervals,
     pub bank_hash: Option<Hash>,
@@ -368,15 +368,15 @@ impl ProgressMap {
             .and_then(|s| s.fork_stats.my_latest_landed_vote)
     }
 
-    pub fn set_duplicate_confirmed_hash(&mut self, slot: Slot, hash: Hash) {
+    pub fn set_supermajority_confirmed_slot(&mut self, slot: Slot) {
         let slot_progress = self.get_mut(&slot).unwrap();
-        slot_progress.fork_stats.duplicate_confirmed_hash = Some(hash);
+        slot_progress.fork_stats.is_supermajority_confirmed = true;
     }
 
-    pub fn is_duplicate_confirmed(&self, slot: Slot) -> Option<bool> {
+    pub fn is_supermajority_confirmed(&self, slot: Slot) -> Option<bool> {
         self.progress_map
             .get(&slot)
-            .map(|s| s.fork_stats.duplicate_confirmed_hash.is_some())
+            .map(|s| s.fork_stats.is_supermajority_confirmed)
     }
 
     pub fn get_bank_prev_leader_slot(&self, bank: &Bank) -> Option<Slot> {
@@ -420,7 +420,19 @@ impl ProgressMap {
 
 #[cfg(test)]
 mod test {
-    use {super::*, solana_vote::vote_account::VoteAccount};
+    use {
+        super::*,
+        solana_sdk::account::{Account, AccountSharedData},
+        solana_vote::vote_account::VoteAccount,
+    };
+
+    fn new_test_vote_account() -> VoteAccount {
+        let account = AccountSharedData::from(Account {
+            owner: solana_vote_program::id(),
+            ..Account::default()
+        });
+        VoteAccount::try_from(account).unwrap()
+    }
 
     #[test]
     fn test_add_vote_pubkey() {
@@ -455,7 +467,7 @@ mod test {
         let epoch_vote_accounts: HashMap<_, _> = vote_account_pubkeys
             .iter()
             .skip(num_vote_accounts - staked_vote_accounts)
-            .map(|pubkey| (*pubkey, (1, VoteAccount::new_random())))
+            .map(|pubkey| (*pubkey, (1, new_test_vote_account())))
             .collect();
 
         let mut stats = PropagatedStats::default();
@@ -497,7 +509,7 @@ mod test {
         let epoch_vote_accounts: HashMap<_, _> = vote_account_pubkeys
             .iter()
             .skip(num_vote_accounts - staked_vote_accounts)
-            .map(|pubkey| (*pubkey, (1, VoteAccount::new_random())))
+            .map(|pubkey| (*pubkey, (1, new_test_vote_account())))
             .collect();
         stats.add_node_pubkey_internal(&node_pubkey, &vote_account_pubkeys, &epoch_vote_accounts);
         assert!(stats.propagated_node_ids.contains(&node_pubkey));

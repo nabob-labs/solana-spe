@@ -3,10 +3,7 @@
 #[cfg(not(target_os = "solana"))]
 use crate::{encryption::auth_encryption::AeCiphertext, errors::AuthenticatedEncryptionError};
 use {
-    crate::{
-        encryption::AE_CIPHERTEXT_LEN,
-        pod::{impl_from_bytes, impl_from_str},
-    },
+    crate::encryption::{pod::impl_from_str, AE_CIPHERTEXT_LEN},
     base64::{prelude::BASE64_STANDARD, Engine},
     bytemuck::{Pod, Zeroable},
     std::fmt,
@@ -43,8 +40,6 @@ impl_from_str!(
     BYTES_LEN = AE_CIPHERTEXT_LEN,
     BASE64_LEN = AE_CIPHERTEXT_MAX_BASE64_LEN
 );
-
-impl_from_bytes!(TYPE = PodAeCiphertext, BYTES_LEN = AE_CIPHERTEXT_LEN);
 
 impl Default for PodAeCiphertext {
     fn default() -> Self {

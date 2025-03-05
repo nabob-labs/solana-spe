@@ -1,4 +1,4 @@
-#[cfg(feature = "frozen-abi")]
+#[cfg(all(RUSTC_WITH_SPECIALIZATION, feature = "frozen-abi"))]
 use solana_frozen_abi::abi_example::AbiExample;
 use {
     solana_sdk::{
@@ -6,7 +6,7 @@ use {
         account_utils::StateMut,
         instruction::InstructionError,
         pubkey::Pubkey,
-        stake::state::{Delegation, Stake, StakeStateV2},
+        stake::state::{Delegation, StakeStateV2},
     },
     std::marker::PhantomData,
     thiserror::Error,
@@ -53,13 +53,6 @@ impl StakeAccount<Delegation> {
         // only wrap a stake-state which is a delegation.
         self.stake_state.delegation_ref().unwrap()
     }
-
-    #[inline]
-    pub(crate) fn stake(&self) -> &Stake {
-        // Safe to unwrap here because StakeAccount<Delegation> will always
-        // only wrap a stake-state.
-        self.stake_state.stake_ref().unwrap()
-    }
 }
 
 impl TryFrom<AccountSharedData> for StakeAccount<Delegation> {
@@ -98,7 +91,7 @@ impl<S, T> PartialEq<StakeAccount<S>> for StakeAccount<T> {
     }
 }
 
-#[cfg(feature = "frozen-abi")]
+#[cfg(all(RUSTC_WITH_SPECIALIZATION, feature = "frozen-abi"))]
 impl AbiExample for StakeAccount<Delegation> {
     fn example() -> Self {
         use solana_sdk::{

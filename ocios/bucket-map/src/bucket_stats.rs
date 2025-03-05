@@ -1,5 +1,5 @@
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
+    atomic::{AtomicU64, Ordering},
     Arc,
 };
 
@@ -22,7 +22,6 @@ pub struct BucketStats {
     pub file_count: AtomicU64,
     pub total_file_size: AtomicU64,
     pub startup: StartupBucketStats,
-    pub index_uses_uncommon_slot_list_len_or_refcount: AtomicBool,
 }
 
 impl BucketStats {

@@ -6,16 +6,12 @@ use {
     itertools::Itertools,
     rand::{thread_rng, Rng},
     solana_perf::packet::Packet,
-    solana_runtime::{bank::Bank, epoch_stakes::EpochStakes},
+    solana_runtime::bank::Bank,
     solana_sdk::{
-        account::from_account,
         clock::{Slot, UnixTimestamp},
         feature_set::{self},
-        hash::Hash,
         program_utils::limited_deserialize,
         pubkey::Pubkey,
-        slot_hashes::SlotHashes,
-        sysvar,
     },
     solana_vote_program::vote_instruction::VoteInstruction,
     std::{
@@ -39,10 +35,9 @@ pub enum VoteSource {
 #[derive(Debug, Clone)]
 pub struct LatestValidatorVotePacket {
     vote_source: VoteSource,
-    vote_pubkey: Pubkey,
+    pubkey: Pubkey,
     vote: Option<Arc<ImmutableDeserializedPacket>>,
     slot: Slot,
-    hash: Hash,
     forwarded: bool,
     timestamp: Option<UnixTimestamp>,
 }
@@ -87,26 +82,18 @@ impl LatestValidatorVotePacket {
             Ok(vote_state_update_instruction)
                 if instruction_filter(&vote_state_update_instruction) =>
             {
-                let vote_account_index = instruction
-                    .accounts
-                    .first()
-                    .copied()
-                    .ok_or(DeserializedPacketError::VoteTransactionError)?;
-                let vote_pubkey = message
+                let &pubkey = message
                     .message
                     .static_account_keys()
-                    .get(vote_account_index as usize)
-                    .copied()
+                    .first()
                     .ok_or(DeserializedPacketError::VoteTransactionError)?;
                 let slot = vote_state_update_instruction.last_voted_slot().unwrap_or(0);
-                let hash = vote_state_update_instruction.hash();
                 let timestamp = vote_state_update_instruction.timestamp();
 
                 Ok(Self {
                     vote: Some(vote),
                     slot,
-                    hash,
-                    vote_pubkey,
+                    pubkey,
                     vote_source,
                     forwarded: false,
                     timestamp,
@@ -120,16 +107,12 @@ impl LatestValidatorVotePacket {
         self.vote.as_ref().unwrap().clone()
     }
 
-    pub fn vote_pubkey(&self) -> Pubkey {
-        self.vote_pubkey
+    pub fn pubkey(&self) -> Pubkey {
+        self.pubkey
     }
 
     pub fn slot(&self) -> Slot {
         self.slot
-    }
-
-    pub(crate) fn hash(&self) -> Hash {
-        self.hash
     }
 
     pub fn timestamp(&self) -> Option<UnixTimestamp> {
@@ -156,12 +139,12 @@ pub(crate) struct VoteBatchInsertionMetrics {
     pub(crate) num_dropped_tpu: usize,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct LatestUnprocessedVotes {
-    latest_vote_per_vote_pubkey: RwLock<HashMap<Pubkey, Arc<RwLock<LatestValidatorVotePacket>>>>,
+    latest_votes_per_pubkey: RwLock<HashMap<Pubkey, Arc<RwLock<LatestValidatorVotePacket>>>>,
     num_unprocessed_votes: AtomicUsize,
     // These are only ever written to by the tpu vote thread
-    cached_epoch_stakes: RwLock<EpochStakes>,
+    cached_staked_nodes: RwLock<Arc<HashMap<Pubkey, u64>>>,
     deprecate_legacy_vote_ixs: AtomicBool,
     current_epoch: AtomicU64,
 }
@@ -172,30 +155,10 @@ impl LatestUnprocessedVotes {
             .feature_set
             .is_active(&feature_set::deprecate_legacy_vote_ixs::id());
         Self {
-            latest_vote_per_vote_pubkey: RwLock::new(HashMap::default()),
-            num_unprocessed_votes: AtomicUsize::new(0),
-            cached_epoch_stakes: RwLock::new(bank.current_epoch_stakes().clone()),
+            cached_staked_nodes: RwLock::new(bank.current_epoch_staked_nodes().clone()),
             current_epoch: AtomicU64::new(bank.epoch()),
             deprecate_legacy_vote_ixs: AtomicBool::new(deprecate_legacy_vote_ixs),
-        }
-    }
-
-    #[cfg(test)]
-    pub fn new_for_tests(vote_pubkeys_to_stake: &[Pubkey]) -> Self {
-        use solana_vote::vote_account::VoteAccount;
-
-        let vote_accounts = vote_pubkeys_to_stake
-            .iter()
-            .map(|pubkey| (*pubkey, (1u64, VoteAccount::new_random())))
-            .collect();
-        let epoch_stakes = EpochStakes::new_for_tests(vote_accounts, 0);
-
-        Self {
-            latest_vote_per_vote_pubkey: RwLock::new(HashMap::default()),
-            num_unprocessed_votes: AtomicUsize::new(0),
-            cached_epoch_stakes: RwLock::new(epoch_stakes),
-            current_epoch: AtomicU64::new(0),
-            deprecate_legacy_vote_ixs: AtomicBool::new(true),
+            ..Self::default()
         }
     }
 
@@ -211,9 +174,9 @@ impl LatestUnprocessedVotes {
         &'a self,
         votes: impl Iterator<Item = LatestValidatorVotePacket> + 'a,
     ) -> impl Iterator<Item = LatestValidatorVotePacket> + 'a {
-        let epoch_stakes = self.cached_epoch_stakes.read().unwrap();
+        let staked_nodes = self.cached_staked_nodes.read().unwrap();
         votes.filter(move |vote| {
-            let stake = epoch_stakes.vote_account_stake(&vote.vote_pubkey());
+            let stake = staked_nodes.get(&vote.pubkey()).copied().unwrap_or(0);
             stake > 0
         })
     }
@@ -242,7 +205,7 @@ impl LatestUnprocessedVotes {
     }
 
     fn get_entry(&self, pubkey: Pubkey) -> Option<Arc<RwLock<LatestValidatorVotePacket>>> {
-        self.latest_vote_per_vote_pubkey
+        self.latest_votes_per_pubkey
             .read()
             .unwrap()
             .get(&pubkey)
@@ -257,7 +220,7 @@ impl LatestUnprocessedVotes {
         vote: LatestValidatorVotePacket,
         should_replenish_taken_votes: bool,
     ) -> Option<LatestValidatorVotePacket> {
-        let vote_pubkey = vote.vote_pubkey();
+        let pubkey = vote.pubkey();
         let slot = vote.slot();
         let timestamp = vote.timestamp();
 
@@ -302,16 +265,11 @@ impl LatestUnprocessedVotes {
             Some(vote)
         };
 
-        if let Some(latest_vote) = self.get_entry(vote_pubkey) {
+        if let Some(latest_vote) = self.get_entry(pubkey) {
             with_latest_vote(&latest_vote, vote)
         } else {
             // Grab write-lock to insert new vote.
-            match self
-                .latest_vote_per_vote_pubkey
-                .write()
-                .unwrap()
-                .entry(vote_pubkey)
-            {
+            match self.latest_votes_per_pubkey.write().unwrap().entry(pubkey) {
                 std::collections::hash_map::Entry::Occupied(entry) => {
                     with_latest_vote(entry.get(), vote)
                 }
@@ -326,7 +284,7 @@ impl LatestUnprocessedVotes {
 
     #[cfg(test)]
     pub fn get_latest_vote_slot(&self, pubkey: Pubkey) -> Option<Slot> {
-        self.latest_vote_per_vote_pubkey
+        self.latest_votes_per_pubkey
             .read()
             .unwrap()
             .get(&pubkey)
@@ -335,21 +293,28 @@ impl LatestUnprocessedVotes {
 
     #[cfg(test)]
     fn get_latest_timestamp(&self, pubkey: Pubkey) -> Option<UnixTimestamp> {
-        self.latest_vote_per_vote_pubkey
+        self.latest_votes_per_pubkey
             .read()
             .unwrap()
             .get(&pubkey)
             .and_then(|l| l.read().unwrap().timestamp())
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_staked_nodes(&self, staked_nodes: &[Pubkey]) {
+        let staked_nodes: HashMap<Pubkey, u64> =
+            staked_nodes.iter().map(|pk| (*pk, 1u64)).collect();
+        *self.cached_staked_nodes.write().unwrap() = Arc::new(staked_nodes);
+    }
+
     fn weighted_random_order_by_stake(&self) -> impl Iterator<Item = Pubkey> {
         // Efraimidis and Spirakis algo for weighted random sample without replacement
-        let epoch_stakes = self.cached_epoch_stakes.read().unwrap();
-        let latest_vote_per_vote_pubkey = self.latest_vote_per_vote_pubkey.read().unwrap();
-        let mut pubkey_with_weight: Vec<(f64, Pubkey)> = latest_vote_per_vote_pubkey
+        let staked_nodes = self.cached_staked_nodes.read().unwrap();
+        let latest_votes_per_pubkey = self.latest_votes_per_pubkey.read().unwrap();
+        let mut pubkey_with_weight: Vec<(f64, Pubkey)> = latest_votes_per_pubkey
             .keys()
             .filter_map(|&pubkey| {
-                let stake = epoch_stakes.vote_account_stake(&pubkey);
+                let stake = staked_nodes.get(&pubkey).copied().unwrap_or(0);
                 if stake == 0 {
                     None // Ignore votes from unstaked validators
                 } else {
@@ -367,35 +332,13 @@ impl LatestUnprocessedVotes {
         if bank.epoch() <= self.current_epoch.load(Ordering::Relaxed) {
             return;
         }
-        {
-            let mut epoch_stakes = self.cached_epoch_stakes.write().unwrap();
-            *epoch_stakes = bank.current_epoch_stakes().clone();
-            self.current_epoch.store(bank.epoch(), Ordering::Relaxed);
-            self.deprecate_legacy_vote_ixs.store(
-                bank.feature_set
-                    .is_active(&feature_set::deprecate_legacy_vote_ixs::id()),
-                Ordering::Relaxed,
-            );
-        }
-
-        // Evict any now unstaked pubkeys
-        let epoch_stakes = self.cached_epoch_stakes.read().unwrap();
-        let mut latest_vote_per_vote_pubkey = self.latest_vote_per_vote_pubkey.write().unwrap();
-        let mut unstaked_votes = 0;
-        latest_vote_per_vote_pubkey.retain(|vote_pubkey, vote| {
-            let is_present = !vote.read().unwrap().is_vote_taken();
-            let should_evict = epoch_stakes.vote_account_stake(vote_pubkey) == 0;
-            if is_present && should_evict {
-                unstaked_votes += 1;
-            }
-            !should_evict
-        });
-        self.num_unprocessed_votes
-            .fetch_sub(unstaked_votes, Ordering::Relaxed);
-        datapoint_info!(
-            "latest_unprocessed_votes-epoch-boundary",
-            ("epoch", bank.epoch(), i64),
-            ("evicted_unstaked_votes", unstaked_votes, i64)
+        let mut staked_nodes = self.cached_staked_nodes.write().unwrap();
+        *staked_nodes = bank.current_epoch_staked_nodes().clone();
+        self.current_epoch.store(bank.epoch(), Ordering::Relaxed);
+        self.deprecate_legacy_vote_ixs.store(
+            bank.feature_set
+                .is_active(&feature_set::deprecate_legacy_vote_ixs::id()),
+            Ordering::Relaxed,
         );
     }
 
@@ -407,98 +350,66 @@ impl LatestUnprocessedVotes {
         bank: Arc<Bank>,
         forward_packet_batches_by_accounts: &mut ForwardPacketBatchesByAccounts,
     ) -> usize {
+        let mut continue_forwarding = true;
         let pubkeys_by_stake = self.weighted_random_order_by_stake();
-        let mut forwarded_count: usize = 0;
-        for pubkey in pubkeys_by_stake {
-            let Some(vote) = self.get_entry(pubkey) else {
-                continue;
-            };
-
-            let mut vote = vote.write().unwrap();
-            if vote.is_vote_taken() || vote.is_forwarded() {
-                continue;
-            }
-
-            let deserialized_vote_packet = vote.vote.as_ref().unwrap().clone();
-            let Some((sanitized_vote_transaction, _deactivation_slot)) = deserialized_vote_packet
-                .build_sanitized_transaction(
-                    bank.vote_only_bank(),
-                    bank.as_ref(),
-                    bank.get_reserved_account_keys(),
-                )
-            else {
-                continue;
-            };
-
-            let forwarding_successful = forward_packet_batches_by_accounts.try_add_packet(
-                &sanitized_vote_transaction,
-                deserialized_vote_packet,
-                &bank.feature_set,
-            );
-
-            if !forwarding_successful {
-                // To match behavior of regular transactions we stop forwarding votes as soon as one
-                // fails. We are assuming that failure (try_add_packet) means no more space
-                // available.
-                break;
-            }
-
-            vote.forwarded = true;
-            forwarded_count += 1;
-        }
-
-        forwarded_count
+        pubkeys_by_stake
+            .into_iter()
+            .filter(|&pubkey| {
+                if !continue_forwarding {
+                    return false;
+                }
+                if let Some(lock) = self.get_entry(pubkey) {
+                    let mut vote = lock.write().unwrap();
+                    if !vote.is_vote_taken() && !vote.is_forwarded() {
+                        let deserialized_vote_packet = vote.vote.as_ref().unwrap().clone();
+                        if let Some((sanitized_vote_transaction, _deactivation_slot)) =
+                            deserialized_vote_packet.build_sanitized_transaction(
+                                bank.vote_only_bank(),
+                                bank.as_ref(),
+                                bank.get_reserved_account_keys(),
+                            )
+                        {
+                            if forward_packet_batches_by_accounts.try_add_packet(
+                                &sanitized_vote_transaction,
+                                deserialized_vote_packet,
+                                &bank.feature_set,
+                            ) {
+                                vote.forwarded = true;
+                            } else {
+                                // To match behavior of regular transactions we stop
+                                // forwarding votes as soon as one fails
+                                continue_forwarding = false;
+                            }
+                            return true;
+                        } else {
+                            return false;
+                        }
+                    }
+                }
+                false
+            })
+            .count()
     }
 
     /// Drains all votes yet to be processed sorted by a weighted random ordering by stake
-    /// Do not touch votes that are for a different fork from `bank` as we know they will fail,
-    /// however the next bank could be built on a different fork and consume these votes.
-    pub fn drain_unprocessed(&self, bank: Arc<Bank>) -> Vec<Arc<ImmutableDeserializedPacket>> {
-        let slot_hashes = bank
-            .get_account(&sysvar::slot_hashes::id())
-            .and_then(|account| from_account::<SlotHashes, _>(&account));
-        if slot_hashes.is_none() {
-            error!(
-                "Slot hashes sysvar doesn't exist on bank {}. Including all votes without \
-                 filtering",
-                bank.slot()
-            );
-        }
-
+    pub fn drain_unprocessed(&self, _bank: Arc<Bank>) -> Vec<Arc<ImmutableDeserializedPacket>> {
         self.weighted_random_order_by_stake()
             .filter_map(|pubkey| {
                 self.get_entry(pubkey).and_then(|lock| {
                     let mut latest_vote = lock.write().unwrap();
-                    if !Self::is_valid_for_our_fork(&latest_vote, &slot_hashes) {
-                        return None;
-                    }
-                    latest_vote.take_vote().inspect(|_vote| {
+                    latest_vote.take_vote().map(|vote| {
                         self.num_unprocessed_votes.fetch_sub(1, Ordering::Relaxed);
+                        vote
                     })
                 })
             })
             .collect_vec()
     }
 
-    /// Check if `vote` can land in our fork based on `slot_hashes`
-    fn is_valid_for_our_fork(
-        vote: &LatestValidatorVotePacket,
-        slot_hashes: &Option<SlotHashes>,
-    ) -> bool {
-        let Some(slot_hashes) = slot_hashes else {
-            // When slot hashes is not present we do not filter
-            return true;
-        };
-        slot_hashes
-            .get(&vote.slot())
-            .map(|found_hash| *found_hash == vote.hash())
-            .unwrap_or(false)
-    }
-
     /// Sometimes we forward and hold the packets, sometimes we forward and clear.
     /// This also clears all gossip votes since by definition they have been forwarded
     pub fn clear_forwarded_packets(&self) {
-        self.latest_vote_per_vote_pubkey
+        self.latest_votes_per_pubkey
             .read()
             .unwrap()
             .values()
@@ -525,7 +436,6 @@ mod tests {
         solana_perf::packet::{Packet, PacketBatch, PacketFlags},
         solana_runtime::{
             bank::Bank,
-            epoch_stakes::EpochStakes,
             genesis_utils::{self, ValidatorVoteKeypairs},
         },
         solana_sdk::{
@@ -533,7 +443,8 @@ mod tests {
             signature::Signer, system_transaction::transfer,
         },
         solana_vote_program::{
-            vote_state::TowerSync, vote_transaction::new_tower_sync_transaction,
+            vote_state::TowerSync,
+            vote_transaction::{new_tower_sync_transaction, new_vote_transaction},
         },
         std::{sync::Arc, thread::Builder},
     };
@@ -576,8 +487,40 @@ mod tests {
     #[test]
     fn test_deserialize_vote_packets() {
         let keypairs = ValidatorVoteKeypairs::new_rand();
+        let bankhash = Hash::new_unique();
         let blockhash = Hash::new_unique();
         let switch_proof = Hash::new_unique();
+        let mut vote = Packet::from_data(
+            None,
+            new_vote_transaction(
+                vec![0, 1, 2],
+                bankhash,
+                blockhash,
+                &keypairs.node_keypair,
+                &keypairs.vote_keypair,
+                &keypairs.vote_keypair,
+                None,
+            ),
+        )
+        .unwrap();
+        vote.meta_mut().flags.set(PacketFlags::SIMPLE_VOTE_TX, true);
+        let mut vote_switch = Packet::from_data(
+            None,
+            new_vote_transaction(
+                vec![0, 1, 2],
+                bankhash,
+                blockhash,
+                &keypairs.node_keypair,
+                &keypairs.vote_keypair,
+                &keypairs.vote_keypair,
+                Some(switch_proof),
+            ),
+        )
+        .unwrap();
+        vote_switch
+            .meta_mut()
+            .flags
+            .set(PacketFlags::SIMPLE_VOTE_TX, true);
         let mut tower_sync = Packet::from_data(
             None,
             new_tower_sync_transaction(
@@ -620,8 +563,13 @@ mod tests {
             ),
         )
         .unwrap();
-        let packet_batch =
-            PacketBatch::new(vec![tower_sync, tower_sync_switch, random_transaction]);
+        let packet_batch = PacketBatch::new(vec![
+            vote,
+            vote_switch,
+            tower_sync,
+            tower_sync_switch,
+            random_transaction,
+        ]);
 
         let deserialized_packets = deserialize_packets(
             &packet_batch,
@@ -635,12 +583,12 @@ mod tests {
         assert_eq!(VoteSource::Gossip, deserialized_packets[1].vote_source);
 
         assert_eq!(
-            keypairs.vote_keypair.pubkey(),
-            deserialized_packets[0].vote_pubkey
+            keypairs.node_keypair.pubkey(),
+            deserialized_packets[0].pubkey
         );
         assert_eq!(
-            keypairs.vote_keypair.pubkey(),
-            deserialized_packets[1].vote_pubkey
+            keypairs.node_keypair.pubkey(),
+            deserialized_packets[1].pubkey
         );
 
         assert!(deserialized_packets[0].vote.is_some());
@@ -649,11 +597,12 @@ mod tests {
 
     #[test]
     fn test_update_latest_vote() {
+        let latest_unprocessed_votes = LatestUnprocessedVotes::default();
         let keypair_a = ValidatorVoteKeypairs::new_rand();
         let keypair_b = ValidatorVoteKeypairs::new_rand();
-        let latest_unprocessed_votes = LatestUnprocessedVotes::new_for_tests(&[
-            keypair_a.vote_keypair.pubkey(),
-            keypair_b.vote_keypair.pubkey(),
+        latest_unprocessed_votes.set_staked_nodes(&[
+            keypair_a.node_keypair.pubkey(),
+            keypair_b.node_keypair.pubkey(),
         ]);
 
         let vote_a = from_slots(vec![(0, 2), (1, 1)], VoteSource::Gossip, &keypair_a, None);
@@ -674,11 +623,11 @@ mod tests {
 
         assert_eq!(
             Some(1),
-            latest_unprocessed_votes.get_latest_vote_slot(keypair_a.vote_keypair.pubkey())
+            latest_unprocessed_votes.get_latest_vote_slot(keypair_a.node_keypair.pubkey())
         );
         assert_eq!(
             Some(9),
-            latest_unprocessed_votes.get_latest_vote_slot(keypair_b.vote_keypair.pubkey())
+            latest_unprocessed_votes.get_latest_vote_slot(keypair_b.node_keypair.pubkey())
         );
 
         let vote_a = from_slots(
@@ -733,13 +682,13 @@ mod tests {
         assert_eq!(
             10,
             latest_unprocessed_votes
-                .get_latest_vote_slot(keypair_a.vote_keypair.pubkey())
+                .get_latest_vote_slot(keypair_a.node_keypair.pubkey())
                 .unwrap()
         );
         assert_eq!(
             9,
             latest_unprocessed_votes
-                .get_latest_vote_slot(keypair_b.vote_keypair.pubkey())
+                .get_latest_vote_slot(keypair_b.node_keypair.pubkey())
                 .unwrap()
         );
 
@@ -762,11 +711,11 @@ mod tests {
         assert_eq!(2, latest_unprocessed_votes.len());
         assert_eq!(
             Some(1),
-            latest_unprocessed_votes.get_latest_timestamp(keypair_a.vote_keypair.pubkey())
+            latest_unprocessed_votes.get_latest_timestamp(keypair_a.node_keypair.pubkey())
         );
         assert_eq!(
             Some(2),
-            latest_unprocessed_votes.get_latest_timestamp(keypair_b.vote_keypair.pubkey())
+            latest_unprocessed_votes.get_latest_timestamp(keypair_b.node_keypair.pubkey())
         );
 
         // Same votes with bigger timestamps should override
@@ -788,11 +737,11 @@ mod tests {
         assert_eq!(2, latest_unprocessed_votes.len());
         assert_eq!(
             Some(5),
-            latest_unprocessed_votes.get_latest_timestamp(keypair_a.vote_keypair.pubkey())
+            latest_unprocessed_votes.get_latest_timestamp(keypair_a.node_keypair.pubkey())
         );
         assert_eq!(
             Some(6),
-            latest_unprocessed_votes.get_latest_timestamp(keypair_b.vote_keypair.pubkey())
+            latest_unprocessed_votes.get_latest_timestamp(keypair_b.node_keypair.pubkey())
         );
 
         // Same votes with smaller timestamps should not override
@@ -816,16 +765,16 @@ mod tests {
         assert_eq!(2, latest_unprocessed_votes.len());
         assert_eq!(
             Some(5),
-            latest_unprocessed_votes.get_latest_timestamp(keypair_a.vote_keypair.pubkey())
+            latest_unprocessed_votes.get_latest_timestamp(keypair_a.node_keypair.pubkey())
         );
         assert_eq!(
             Some(6),
-            latest_unprocessed_votes.get_latest_timestamp(keypair_b.vote_keypair.pubkey())
+            latest_unprocessed_votes.get_latest_timestamp(keypair_b.node_keypair.pubkey())
         );
 
         // Drain all latest votes
         for packet in latest_unprocessed_votes
-            .latest_vote_per_vote_pubkey
+            .latest_votes_per_pubkey
             .read()
             .unwrap()
             .values()
@@ -855,6 +804,8 @@ mod tests {
     fn test_update_latest_vote_race() {
         // There was a race condition in updating the same pubkey in the hashmap
         // when the entry does not initially exist.
+        let latest_unprocessed_votes = Arc::new(LatestUnprocessedVotes::default());
+
         const NUM_VOTES: usize = 100;
         let keypairs = Arc::new(
             (0..NUM_VOTES)
@@ -863,10 +814,9 @@ mod tests {
         );
         let staked_nodes = keypairs
             .iter()
-            .map(|kp| kp.vote_keypair.pubkey())
+            .map(|kp| kp.node_keypair.pubkey())
             .collect_vec();
-        let latest_unprocessed_votes =
-            Arc::new(LatestUnprocessedVotes::new_for_tests(&staked_nodes));
+        latest_unprocessed_votes.set_staked_nodes(&staked_nodes);
 
         // Insert votes in parallel
         let insert_vote = |latest_unprocessed_votes: &LatestUnprocessedVotes,
@@ -898,6 +848,8 @@ mod tests {
 
     #[test]
     fn test_simulate_threads() {
+        let latest_unprocessed_votes = Arc::new(LatestUnprocessedVotes::default());
+        let latest_unprocessed_votes_tpu = latest_unprocessed_votes.clone();
         let keypairs = Arc::new(
             (0..10)
                 .map(|_| ValidatorVoteKeypairs::new_rand())
@@ -906,11 +858,9 @@ mod tests {
         let keypairs_tpu = keypairs.clone();
         let staked_nodes = keypairs
             .iter()
-            .map(|kp| kp.vote_keypair.pubkey())
+            .map(|kp| kp.node_keypair.pubkey())
             .collect_vec();
-        let latest_unprocessed_votes =
-            Arc::new(LatestUnprocessedVotes::new_for_tests(&staked_nodes));
-        let latest_unprocessed_votes_tpu = latest_unprocessed_votes.clone();
+        latest_unprocessed_votes.set_staked_nodes(&staked_nodes);
         let vote_limit = 1000;
 
         let gossip = Builder::new()
@@ -943,21 +893,19 @@ mod tests {
                         .update_latest_vote(vote, false /* should replenish */);
                     if i % 214 == 0 {
                         // Simulate draining and processing packets
-                        let latest_vote_per_vote_pubkey = latest_unprocessed_votes_tpu
-                            .latest_vote_per_vote_pubkey
+                        let latest_votes_per_pubkey = latest_unprocessed_votes_tpu
+                            .latest_votes_per_pubkey
                             .read()
                             .unwrap();
-                        latest_vote_per_vote_pubkey
-                            .iter()
-                            .for_each(|(_pubkey, lock)| {
-                                let mut latest_vote = lock.write().unwrap();
-                                if !latest_vote.is_vote_taken() {
-                                    latest_vote.take_vote();
-                                    latest_unprocessed_votes_tpu
-                                        .num_unprocessed_votes
-                                        .fetch_sub(1, Ordering::Relaxed);
-                                }
-                            });
+                        latest_votes_per_pubkey.iter().for_each(|(_pubkey, lock)| {
+                            let mut latest_vote = lock.write().unwrap();
+                            if !latest_vote.is_vote_taken() {
+                                latest_vote.take_vote();
+                                latest_unprocessed_votes_tpu
+                                    .num_unprocessed_votes
+                                    .fetch_sub(1, Ordering::Relaxed);
+                            }
+                        });
                     }
                 }
             })
@@ -968,18 +916,14 @@ mod tests {
 
     #[test]
     fn test_forwardable_packets() {
-        let latest_unprocessed_votes = LatestUnprocessedVotes::new_for_tests(&[]);
+        let latest_unprocessed_votes = LatestUnprocessedVotes::default();
         let bank_0 = Bank::new_for_tests(&GenesisConfig::default());
-        let mut bank = Bank::new_from_parent(
+        let bank = Bank::new_from_parent(
             Arc::new(bank_0),
             &Pubkey::new_unique(),
             MINIMUM_SLOTS_PER_EPOCH,
         );
         assert_eq!(bank.epoch(), 1);
-        bank.set_epoch_stakes_for_test(
-            bank.epoch().saturating_add(2),
-            EpochStakes::new_for_tests(HashMap::new(), bank.epoch().saturating_add(2)),
-        );
         let bank = Arc::new(bank);
         let mut forward_packet_batches_by_accounts =
             ForwardPacketBatchesByAccounts::new_with_default_batch_limits();
@@ -989,10 +933,8 @@ mod tests {
 
         let vote_a = from_slots(vec![(1, 1)], VoteSource::Gossip, &keypair_a, None);
         let vote_b = from_slots(vec![(2, 1)], VoteSource::Tpu, &keypair_b, None);
-        latest_unprocessed_votes
-            .update_latest_vote(vote_a.clone(), false /* should replenish */);
-        latest_unprocessed_votes
-            .update_latest_vote(vote_b.clone(), false /* should replenish */);
+        latest_unprocessed_votes.update_latest_vote(vote_a, false /* should replenish */);
+        latest_unprocessed_votes.update_latest_vote(vote_b, false /* should replenish */);
 
         // Recache on epoch boundary and don't forward 0 stake accounts
         latest_unprocessed_votes.cache_epoch_boundary_info(&bank);
@@ -1007,9 +949,12 @@ mod tests {
                 .count()
         );
 
-        let config =
-            genesis_utils::create_genesis_config_with_vote_accounts(100, &[keypair_a], vec![200])
-                .genesis_config;
+        let config = genesis_utils::create_genesis_config_with_leader(
+            100,
+            &keypair_a.node_keypair.pubkey(),
+            200,
+        )
+        .genesis_config;
         let bank_0 = Bank::new_for_tests(&config);
         let bank = Bank::new_from_parent(
             Arc::new(bank_0),
@@ -1021,10 +966,6 @@ mod tests {
 
         // Don't forward votes from gossip
         latest_unprocessed_votes.cache_epoch_boundary_info(&bank);
-        latest_unprocessed_votes
-            .update_latest_vote(vote_a.clone(), false /* should replenish */);
-        latest_unprocessed_votes
-            .update_latest_vote(vote_b.clone(), false /* should replenish */);
         let forwarded = latest_unprocessed_votes.get_and_insert_forwardable_packets(
             Arc::new(bank),
             &mut forward_packet_batches_by_accounts,
@@ -1039,9 +980,12 @@ mod tests {
                 .count()
         );
 
-        let config =
-            genesis_utils::create_genesis_config_with_vote_accounts(100, &[keypair_b], vec![200])
-                .genesis_config;
+        let config = genesis_utils::create_genesis_config_with_leader(
+            100,
+            &keypair_b.node_keypair.pubkey(),
+            200,
+        )
+        .genesis_config;
         let bank_0 = Bank::new_for_tests(&config);
         let bank = Arc::new(Bank::new_from_parent(
             Arc::new(bank_0),
@@ -1053,8 +997,6 @@ mod tests {
 
         // Forward from TPU
         latest_unprocessed_votes.cache_epoch_boundary_info(&bank);
-        latest_unprocessed_votes.update_latest_vote(vote_a, false /* should replenish */);
-        latest_unprocessed_votes.update_latest_vote(vote_b, false /* should replenish */);
         let forwarded = latest_unprocessed_votes.get_and_insert_forwardable_packets(
             bank.clone(),
             &mut forward_packet_batches_by_accounts,
@@ -1087,15 +1029,16 @@ mod tests {
 
     #[test]
     fn test_clear_forwarded_packets() {
+        let latest_unprocessed_votes = LatestUnprocessedVotes::default();
         let keypair_a = ValidatorVoteKeypairs::new_rand();
         let keypair_b = ValidatorVoteKeypairs::new_rand();
         let keypair_c = ValidatorVoteKeypairs::new_rand();
         let keypair_d = ValidatorVoteKeypairs::new_rand();
-        let latest_unprocessed_votes = LatestUnprocessedVotes::new_for_tests(&[
-            keypair_a.vote_keypair.pubkey(),
-            keypair_b.vote_keypair.pubkey(),
-            keypair_c.vote_keypair.pubkey(),
-            keypair_d.vote_keypair.pubkey(),
+        latest_unprocessed_votes.set_staked_nodes(&[
+            keypair_a.node_keypair.pubkey(),
+            keypair_b.node_keypair.pubkey(),
+            keypair_c.node_keypair.pubkey(),
+            keypair_d.node_keypair.pubkey(),
         ]);
 
         let vote_a = from_slots(vec![(1, 1)], VoteSource::Gossip, &keypair_a, None);
@@ -1115,19 +1058,19 @@ mod tests {
 
         assert_eq!(
             Some(1),
-            latest_unprocessed_votes.get_latest_vote_slot(keypair_a.vote_keypair.pubkey())
+            latest_unprocessed_votes.get_latest_vote_slot(keypair_a.node_keypair.pubkey())
         );
         assert_eq!(
             Some(2),
-            latest_unprocessed_votes.get_latest_vote_slot(keypair_b.vote_keypair.pubkey())
+            latest_unprocessed_votes.get_latest_vote_slot(keypair_b.node_keypair.pubkey())
         );
         assert_eq!(
             Some(3),
-            latest_unprocessed_votes.get_latest_vote_slot(keypair_c.vote_keypair.pubkey())
+            latest_unprocessed_votes.get_latest_vote_slot(keypair_c.node_keypair.pubkey())
         );
         assert_eq!(
             Some(4),
-            latest_unprocessed_votes.get_latest_vote_slot(keypair_d.vote_keypair.pubkey())
+            latest_unprocessed_votes.get_latest_vote_slot(keypair_d.node_keypair.pubkey())
         );
     }
 
@@ -1158,9 +1101,12 @@ mod tests {
         assert!(latest_unprocessed_votes.is_empty());
 
         // Bank in same epoch should not update stakes
-        let config =
-            genesis_utils::create_genesis_config_with_vote_accounts(100, &[&keypair_a], vec![200])
-                .genesis_config;
+        let config = genesis_utils::create_genesis_config_with_leader(
+            100,
+            &keypair_a.node_keypair.pubkey(),
+            200,
+        )
+        .genesis_config;
         let bank_0 = Bank::new_for_tests(&config);
         let bank = Bank::new_from_parent(
             Arc::new(bank_0),
@@ -1173,9 +1119,12 @@ mod tests {
         assert!(latest_unprocessed_votes.is_empty());
 
         // Bank in next epoch should update stakes
-        let config =
-            genesis_utils::create_genesis_config_with_vote_accounts(100, &[&keypair_b], vec![200])
-                .genesis_config;
+        let config = genesis_utils::create_genesis_config_with_leader(
+            100,
+            &keypair_b.node_keypair.pubkey(),
+            200,
+        )
+        .genesis_config;
         let bank_0 = Bank::new_for_tests(&config);
         let bank = Bank::new_from_parent(
             Arc::new(bank_0),
@@ -1187,14 +1136,17 @@ mod tests {
         latest_unprocessed_votes.insert_batch(votes.clone(), true);
         assert_eq!(latest_unprocessed_votes.len(), 1);
         assert_eq!(
-            latest_unprocessed_votes.get_latest_vote_slot(keypair_b.vote_keypair.pubkey()),
+            latest_unprocessed_votes.get_latest_vote_slot(keypair_b.node_keypair.pubkey()),
             Some(vote_b.slot())
         );
 
-        // Previously unstaked votes are removed
-        let config =
-            genesis_utils::create_genesis_config_with_vote_accounts(100, &[&keypair_c], vec![200])
-                .genesis_config;
+        // Previously unstaked votes are not (yet) removed
+        let config = genesis_utils::create_genesis_config_with_leader(
+            100,
+            &keypair_c.node_keypair.pubkey(),
+            200,
+        )
+        .genesis_config;
         let bank_0 = Bank::new_for_tests(&config);
         let bank = Bank::new_from_parent(
             Arc::new(bank_0),
@@ -1203,11 +1155,14 @@ mod tests {
         );
         assert_eq!(bank.epoch(), 2);
         latest_unprocessed_votes.cache_epoch_boundary_info(&bank);
-        assert_eq!(latest_unprocessed_votes.len(), 0);
         latest_unprocessed_votes.insert_batch(votes.clone(), true);
-        assert_eq!(latest_unprocessed_votes.len(), 1);
+        assert_eq!(latest_unprocessed_votes.len(), 2);
         assert_eq!(
-            latest_unprocessed_votes.get_latest_vote_slot(keypair_c.vote_keypair.pubkey()),
+            latest_unprocessed_votes.get_latest_vote_slot(keypair_b.node_keypair.pubkey()),
+            Some(vote_b.slot())
+        );
+        assert_eq!(
+            latest_unprocessed_votes.get_latest_vote_slot(keypair_c.node_keypair.pubkey()),
             Some(vote_c.slot())
         );
     }

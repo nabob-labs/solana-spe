@@ -1,8 +1,3 @@
-#[deprecated(
-    since = "2.1.0",
-    note = "Use solana_transaction_error::SanitizeMessageError instead"
-)]
-pub use solana_transaction_error::SanitizeMessageError;
 use {
     crate::{
         ed25519_program,
@@ -11,17 +6,19 @@ use {
         message::{
             legacy,
             v0::{self, LoadedAddresses},
-            AccountKeys, AddressLoader, MessageHeader, SanitizedVersionedMessage, VersionedMessage,
+            AccountKeys, AddressLoader, AddressLoaderError, MessageHeader,
+            SanitizedVersionedMessage, VersionedMessage,
         },
         nonce::NONCED_TX_MARKER_IX_INDEX,
         program_utils::limited_deserialize,
         pubkey::Pubkey,
+        sanitize::{Sanitize, SanitizeError},
         secp256k1_program,
         solana_program::{system_instruction::SystemInstruction, system_program},
         sysvar::instructions::{BorrowedAccountMeta, BorrowedInstruction},
     },
-    solana_sanitize::Sanitize,
     std::{borrow::Cow, collections::HashSet, convert::TryFrom},
+    thiserror::Error,
 };
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -81,6 +78,28 @@ pub enum SanitizedMessage {
     Legacy(LegacyMessage<'static>),
     /// Sanitized version #0 message with dynamically loaded addresses
     V0(v0::LoadedMessage<'static>),
+}
+
+#[derive(PartialEq, Debug, Error, Eq, Clone)]
+pub enum SanitizeMessageError {
+    #[error("index out of bounds")]
+    IndexOutOfBounds,
+    #[error("value out of bounds")]
+    ValueOutOfBounds,
+    #[error("invalid value")]
+    InvalidValue,
+    #[error("{0}")]
+    AddressLoaderError(#[from] AddressLoaderError),
+}
+
+impl From<SanitizeError> for SanitizeMessageError {
+    fn from(err: SanitizeError) -> Self {
+        match err {
+            SanitizeError::IndexOutOfBounds => Self::IndexOutOfBounds,
+            SanitizeError::ValueOutOfBounds => Self::ValueOutOfBounds,
+            SanitizeError::InvalidValue => Self::InvalidValue,
+        }
+    }
 }
 
 impl SanitizedMessage {
@@ -174,7 +193,7 @@ impl SanitizedMessage {
     /// id.
     pub fn program_instructions_iter(
         &self,
-    ) -> impl Iterator<Item = (&Pubkey, &CompiledInstruction)> + Clone {
+    ) -> impl Iterator<Item = (&Pubkey, &CompiledInstruction)> {
         self.instructions().iter().map(move |ix| {
             (
                 self.account_keys()
@@ -351,18 +370,7 @@ impl SanitizedMessage {
             })
     }
 
-    #[deprecated(
-        since = "2.1.0",
-        note = "Please use `SanitizedMessage::num_total_signatures` instead."
-    )]
     pub fn num_signatures(&self) -> u64 {
-        self.num_total_signatures()
-    }
-
-    /// Returns the total number of signatures in the message.
-    /// This includes required transaction signatures as well as any
-    /// pre-compile signatures that are attached in instructions.
-    pub fn num_total_signatures(&self) -> u64 {
         self.get_signature_details().total_signatures()
     }
 
@@ -404,9 +412,9 @@ impl SanitizedMessage {
     }
 }
 
+#[derive(Default)]
 /// Transaction signature details including the number of transaction signatures
 /// and precompile signatures.
-#[derive(Debug, Default)]
 pub struct TransactionSignatureDetails {
     num_transaction_signatures: u64,
     num_secp256k1_instruction_signatures: u64,
@@ -414,20 +422,8 @@ pub struct TransactionSignatureDetails {
 }
 
 impl TransactionSignatureDetails {
-    pub fn new(
-        num_transaction_signatures: u64,
-        num_secp256k1_instruction_signatures: u64,
-        num_ed25519_instruction_signatures: u64,
-    ) -> Self {
-        Self {
-            num_transaction_signatures,
-            num_secp256k1_instruction_signatures,
-            num_ed25519_instruction_signatures,
-        }
-    }
-
     /// return total number of signature, treating pre-processor operations as signature
-    pub fn total_signatures(&self) -> u64 {
+    pub(crate) fn total_signatures(&self) -> u64 {
         self.num_transaction_signatures
             .saturating_add(self.num_secp256k1_instruction_signatures)
             .saturating_add(self.num_ed25519_instruction_signatures)

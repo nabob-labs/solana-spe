@@ -1,6 +1,6 @@
 //! The native loader native program.
 
-use solana_account::{
+use crate::account::{
     Account, AccountSharedData, InheritableAccountFields, DUMMY_INHERITABLE_ACCOUNT_FIELDS,
 };
 

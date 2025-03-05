@@ -27,14 +27,15 @@ use {
     log::*,
     solana_accounts_db::{
         accounts_db::{
-            AccountStorageEntry, AccountsDbConfig, AtomicAccountsFileId,
-            CalcAccountsHashDataSource, DuplicatesLtHash,
+            AccountShrinkThreshold, AccountStorageEntry, AccountsDbConfig, AtomicAccountsFileId,
+            CalcAccountsHashDataSource,
         },
         accounts_file::StorageAccess,
+        accounts_index::AccountSecondaryIndexes,
         accounts_update_notifier_interface::AccountsUpdateNotifier,
         utils::delete_contents_of_path,
     },
-    solana_measure::{measure::Measure, measure_time},
+    solana_measure::{measure, measure::Measure},
     solana_sdk::{
         clock::{Epoch, Slot},
         genesis_config::GenesisConfig,
@@ -131,7 +132,9 @@ pub fn bank_from_snapshot_archives(
     runtime_config: &RuntimeConfig,
     debug_keys: Option<Arc<HashSet<Pubkey>>>,
     additional_builtins: Option<&[BuiltinPrototype]>,
+    account_secondary_indexes: AccountSecondaryIndexes,
     limit_load_slot_count_from_snapshot: Option<usize>,
+    shrink_ratio: AccountShrinkThreshold,
     test_hash_calculation: bool,
     accounts_db_skip_shrink: bool,
     accounts_db_force_initial_clean: bool,
@@ -177,7 +180,7 @@ pub fn bank_from_snapshot_archives(
     };
 
     let mut measure_rebuild = Measure::start("rebuild bank from snapshots");
-    let (bank, info) = rebuild_bank_from_unarchived_snapshots(
+    let bank = rebuild_bank_from_unarchived_snapshots(
         &unarchived_full_snapshot.unpacked_snapshots_dir_and_version,
         unarchived_incremental_snapshot
             .as_ref()
@@ -190,7 +193,9 @@ pub fn bank_from_snapshot_archives(
         runtime_config,
         debug_keys,
         additional_builtins,
+        account_secondary_indexes,
         limit_load_slot_count_from_snapshot,
+        shrink_ratio,
         verify_index,
         accounts_db_config,
         accounts_update_notifier,
@@ -230,7 +235,6 @@ pub fn bank_from_snapshot_archives(
         accounts_db_force_initial_clean,
         full_snapshot_archive_info.slot(),
         base,
-        info.duplicates_lt_hash,
     ) && limit_load_slot_count_from_snapshot.is_none()
     {
         panic!("Snapshot bank for slot {} failed to verify", bank.slot());
@@ -278,7 +282,9 @@ pub fn bank_from_latest_snapshot_archives(
     runtime_config: &RuntimeConfig,
     debug_keys: Option<Arc<HashSet<Pubkey>>>,
     additional_builtins: Option<&[BuiltinPrototype]>,
+    account_secondary_indexes: AccountSecondaryIndexes,
     limit_load_slot_count_from_snapshot: Option<usize>,
+    shrink_ratio: AccountShrinkThreshold,
     test_hash_calculation: bool,
     accounts_db_skip_shrink: bool,
     accounts_db_force_initial_clean: bool,
@@ -310,7 +316,9 @@ pub fn bank_from_latest_snapshot_archives(
         runtime_config,
         debug_keys,
         additional_builtins,
+        account_secondary_indexes,
         limit_load_slot_count_from_snapshot,
+        shrink_ratio,
         test_hash_calculation,
         accounts_db_skip_shrink,
         accounts_db_force_initial_clean,
@@ -336,7 +344,9 @@ pub fn bank_from_snapshot_dir(
     runtime_config: &RuntimeConfig,
     debug_keys: Option<Arc<HashSet<Pubkey>>>,
     additional_builtins: Option<&[BuiltinPrototype]>,
+    account_secondary_indexes: AccountSecondaryIndexes,
     limit_load_slot_count_from_snapshot: Option<usize>,
+    shrink_ratio: AccountShrinkThreshold,
     verify_index: bool,
     accounts_db_config: Option<AccountsDbConfig>,
     accounts_update_notifier: Option<AccountsUpdateNotifier>,
@@ -359,7 +369,7 @@ pub fn bank_from_snapshot_dir(
         .map(|config| config.storage_access)
         .unwrap_or_default();
 
-    let (storage, measure_rebuild_storages) = measure_time!(
+    let (storage, measure_rebuild_storages) = measure!(
         rebuild_storages_from_snapshot_dir(
             bank_snapshot,
             account_paths,
@@ -376,7 +386,7 @@ pub fn bank_from_snapshot_dir(
         storage,
         next_append_vec_id,
     };
-    let ((bank, _info), measure_rebuild_bank) = measure_time!(
+    let (bank, measure_rebuild_bank) = measure!(
         rebuild_bank_from_snapshot(
             bank_snapshot,
             account_paths,
@@ -385,7 +395,9 @@ pub fn bank_from_snapshot_dir(
             runtime_config,
             debug_keys,
             additional_builtins,
+            account_secondary_indexes,
             limit_load_slot_count_from_snapshot,
+            shrink_ratio,
             verify_index,
             accounts_db_config,
             accounts_update_notifier,
@@ -420,7 +432,9 @@ pub fn bank_from_latest_snapshot_dir(
     account_paths: &[PathBuf],
     debug_keys: Option<Arc<HashSet<Pubkey>>>,
     additional_builtins: Option<&[BuiltinPrototype]>,
+    account_secondary_indexes: AccountSecondaryIndexes,
     limit_load_slot_count_from_snapshot: Option<usize>,
+    shrink_ratio: AccountShrinkThreshold,
     verify_index: bool,
     accounts_db_config: Option<AccountsDbConfig>,
     accounts_update_notifier: Option<AccountsUpdateNotifier>,
@@ -436,7 +450,9 @@ pub fn bank_from_latest_snapshot_dir(
         runtime_config,
         debug_keys,
         additional_builtins,
+        account_secondary_indexes,
         limit_load_slot_count_from_snapshot,
+        shrink_ratio,
         verify_index,
         accounts_db_config,
         accounts_update_notifier,
@@ -528,12 +544,6 @@ fn deserialize_status_cache(
     })
 }
 
-/// This struct contains side-info from rebuilding the bank
-#[derive(Debug)]
-struct RebuiltBankInfo {
-    duplicates_lt_hash: Option<Box<DuplicatesLtHash>>,
-}
-
 #[allow(clippy::too_many_arguments)]
 fn rebuild_bank_from_unarchived_snapshots(
     full_snapshot_unpacked_snapshots_dir_and_version: &UnpackedSnapshotsDirAndVersion,
@@ -546,12 +556,14 @@ fn rebuild_bank_from_unarchived_snapshots(
     runtime_config: &RuntimeConfig,
     debug_keys: Option<Arc<HashSet<Pubkey>>>,
     additional_builtins: Option<&[BuiltinPrototype]>,
+    account_secondary_indexes: AccountSecondaryIndexes,
     limit_load_slot_count_from_snapshot: Option<usize>,
+    shrink_ratio: AccountShrinkThreshold,
     verify_index: bool,
     accounts_db_config: Option<AccountsDbConfig>,
     accounts_update_notifier: Option<AccountsUpdateNotifier>,
     exit: Arc<AtomicBool>,
-) -> snapshot_utils::Result<(Bank, RebuiltBankInfo)> {
+) -> snapshot_utils::Result<Bank> {
     let (full_snapshot_version, full_snapshot_root_paths) =
         verify_unpacked_snapshots_dir_and_version(
             full_snapshot_unpacked_snapshots_dir_and_version,
@@ -581,7 +593,7 @@ fn rebuild_bank_from_unarchived_snapshots(
             .map(|root_paths| root_paths.snapshot_path()),
     };
 
-    let (bank, info) = deserialize_snapshot_data_files(&snapshot_root_paths, |snapshot_streams| {
+    let bank = deserialize_snapshot_data_files(&snapshot_root_paths, |snapshot_streams| {
         Ok(
             match incremental_snapshot_version.unwrap_or(full_snapshot_version) {
                 SnapshotVersion::V1_2_0 => bank_from_streams(
@@ -592,7 +604,9 @@ fn rebuild_bank_from_unarchived_snapshots(
                     runtime_config,
                     debug_keys,
                     additional_builtins,
+                    account_secondary_indexes,
                     limit_load_slot_count_from_snapshot,
+                    shrink_ratio,
                     verify_index,
                     accounts_db_config,
                     accounts_update_notifier,
@@ -627,12 +641,7 @@ fn rebuild_bank_from_unarchived_snapshots(
     bank.status_cache.write().unwrap().append(&slot_deltas);
 
     info!("Rebuilt bank for slot: {}", bank.slot());
-    Ok((
-        bank,
-        RebuiltBankInfo {
-            duplicates_lt_hash: info.duplicates_lt_hash,
-        },
-    ))
+    Ok(bank)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -644,12 +653,14 @@ fn rebuild_bank_from_snapshot(
     runtime_config: &RuntimeConfig,
     debug_keys: Option<Arc<HashSet<Pubkey>>>,
     additional_builtins: Option<&[BuiltinPrototype]>,
+    account_secondary_indexes: AccountSecondaryIndexes,
     limit_load_slot_count_from_snapshot: Option<usize>,
+    shrink_ratio: AccountShrinkThreshold,
     verify_index: bool,
     accounts_db_config: Option<AccountsDbConfig>,
     accounts_update_notifier: Option<AccountsUpdateNotifier>,
     exit: Arc<AtomicBool>,
-) -> snapshot_utils::Result<(Bank, RebuiltBankInfo)> {
+) -> snapshot_utils::Result<Bank> {
     info!(
         "Rebuilding bank from snapshot {}",
         bank_snapshot.snapshot_dir.display(),
@@ -660,7 +671,7 @@ fn rebuild_bank_from_snapshot(
         incremental_snapshot_root_file_path: None,
     };
 
-    let (bank, info) = deserialize_snapshot_data_files(&snapshot_root_paths, |snapshot_streams| {
+    let bank = deserialize_snapshot_data_files(&snapshot_root_paths, |snapshot_streams| {
         Ok(bank_from_streams(
             snapshot_streams,
             account_paths,
@@ -669,7 +680,9 @@ fn rebuild_bank_from_snapshot(
             runtime_config,
             debug_keys,
             additional_builtins,
+            account_secondary_indexes,
             limit_load_slot_count_from_snapshot,
+            shrink_ratio,
             verify_index,
             accounts_db_config,
             accounts_update_notifier,
@@ -689,12 +702,7 @@ fn rebuild_bank_from_snapshot(
     bank.status_cache.write().unwrap().append(&slot_deltas);
 
     info!("Rebuilt bank for slot: {}", bank.slot());
-    Ok((
-        bank,
-        RebuiltBankInfo {
-            duplicates_lt_hash: info.duplicates_lt_hash,
-        },
-    ))
+    Ok(bank)
 }
 
 /// Verify that the snapshot's slot deltas are not corrupt/invalid
@@ -898,16 +906,10 @@ fn bank_to_full_snapshot_archive_with(
     archive_format: ArchiveFormat,
 ) -> snapshot_utils::Result<FullSnapshotArchiveInfo> {
     assert!(bank.is_complete());
-    // set accounts-db's latest full snapshot slot here to ensure zero lamport
-    // accounts are handled properly.
-    bank.rc
-        .accounts
-        .accounts_db
-        .set_latest_full_snapshot_slot(bank.slot());
     bank.squash(); // Bank may not be a root
-    bank.rehash(); // Bank may have been manually modified by the caller
+    bank.rehash(); // Bank accounts may have been manually modified by the caller
     bank.force_flush_accounts_cache();
-    bank.clean_accounts();
+    bank.clean_accounts(Some(bank.slot()));
     let calculated_accounts_hash =
         bank.update_accounts_hash(CalcAccountsHashDataSource::Storages, false, false);
 
@@ -961,16 +963,10 @@ pub fn bank_to_incremental_snapshot_archive(
 
     assert!(bank.is_complete());
     assert!(bank.slot() > full_snapshot_slot);
-    // set accounts-db's latest full snapshot slot here to ensure zero lamport
-    // accounts are handled properly.
-    bank.rc
-        .accounts
-        .accounts_db
-        .set_latest_full_snapshot_slot(full_snapshot_slot);
     bank.squash(); // Bank may not be a root
-    bank.rehash(); // Bank may have been manually modified by the caller
+    bank.rehash(); // Bank accounts may have been manually modified by the caller
     bank.force_flush_accounts_cache();
-    bank.clean_accounts();
+    bank.clean_accounts(Some(full_snapshot_slot));
     let calculated_incremental_accounts_hash =
         bank.update_incremental_accounts_hash(full_snapshot_slot);
 
@@ -1039,7 +1035,7 @@ mod tests {
     use {
         super::*,
         crate::{
-            bank::{tests::create_simple_test_bank, BankTestConfig},
+            bank::tests::create_simple_test_bank,
             bank_forks::BankForks,
             genesis_utils,
             snapshot_config::SnapshotConfig,
@@ -1166,7 +1162,9 @@ mod tests {
             &RuntimeConfig::default(),
             None,
             None,
+            AccountSecondaryIndexes::default(),
             None,
+            AccountShrinkThreshold::default(),
             false,
             false,
             false,
@@ -1278,7 +1276,9 @@ mod tests {
             &RuntimeConfig::default(),
             None,
             None,
+            AccountSecondaryIndexes::default(),
             None,
+            AccountShrinkThreshold::default(),
             false,
             false,
             false,
@@ -1408,7 +1408,9 @@ mod tests {
             &RuntimeConfig::default(),
             None,
             None,
+            AccountSecondaryIndexes::default(),
             None,
+            AccountShrinkThreshold::default(),
             false,
             false,
             false,
@@ -1528,7 +1530,9 @@ mod tests {
             &RuntimeConfig::default(),
             None,
             None,
+            AccountSecondaryIndexes::default(),
             None,
+            AccountShrinkThreshold::default(),
             false,
             false,
             false,
@@ -1584,8 +1588,9 @@ mod tests {
         let (bank0, bank_forks) = Bank::new_with_paths_for_tests(
             &genesis_config,
             Arc::<RuntimeConfig>::default(),
-            BankTestConfig::default(),
             vec![accounts_dir.clone()],
+            AccountSecondaryIndexes::default(),
+            AccountShrinkThreshold::default(),
         )
         .wrap_with_bank_forks_for_tests();
         bank0
@@ -1664,7 +1669,9 @@ mod tests {
             &RuntimeConfig::default(),
             None,
             None,
+            AccountSecondaryIndexes::default(),
             None,
+            AccountShrinkThreshold::default(),
             false,
             false,
             false,
@@ -1700,7 +1707,7 @@ mod tests {
 
         // Ensure account1 has been cleaned/purged from everywhere
         bank4.squash();
-        bank4.clean_accounts();
+        bank4.clean_accounts(Some(full_snapshot_slot));
         assert!(
             bank4.get_account_modified_slot(&key1.pubkey()).is_none(),
             "Ensure Account1 has been cleaned and purged from AccountsDb"
@@ -1728,7 +1735,9 @@ mod tests {
             &RuntimeConfig::default(),
             None,
             None,
+            AccountSecondaryIndexes::default(),
             None,
+            AccountShrinkThreshold::default(),
             false,
             false,
             false,
@@ -2064,7 +2073,9 @@ mod tests {
             &RuntimeConfig::default(),
             None,
             None,
+            AccountSecondaryIndexes::default(),
             None,
+            AccountShrinkThreshold::default(),
             false,
             false,
             false,
@@ -2136,7 +2147,9 @@ mod tests {
             &RuntimeConfig::default(),
             None,
             None,
+            AccountSecondaryIndexes::default(),
             None,
+            AccountShrinkThreshold::default(),
             false,
             Some(AccountsDbConfig {
                 storage_access,
@@ -2180,7 +2193,9 @@ mod tests {
             account_paths,
             None,
             None,
+            AccountSecondaryIndexes::default(),
             None,
+            AccountShrinkThreshold::default(),
             false,
             Some(ACCOUNTS_DB_CONFIG_FOR_TESTING),
             None,

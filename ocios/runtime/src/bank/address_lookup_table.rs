@@ -9,7 +9,6 @@ use {
         },
         transaction::AddressLoader,
     },
-    solana_svm_transaction::message_address_table_lookup::SVMMessageAddressTableLookup,
 };
 
 fn into_address_loader_error(err: AddressLookupError) -> AddressLoaderError {
@@ -28,12 +27,8 @@ impl AddressLoader for &Bank {
         self,
         address_table_lookups: &[MessageAddressTableLookup],
     ) -> Result<LoadedAddresses, AddressLoaderError> {
-        self.load_addresses_from_ref(
-            address_table_lookups
-                .iter()
-                .map(SVMMessageAddressTableLookup::from),
-        )
-        .map(|(loaded_addresses, _deactivation_slot)| loaded_addresses)
+        self.load_addresses_from_ref(address_table_lookups.iter())
+            .map(|(loaded_addresses, _deactivation_slot)| loaded_addresses)
     }
 }
 
@@ -42,7 +37,7 @@ impl Bank {
     /// additionally returning the minimum deactivation slot across all referenced ALTs
     pub fn load_addresses_from_ref<'a>(
         &self,
-        address_table_lookups: impl Iterator<Item = SVMMessageAddressTableLookup<'a>>,
+        address_table_lookups: impl Iterator<Item = &'a MessageAddressTableLookup>,
     ) -> Result<(LoadedAddresses, Slot), AddressLoaderError> {
         let slot_hashes = self
             .transaction_processor
@@ -51,20 +46,22 @@ impl Bank {
             .map_err(|_| AddressLoaderError::SlotHashesSysvarNotFound)?;
 
         let mut deactivation_slot = u64::MAX;
-        let mut loaded_addresses = LoadedAddresses::default();
-        for address_table_lookup in address_table_lookups {
-            deactivation_slot = deactivation_slot.min(
+        let loaded_addresses = address_table_lookups
+            .map(|address_table_lookup| {
                 self.rc
                     .accounts
-                    .load_lookup_table_addresses_into(
+                    .load_lookup_table_addresses(
                         &self.ancestors,
                         address_table_lookup,
                         &slot_hashes,
-                        &mut loaded_addresses,
                     )
-                    .map_err(into_address_loader_error)?,
-            );
-        }
+                    .map(|(loaded_addresses, table_deactivation_slot)| {
+                        deactivation_slot = deactivation_slot.min(table_deactivation_slot);
+                        loaded_addresses
+                    })
+                    .map_err(into_address_loader_error)
+            })
+            .collect::<Result<_, _>>()?;
 
         Ok((loaded_addresses, deactivation_slot))
     }

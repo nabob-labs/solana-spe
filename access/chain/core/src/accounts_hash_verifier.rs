@@ -1,7 +1,6 @@
 //! Service to calculate accounts hashes
 
 use {
-    crate::snapshot_packager_service::PendingSnapshotPackages,
     crossbeam_channel::{Receiver, Sender},
     solana_accounts_db::{
         accounts_db::CalcAccountsHashKind,
@@ -25,7 +24,7 @@ use {
         io::Result as IoResult,
         sync::{
             atomic::{AtomicBool, Ordering},
-            Arc, Mutex,
+            Arc,
         },
         thread::{self, Builder, JoinHandle},
         time::Duration,
@@ -40,7 +39,7 @@ impl AccountsHashVerifier {
     pub fn new(
         accounts_package_sender: Sender<AccountsPackage>,
         accounts_package_receiver: Receiver<AccountsPackage>,
-        pending_snapshot_packages: Arc<Mutex<PendingSnapshotPackages>>,
+        snapshot_package_sender: Option<Sender<SnapshotPackage>>,
         exit: Arc<AtomicBool>,
         snapshot_config: SnapshotConfig,
     ) -> Self {
@@ -72,14 +71,12 @@ impl AccountsHashVerifier {
 
                     let (result, handling_time_us) = measure_us!(Self::process_accounts_package(
                         accounts_package,
-                        &pending_snapshot_packages,
+                        snapshot_package_sender.as_ref(),
                         &snapshot_config,
+                        &exit,
                     ));
                     if let Err(err) = result {
-                        error!(
-                            "Stopping AccountsHashVerifier! Fatal error while processing accounts \
-                             package: {err}"
-                        );
+                        error!("Stopping AccountsHashVerifier! Fatal error while processing accounts package: {err}");
                         exit.store(true, Ordering::Relaxed);
                         break;
                     }
@@ -147,8 +144,7 @@ impl AccountsHashVerifier {
                     .count();
                 assert!(
                     num_eah_packages <= 1,
-                    "Only a single EAH accounts package is allowed at a time! count: \
-                     {num_eah_packages}"
+                    "Only a single EAH accounts package is allowed at a time! count: {num_eah_packages}"
                 );
 
                 // Get the two highest priority requests, `y` and `z`.
@@ -212,8 +208,9 @@ impl AccountsHashVerifier {
     #[allow(clippy::too_many_arguments)]
     fn process_accounts_package(
         accounts_package: AccountsPackage,
-        pending_snapshot_packages: &Mutex<PendingSnapshotPackages>,
+        snapshot_package_sender: Option<&Sender<SnapshotPackage>>,
         snapshot_config: &SnapshotConfig,
+        exit: &AtomicBool,
     ) -> IoResult<()> {
         let (accounts_hash_kind, bank_incremental_snapshot_persistence) =
             Self::calculate_and_verify_accounts_hash(&accounts_package, snapshot_config)?;
@@ -224,10 +221,11 @@ impl AccountsHashVerifier {
 
         Self::submit_for_packaging(
             accounts_package,
-            pending_snapshot_packages,
+            snapshot_package_sender,
             snapshot_config,
             accounts_hash_kind,
             bank_incremental_snapshot_persistence,
+            exit,
         );
 
         Ok(())
@@ -265,12 +263,12 @@ impl AccountsHashVerifier {
                         accounts_db.get_accounts_hash(base_slot)
                     else {
                         panic!(
-                            "incremental snapshot requires accounts hash and capitalization from \
-                             the full snapshot it is based on\n\
-                             package: {accounts_package:?}\n\
-                             accounts hashes: {:?}\n\
-                             incremental accounts hashes: {:?}\n\
-                             full snapshot archives: {:?}\n\
+                            "incremental snapshot requires accounts hash and capitalization \
+                             from the full snapshot it is based on \n\
+                             package: {accounts_package:?} \n\
+                             accounts hashes: {:?} \n\
+                             incremental accounts hashes: {:?} \n\
+                             full snapshot archives: {:?} \n\
                              bank snapshots: {:?}",
                             accounts_db.get_accounts_hashes(),
                             accounts_db.get_incremental_accounts_hashes(),
@@ -335,11 +333,19 @@ impl AccountsHashVerifier {
             let calculate_accounts_hash_config = CalcAccountsHashConfig {
                 // since we're going to assert, use the fg thread pool to go faster
                 use_bg_thread_pool: false,
+                ..calculate_accounts_hash_config
+            };
+            let result_with_index = accounts_package
+                .accounts
+                .accounts_db
+                .calculate_accounts_hash_from_index(slot, &calculate_accounts_hash_config);
+            info!("hash calc with index: {slot}, {result_with_index:?}",);
+            let calculate_accounts_hash_config = CalcAccountsHashConfig {
                 // now that we've failed, store off the failing contents that produced a bad capitalization
                 store_detailed_debug_info_on_failure: true,
                 ..calculate_accounts_hash_config
             };
-            let second_accounts_hash = accounts_package
+            _ = accounts_package
                 .accounts
                 .accounts_db
                 .calculate_accounts_hash(
@@ -347,13 +353,12 @@ impl AccountsHashVerifier {
                     &sorted_storages,
                     HashStats::default(),
                 );
-            panic!(
-                "accounts hash capitalization mismatch: expected {}, but calculated {} (then \
-                 recalculated {})",
-                accounts_package.expected_capitalization, lamports, second_accounts_hash.1,
-            );
         }
 
+        assert_eq!(
+            accounts_package.expected_capitalization, lamports,
+            "accounts hash capitalization mismatch"
+        );
         if let Some(expected_hash) = accounts_package.accounts_hash_for_testing {
             assert_eq!(expected_hash, accounts_hash);
         };
@@ -463,10 +468,11 @@ impl AccountsHashVerifier {
 
     fn submit_for_packaging(
         accounts_package: AccountsPackage,
-        pending_snapshot_packages: &Mutex<PendingSnapshotPackages>,
+        snapshot_package_sender: Option<&Sender<SnapshotPackage>>,
         snapshot_config: &SnapshotConfig,
         accounts_hash_kind: AccountsHashKind,
         bank_incremental_snapshot_persistence: Option<BankIncrementalSnapshotPersistence>,
+        exit: &AtomicBool,
     ) {
         if !snapshot_config.should_generate_snapshots()
             || !matches!(
@@ -476,16 +482,24 @@ impl AccountsHashVerifier {
         {
             return;
         }
+        let Some(snapshot_package_sender) = snapshot_package_sender else {
+            return;
+        };
 
         let snapshot_package = SnapshotPackage::new(
             accounts_package,
             accounts_hash_kind,
             bank_incremental_snapshot_persistence,
         );
-        pending_snapshot_packages
-            .lock()
-            .unwrap()
-            .push(snapshot_package);
+        let send_result = snapshot_package_sender.send(snapshot_package);
+        if let Err(err) = send_result {
+            // Sending the snapshot package should never fail *unless* we're shutting down.
+            let snapshot_package = &err.0;
+            assert!(
+                exit.load(Ordering::Relaxed),
+                "Failed to send snapshot package: {err}, {snapshot_package:?}"
+            );
+        }
     }
 
     pub fn join(self) -> thread::Result<()> {

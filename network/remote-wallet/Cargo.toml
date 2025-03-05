@@ -17,7 +17,6 @@ num-traits = { workspace = true }
 parking_lot = { workspace = true }
 qstring = { workspace = true }
 semver = { workspace = true }
-solana-derivation-path = { workspace = true }
 solana-sdk = { workspace = true }
 thiserror = { workspace = true }
 uriparse = { workspace = true }

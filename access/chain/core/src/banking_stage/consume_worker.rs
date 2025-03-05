@@ -80,10 +80,7 @@ impl ConsumeWorker {
             .fetch_add(get_bank_us, Ordering::Relaxed);
 
         for work in try_drain_iter(work, &self.consume_receiver) {
-            if bank.is_complete() || {
-                // check if the bank got interrupted before completion
-                self.get_consume_bank_id() != Some(bank.bank_id())
-            } {
+            if bank.is_complete() {
                 let (maybe_new_bank, get_bank_us) = measure_us!(self.get_consume_bank());
                 if let Some(new_bank) = maybe_new_bank {
                     self.metrics
@@ -130,11 +127,6 @@ impl ConsumeWorker {
         self.leader_bank_notifier
             .get_or_wait_for_in_progress(Duration::from_millis(50))
             .upgrade()
-    }
-
-    /// Try to get the id for the bank that should be used for consuming
-    fn get_consume_bank_id(&self) -> Option<u64> {
-        self.leader_bank_notifier.get_current_bank_id()
     }
 
     /// Retry current batch and all outstanding batches.
@@ -189,7 +181,7 @@ pub(crate) struct ConsumeWorkerMetrics {
 impl ConsumeWorkerMetrics {
     /// Report and reset metrics iff the interval has elapsed and the worker did some work.
     pub fn maybe_report_and_reset(&self) {
-        const REPORT_INTERVAL_MS: u64 = 20;
+        const REPORT_INTERVAL_MS: u64 = 1000;
         if self.interval.should_update(REPORT_INTERVAL_MS)
             && self.has_data.swap(false, Ordering::Relaxed)
         {
@@ -232,7 +224,9 @@ impl ConsumeWorkerMetrics {
     fn update_on_execute_and_commit_transactions_output(
         &self,
         ExecuteAndCommitTransactionsOutput {
-            transaction_counts,
+            transactions_attempted_execution_count,
+            executed_transactions_count,
+            executed_with_successful_result_count,
             retryable_transaction_indexes,
             execute_and_commit_timings,
             error_counters,
@@ -242,20 +236,14 @@ impl ConsumeWorkerMetrics {
         }: &ExecuteAndCommitTransactionsOutput,
     ) {
         self.count_metrics
-            .transactions_attempted_processing_count
-            .fetch_add(
-                transaction_counts.attempted_processing_count,
-                Ordering::Relaxed,
-            );
+            .transactions_attempted_execution_count
+            .fetch_add(*transactions_attempted_execution_count, Ordering::Relaxed);
         self.count_metrics
-            .processed_transactions_count
-            .fetch_add(transaction_counts.processed_count, Ordering::Relaxed);
+            .executed_transactions_count
+            .fetch_add(*executed_transactions_count, Ordering::Relaxed);
         self.count_metrics
-            .processed_with_successful_result_count
-            .fetch_add(
-                transaction_counts.processed_with_successful_result_count,
-                Ordering::Relaxed,
-            );
+            .executed_with_successful_result_count
+            .fetch_add(*executed_with_successful_result_count, Ordering::Relaxed);
         self.count_metrics
             .retryable_transaction_count
             .fetch_add(retryable_transaction_indexes.len(), Ordering::Relaxed);
@@ -283,6 +271,7 @@ impl ConsumeWorkerMetrics {
             collect_balances_us,
             load_execute_us,
             freeze_lock_us,
+            last_blockhash_us,
             record_us,
             commit_us,
             find_and_send_votes_us,
@@ -298,6 +287,9 @@ impl ConsumeWorkerMetrics {
         self.timing_metrics
             .freeze_lock_us
             .fetch_add(*freeze_lock_us, Ordering::Relaxed);
+        self.timing_metrics
+            .last_blockhash_us
+            .fetch_add(*last_blockhash_us, Ordering::Relaxed);
         self.timing_metrics
             .record_us
             .fetch_add(*record_us, Ordering::Relaxed);
@@ -414,12 +406,12 @@ impl ConsumeWorkerMetrics {
 }
 
 struct ConsumeWorkerCountMetrics {
-    transactions_attempted_processing_count: AtomicU64,
-    processed_transactions_count: AtomicU64,
-    processed_with_successful_result_count: AtomicU64,
+    transactions_attempted_execution_count: AtomicUsize,
+    executed_transactions_count: AtomicUsize,
+    executed_with_successful_result_count: AtomicUsize,
     retryable_transaction_count: AtomicUsize,
     retryable_expired_bank_count: AtomicUsize,
-    cost_model_throttled_transactions_count: AtomicU64,
+    cost_model_throttled_transactions_count: AtomicUsize,
     min_prioritization_fees: AtomicU64,
     max_prioritization_fees: AtomicU64,
 }
@@ -427,12 +419,12 @@ struct ConsumeWorkerCountMetrics {
 impl Default for ConsumeWorkerCountMetrics {
     fn default() -> Self {
         Self {
-            transactions_attempted_processing_count: AtomicU64::default(),
-            processed_transactions_count: AtomicU64::default(),
-            processed_with_successful_result_count: AtomicU64::default(),
+            transactions_attempted_execution_count: AtomicUsize::default(),
+            executed_transactions_count: AtomicUsize::default(),
+            executed_with_successful_result_count: AtomicUsize::default(),
             retryable_transaction_count: AtomicUsize::default(),
             retryable_expired_bank_count: AtomicUsize::default(),
-            cost_model_throttled_transactions_count: AtomicU64::default(),
+            cost_model_throttled_transactions_count: AtomicUsize::default(),
             min_prioritization_fees: AtomicU64::new(u64::MAX),
             max_prioritization_fees: AtomicU64::default(),
         }
@@ -445,19 +437,19 @@ impl ConsumeWorkerCountMetrics {
             "banking_stage_worker_counts",
             "id" => id,
             (
-                "transactions_attempted_processing_count",
-                self.transactions_attempted_processing_count
+                "transactions_attempted_execution_count",
+                self.transactions_attempted_execution_count
                     .swap(0, Ordering::Relaxed),
                 i64
             ),
             (
-                "processed_transactions_count",
-                self.processed_transactions_count.swap(0, Ordering::Relaxed),
+                "executed_transactions_count",
+                self.executed_transactions_count.swap(0, Ordering::Relaxed),
                 i64
             ),
             (
-                "processed_with_successful_result_count",
-                self.processed_with_successful_result_count
+                "executed_with_successful_result_count",
+                self.executed_with_successful_result_count
                     .swap(0, Ordering::Relaxed),
                 i64
             ),
@@ -498,6 +490,7 @@ struct ConsumeWorkerTimingMetrics {
     collect_balances_us: AtomicU64,
     load_execute_us: AtomicU64,
     freeze_lock_us: AtomicU64,
+    last_blockhash_us: AtomicU64,
     record_us: AtomicU64,
     commit_us: AtomicU64,
     find_and_send_votes_us: AtomicU64,
@@ -528,6 +521,11 @@ impl ConsumeWorkerTimingMetrics {
             (
                 "freeze_lock_us",
                 self.freeze_lock_us.swap(0, Ordering::Relaxed),
+                i64
+            ),
+            (
+                "last_blockhash_us",
+                self.last_blockhash_us.swap(0, Ordering::Relaxed),
                 i64
             ),
             ("record_us", self.record_us.swap(0, Ordering::Relaxed), i64),
@@ -732,7 +730,6 @@ mod tests {
                 MessageHash, SanitizedTransaction, TransactionError, VersionedTransaction,
             },
         },
-        solana_svm_transaction::svm_message::SVMMessage,
         std::{
             collections::HashSet,
             sync::{atomic::AtomicBool, RwLock},
@@ -1128,7 +1125,7 @@ mod tests {
         for tx in &txs {
             bank.process_transaction(&system_transaction::transfer(
                 mint_keypair,
-                &tx.account_keys()[0],
+                &tx.message().account_keys()[0],
                 2,
                 genesis_config.hash(),
             ))

@@ -17,7 +17,7 @@ use {
     tonic::{codegen::InterceptedService, transport::ClientTlsConfig, Request, Status},
 };
 
-#[allow(clippy::all)]
+#[allow(clippy::enum_variant_names)]
 mod google {
     mod rpc {
         include!(concat!(

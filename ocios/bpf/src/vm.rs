@@ -21,19 +21,8 @@ use crate::{
     program::{BuiltinFunction, BuiltinProgram, FunctionRegistry, SBPFVersion},
     static_analysis::{Analysis, TraceLogEntry},
 };
-use std::{collections::BTreeMap, fmt::Debug};
-
-#[cfg(not(feature = "shuttle-test"))]
-use {
-    rand::{thread_rng, Rng},
-    std::sync::Arc,
-};
-
-#[cfg(feature = "shuttle-test")]
-use shuttle::{
-    rand::{thread_rng, Rng},
-    sync::Arc,
-};
+use rand::Rng;
+use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
 
 /// Shift the RUNTIME_ENVIRONMENT_KEY by this many bits to the LSB
 ///
@@ -44,7 +33,7 @@ static RUNTIME_ENVIRONMENT_KEY: std::sync::OnceLock<i32> = std::sync::OnceLock::
 /// Returns (and if not done before generates) the encryption key for the VM pointer
 pub fn get_runtime_environment_key() -> i32 {
     *RUNTIME_ENVIRONMENT_KEY
-        .get_or_init(|| thread_rng().gen::<i32>() >> PROGRAM_ENVIRONMENT_KEY_SHIFT)
+        .get_or_init(|| rand::thread_rng().gen::<i32>() >> PROGRAM_ENVIRONMENT_KEY_SHIFT)
 }
 
 /// VM configuration settings
@@ -78,6 +67,8 @@ pub struct Config {
     pub reject_callx_r10: bool,
     /// Avoid copying read only sections when possible
     pub optimize_rodata: bool,
+    /// Use the new ELF parser
+    pub new_elf_parser: bool,
     /// Use aligned memory mapping
     pub aligned_memory_mapping: bool,
     /// Allow ExecutableCapability::V1
@@ -110,6 +101,7 @@ impl Default for Config {
             external_internal_function_hash_collision: true,
             reject_callx_r10: true,
             optimize_rodata: true,
+            new_elf_parser: true,
             aligned_memory_mapping: true,
             enable_sbpf_v1: true,
             enable_sbpf_v2: true,

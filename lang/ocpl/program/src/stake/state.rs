@@ -1,5 +1,4 @@
 #![allow(clippy::arithmetic_side_effects)]
-#![deny(clippy::wildcard_enum_match_arm)]
 // Remove the following `allow` when `StakeState` is removed, required to avoid
 // warnings from uses of deprecated types during trait derivations.
 #![allow(deprecated)]
@@ -8,15 +7,15 @@
 use borsh::{io, BorshDeserialize, BorshSchema, BorshSerialize};
 use {
     crate::{
+        clock::{Clock, Epoch, UnixTimestamp},
         instruction::InstructionError,
         pubkey::Pubkey,
         stake::{
             instruction::{LockupArgs, StakeError},
             stake_flags::StakeFlags,
         },
-        stake_history::{StakeHistoryEntry, StakeHistoryGetEntry},
+        stake_history::{StakeHistory, StakeHistoryEntry},
     },
-    solana_clock::{Clock, Epoch, UnixTimestamp},
     std::collections::HashSet,
 };
 
@@ -106,23 +105,23 @@ impl StakeState {
 
     pub fn stake(&self) -> Option<Stake> {
         match self {
-            Self::Stake(_meta, stake) => Some(*stake),
-            Self::Uninitialized | Self::Initialized(_) | Self::RewardsPool => None,
+            StakeState::Stake(_meta, stake) => Some(*stake),
+            _ => None,
         }
     }
 
     pub fn delegation(&self) -> Option<Delegation> {
         match self {
-            Self::Stake(_meta, stake) => Some(stake.delegation),
-            Self::Uninitialized | Self::Initialized(_) | Self::RewardsPool => None,
+            StakeState::Stake(_meta, stake) => Some(stake.delegation),
+            _ => None,
         }
     }
 
     pub fn authorized(&self) -> Option<Authorized> {
         match self {
-            Self::Stake(meta, _stake) => Some(meta.authorized),
-            Self::Initialized(meta) => Some(meta.authorized),
-            Self::Uninitialized | Self::RewardsPool => None,
+            StakeState::Stake(meta, _stake) => Some(meta.authorized),
+            StakeState::Initialized(meta) => Some(meta.authorized),
+            _ => None,
         }
     }
 
@@ -132,9 +131,9 @@ impl StakeState {
 
     pub fn meta(&self) -> Option<Meta> {
         match self {
-            Self::Stake(meta, _stake) => Some(*meta),
-            Self::Initialized(meta) => Some(*meta),
-            Self::Uninitialized | Self::RewardsPool => None,
+            StakeState::Stake(meta, _stake) => Some(*meta),
+            StakeState::Initialized(meta) => Some(*meta),
+            _ => None,
         }
     }
 }
@@ -209,37 +208,30 @@ impl StakeStateV2 {
 
     pub fn stake(&self) -> Option<Stake> {
         match self {
-            Self::Stake(_meta, stake, _stake_flags) => Some(*stake),
-            Self::Uninitialized | Self::Initialized(_) | Self::RewardsPool => None,
-        }
-    }
-
-    pub fn stake_ref(&self) -> Option<&Stake> {
-        match self {
-            Self::Stake(_meta, stake, _stake_flags) => Some(stake),
-            Self::Uninitialized | Self::Initialized(_) | Self::RewardsPool => None,
+            StakeStateV2::Stake(_meta, stake, _stake_flags) => Some(*stake),
+            _ => None,
         }
     }
 
     pub fn delegation(&self) -> Option<Delegation> {
         match self {
-            Self::Stake(_meta, stake, _stake_flags) => Some(stake.delegation),
-            Self::Uninitialized | Self::Initialized(_) | Self::RewardsPool => None,
+            StakeStateV2::Stake(_meta, stake, _stake_flags) => Some(stake.delegation),
+            _ => None,
         }
     }
 
     pub fn delegation_ref(&self) -> Option<&Delegation> {
         match self {
             StakeStateV2::Stake(_meta, stake, _stake_flags) => Some(&stake.delegation),
-            Self::Uninitialized | Self::Initialized(_) | Self::RewardsPool => None,
+            _ => None,
         }
     }
 
     pub fn authorized(&self) -> Option<Authorized> {
         match self {
-            Self::Stake(meta, _stake, _stake_flags) => Some(meta.authorized),
-            Self::Initialized(meta) => Some(meta.authorized),
-            Self::Uninitialized | Self::RewardsPool => None,
+            StakeStateV2::Stake(meta, _stake, _stake_flags) => Some(meta.authorized),
+            StakeStateV2::Initialized(meta) => Some(meta.authorized),
+            _ => None,
         }
     }
 
@@ -249,9 +241,9 @@ impl StakeStateV2 {
 
     pub fn meta(&self) -> Option<Meta> {
         match self {
-            Self::Stake(meta, _stake, _stake_flags) => Some(*meta),
-            Self::Initialized(meta) => Some(*meta),
-            Self::Uninitialized | Self::RewardsPool => None,
+            StakeStateV2::Stake(meta, _stake, _stake_flags) => Some(*meta),
+            StakeStateV2::Initialized(meta) => Some(*meta),
+            _ => None,
         }
     }
 }
@@ -376,15 +368,10 @@ impl Authorized {
         signers: &HashSet<Pubkey>,
         stake_authorize: StakeAuthorize,
     ) -> Result<(), InstructionError> {
-        let authorized_signer = match stake_authorize {
-            StakeAuthorize::Staker => &self.staker,
-            StakeAuthorize::Withdrawer => &self.withdrawer,
-        };
-
-        if signers.contains(authorized_signer) {
-            Ok(())
-        } else {
-            Err(InstructionError::MissingRequiredSignature)
+        match stake_authorize {
+            StakeAuthorize::Staker if signers.contains(&self.staker) => Ok(()),
+            StakeAuthorize::Withdrawer if signers.contains(&self.withdrawer) => Ok(()),
+            _ => Err(InstructionError::MissingRequiredSignature),
         }
     }
 
@@ -609,9 +596,9 @@ pub struct Delegation {
     pub voter_pubkey: Pubkey,
     /// activated stake amount, set at delegate() time
     pub stake: u64,
-    /// epoch at which this stake was activated, ocp::Epoch::MAX if is a bootstrap stake
+    /// epoch at which this stake was activated, std::Epoch::MAX if is a bootstrap stake
     pub activation_epoch: Epoch,
-    /// epoch the stake was deactivated, ocp::Epoch::MAX if not deactivated
+    /// epoch the stake was deactivated, std::Epoch::MAX if not deactivated
     pub deactivation_epoch: Epoch,
     /// how much stake we can activate per-epoch as a fraction of currently effective stake
     #[deprecated(
@@ -647,10 +634,10 @@ impl Delegation {
         self.activation_epoch == u64::MAX
     }
 
-    pub fn stake<T: StakeHistoryGetEntry>(
+    pub fn stake(
         &self,
         epoch: Epoch,
-        history: &T,
+        history: &StakeHistory,
         new_rate_activation_epoch: Option<Epoch>,
     ) -> u64 {
         self.stake_activating_and_deactivating(epoch, history, new_rate_activation_epoch)
@@ -658,10 +645,10 @@ impl Delegation {
     }
 
     #[allow(clippy::comparison_chain)]
-    pub fn stake_activating_and_deactivating<T: StakeHistoryGetEntry>(
+    pub fn stake_activating_and_deactivating(
         &self,
         target_epoch: Epoch,
-        history: &T,
+        history: &StakeHistory,
         new_rate_activation_epoch: Option<Epoch>,
     ) -> StakeActivationStatus {
         // first, calculate an effective and activating stake
@@ -683,7 +670,7 @@ impl Delegation {
             // can only deactivate what's activated
             StakeActivationStatus::with_deactivating(effective_stake)
         } else if let Some((history, mut prev_epoch, mut prev_cluster_stake)) = history
-            .get_entry(self.deactivation_epoch)
+            .get(self.deactivation_epoch)
             .map(|cluster_stake_at_deactivation_epoch| {
                 (
                     history,
@@ -728,7 +715,7 @@ impl Delegation {
                 if current_epoch >= target_epoch {
                     break;
                 }
-                if let Some(current_cluster_stake) = history.get_entry(current_epoch) {
+                if let Some(current_cluster_stake) = history.get(current_epoch) {
                     prev_epoch = current_epoch;
                     prev_cluster_stake = current_cluster_stake;
                 } else {
@@ -745,10 +732,10 @@ impl Delegation {
     }
 
     // returned tuple is (effective, activating) stake
-    fn stake_and_activating<T: StakeHistoryGetEntry>(
+    fn stake_and_activating(
         &self,
         target_epoch: Epoch,
-        history: &T,
+        history: &StakeHistory,
         new_rate_activation_epoch: Option<Epoch>,
     ) -> (u64, u64) {
         let delegated_stake = self.stake;
@@ -767,7 +754,7 @@ impl Delegation {
             // not yet enabled
             (0, 0)
         } else if let Some((history, mut prev_epoch, mut prev_cluster_stake)) = history
-            .get_entry(self.activation_epoch)
+            .get(self.activation_epoch)
             .map(|cluster_stake_at_activation_epoch| {
                 (
                     history,
@@ -813,7 +800,7 @@ impl Delegation {
                 if current_epoch >= target_epoch || current_epoch >= self.deactivation_epoch {
                     break;
                 }
-                if let Some(current_cluster_stake) = history.get_entry(current_epoch) {
+                if let Some(current_cluster_stake) = history.get(current_epoch) {
                     prev_epoch = current_epoch;
                     prev_cluster_stake = current_cluster_stake;
                 } else {
@@ -922,10 +909,10 @@ pub struct Stake {
 }
 
 impl Stake {
-    pub fn stake<T: StakeHistoryGetEntry>(
+    pub fn stake(
         &self,
         epoch: Epoch,
-        history: &T,
+        history: &StakeHistory,
         new_rate_activation_epoch: Option<Epoch>,
     ) -> u64 {
         self.delegation
@@ -1091,7 +1078,6 @@ mod test {
             },
             lockup: Lockup::default(),
         }));
-        #[allow(deprecated)]
         check_borsh_serialization(StakeStateV2::Stake(
             Meta {
                 rent_exempt_reserve: 1,
@@ -1173,7 +1159,6 @@ mod test {
             assert_eq!(bincode_serialized[FLAG_OFFSET], expected);
             assert_eq!(borsh_serialized[FLAG_OFFSET], expected);
         };
-        #[allow(deprecated)]
         check_flag(
             StakeFlags::MUST_FULLY_ACTIVATE_BEFORE_DEACTIVATION_IS_PERMITTED,
             1,

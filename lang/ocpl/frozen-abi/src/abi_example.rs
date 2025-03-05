@@ -235,7 +235,7 @@ impl<T: BlockType> AbiExample for BitVec<T> {
     }
 }
 
-impl<T: BlockType> TransparentAsHelper for BitVec<T> {}
+impl<T: BlockType> IgnoreAsHelper for BitVec<T> {}
 // This (EvenAsOpaque) marker trait is needed for BitVec because we can't impl AbiExample for its
 // private type:
 // thread '...TestBitVec_frozen_abi...' panicked at ...:
@@ -243,14 +243,6 @@ impl<T: BlockType> TransparentAsHelper for BitVec<T> {}
 //   bv::bit_vec::inner::Inner<u64>
 impl<T: BlockType> EvenAsOpaque for BitVec<T> {
     const TYPE_NAME_MATCHER: &'static str = "bv::bit_vec::inner::";
-}
-
-use serde_with::ser::SerializeAsWrap;
-impl<'a, T: ?Sized, U: ?Sized> TransparentAsHelper for SerializeAsWrap<'a, T, U> {}
-// This (EvenAsOpaque) marker trait is needed for serde_with's serde_as(...) because this struct is
-// basically a wrapper struct.
-impl<'a, T: ?Sized, U: ?Sized> EvenAsOpaque for SerializeAsWrap<'a, T, U> {
-    const TYPE_NAME_MATCHER: &'static str = "serde_with::ser::SerializeAsWrap<";
 }
 
 pub(crate) fn normalize_type_name(type_name: &str) -> String {
@@ -348,7 +340,7 @@ impl<T: AbiExample> AbiExample for std::sync::Arc<T> {
     }
 }
 
-// When T is weakly owned by the likes of `ocp::{sync, rc}::Weak`s, we need to uphold the ownership
+// When T is weakly owned by the likes of `std::{sync, rc}::Weak`s, we need to uphold the ownership
 // of T in some way at least during abi digesting... However, there's no easy way. Stashing them
 // into static is confronted with Send/Sync issue. Stashing them into thread_local is confronted
 // with not enough (T + 'static) lifetime bound..  So, just leak the examples. This should be
@@ -523,12 +515,12 @@ impl AbiExample for IpAddr {
 // User-defined enums usually just need to impl this with namesake derive macro (AbiEnumVisitor).
 //
 // Note that sometimes this indirection doesn't work for various reasons. For that end, there are
-// hacks with marker traits (TransparentAsHelper/EvenAsOpaque).
+// hacks with marker traits (IgnoreAsHelper/EvenAsOpaque).
 pub trait AbiEnumVisitor: Serialize {
     fn visit_for_abi(&self, digester: &mut AbiDigester) -> DigestResult;
 }
 
-pub trait TransparentAsHelper {}
+pub trait IgnoreAsHelper {}
 pub trait EvenAsOpaque {
     const TYPE_NAME_MATCHER: &'static str;
 }
@@ -542,11 +534,11 @@ impl<T: Serialize + ?Sized> AbiEnumVisitor for T {
     }
 }
 
-impl<T: Serialize + AbiExample> AbiEnumVisitor for T {
+impl<T: Serialize + ?Sized + AbiExample> AbiEnumVisitor for T {
     default fn visit_for_abi(&self, digester: &mut AbiDigester) -> DigestResult {
         info!("AbiEnumVisitor for T: {}", type_name::<T>());
         // not calling self.serialize(...) is intentional here as the most generic impl
-        // consider TransparentAsHelper and EvenAsOpaque if you're stuck on this....
+        // consider IgnoreAsHelper and EvenAsOpaque if you're stuck on this....
         T::example()
             .serialize(digester.create_new())
             .map_err(DigestError::wrap_by_type::<T>)
@@ -566,12 +558,9 @@ impl<T: Serialize + ?Sized + AbiEnumVisitor> AbiEnumVisitor for &T {
 
 // force to call self.serialize instead of T::visit_for_abi() for serialization
 // helper structs like ad-hoc iterator `struct`s
-impl<T: Serialize + TransparentAsHelper> AbiEnumVisitor for &T {
+impl<T: Serialize + IgnoreAsHelper> AbiEnumVisitor for &T {
     default fn visit_for_abi(&self, digester: &mut AbiDigester) -> DigestResult {
-        info!(
-            "AbiEnumVisitor for (TransparentAsHelper): {}",
-            type_name::<T>()
-        );
+        info!("AbiEnumVisitor for (IgnoreAsHelper): {}", type_name::<T>());
         self.serialize(digester.create_new())
             .map_err(DigestError::wrap_by_type::<T>)
     }
@@ -579,7 +568,7 @@ impl<T: Serialize + TransparentAsHelper> AbiEnumVisitor for &T {
 
 // force to call self.serialize instead of T::visit_for_abi() to work around the
 // inability of implementing AbiExample for private structs from other crates
-impl<T: Serialize + TransparentAsHelper + EvenAsOpaque> AbiEnumVisitor for &T {
+impl<T: Serialize + IgnoreAsHelper + EvenAsOpaque> AbiEnumVisitor for &T {
     default fn visit_for_abi(&self, digester: &mut AbiDigester) -> DigestResult {
         let type_name = type_name::<T>();
         let matcher = T::TYPE_NAME_MATCHER;

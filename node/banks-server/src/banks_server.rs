@@ -8,17 +8,16 @@ use {
         TransactionSimulationDetails, TransactionStatus,
     },
     solana_client::connection_cache::ConnectionCache,
-    solana_feature_set::{move_precompile_verification_to_svm, FeatureSet},
     solana_runtime::{
         bank::{Bank, TransactionSimulationResult},
         bank_forks::BankForks,
         commitment::BlockCommitmentCache,
-        verify_precompiles::verify_precompiles,
     },
     solana_sdk::{
         account::Account,
         clock::Slot,
         commitment_config::CommitmentLevel,
+        feature_set::FeatureSet,
         hash::Hash,
         message::{Message, SanitizedMessage},
         pubkey::Pubkey,
@@ -29,6 +28,7 @@ use {
         send_transaction_service::{SendTransactionService, TransactionInfo},
         tpu_info::NullTpuInfo,
     },
+    solana_svm::transaction_results::TransactionExecutionResult,
     std::{
         io,
         net::{Ipv4Addr, SocketAddr},
@@ -164,13 +164,7 @@ fn verify_transaction(
     feature_set: &Arc<FeatureSet>,
 ) -> transaction::Result<()> {
     transaction.verify()?;
-
-    let move_precompile_verification_to_svm =
-        feature_set.is_active(&move_precompile_verification_to_svm::id());
-    if !move_precompile_verification_to_svm {
-        verify_precompiles(transaction, feature_set)?;
-    }
-
+    transaction.verify_precompiles(feature_set)?;
     Ok(())
 }
 
@@ -356,18 +350,20 @@ impl Banks for BanksServer {
     ) -> BanksTransactionResultWithMetadata {
         let bank = self.bank_forks.read().unwrap().working_bank();
         match bank.process_transaction_with_metadata(transaction) {
-            Err(error) => BanksTransactionResultWithMetadata {
+            TransactionExecutionResult::NotExecuted(error) => BanksTransactionResultWithMetadata {
                 result: Err(error),
                 metadata: None,
             },
-            Ok(details) => BanksTransactionResultWithMetadata {
-                result: details.status,
-                metadata: Some(TransactionMetadata {
-                    compute_units_consumed: details.executed_units,
-                    log_messages: details.log_messages.unwrap_or_default(),
-                    return_data: details.return_data,
-                }),
-            },
+            TransactionExecutionResult::Executed { details, .. } => {
+                BanksTransactionResultWithMetadata {
+                    result: details.status,
+                    metadata: Some(TransactionMetadata {
+                        compute_units_consumed: details.executed_units,
+                        log_messages: details.log_messages.unwrap_or_default(),
+                        return_data: details.return_data,
+                    }),
+                }
+            }
         }
     }
 

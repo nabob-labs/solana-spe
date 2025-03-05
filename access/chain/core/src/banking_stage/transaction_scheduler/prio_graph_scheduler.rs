@@ -18,26 +18,11 @@ use {
     },
     crossbeam_channel::{Receiver, Sender, TryRecvError},
     itertools::izip,
-    prio_graph::{AccessKind, GraphNode, PrioGraph},
+    prio_graph::{AccessKind, PrioGraph},
     solana_cost_model::block_cost_limits::MAX_BLOCK_UNITS,
     solana_measure::measure_us,
     solana_sdk::{pubkey::Pubkey, saturating_add_assign, transaction::SanitizedTransaction},
 };
-
-#[inline(always)]
-fn passthrough_priority(
-    id: &TransactionPriorityId,
-    _graph_node: &GraphNode<TransactionPriorityId>,
-) -> TransactionPriorityId {
-    *id
-}
-
-type SchedulerPrioGraph = PrioGraph<
-    TransactionPriorityId,
-    Pubkey,
-    TransactionPriorityId,
-    fn(&TransactionPriorityId, &GraphNode<TransactionPriorityId>) -> TransactionPriorityId,
->;
 
 pub(crate) struct PrioGraphScheduler {
     in_flight_tracker: InFlightTracker,
@@ -45,7 +30,6 @@ pub(crate) struct PrioGraphScheduler {
     consume_work_senders: Vec<Sender<ConsumeWork>>,
     finished_consume_work_receiver: Receiver<FinishedConsumeWork>,
     look_ahead_window_size: usize,
-    prio_graph: SchedulerPrioGraph,
 }
 
 impl PrioGraphScheduler {
@@ -60,7 +44,6 @@ impl PrioGraphScheduler {
             consume_work_senders,
             finished_consume_work_receiver,
             look_ahead_window_size: 256,
-            prio_graph: PrioGraph::new(passthrough_priority),
         }
     }
 
@@ -111,6 +94,7 @@ impl PrioGraphScheduler {
         // these transactions to be scheduled before them.
         let mut unschedulable_ids = Vec::new();
         let mut blocking_locks = ReadWriteAccountSet::default();
+        let mut prio_graph = PrioGraph::new(|id: &TransactionPriorityId, _graph_node| *id);
 
         // Track metrics on filter.
         let mut num_filtered_out: usize = 0;
@@ -166,7 +150,7 @@ impl PrioGraphScheduler {
 
         // Create the initial look-ahead window.
         // Check transactions against filter, remove from container if it fails.
-        chunked_pops(container, &mut self.prio_graph, &mut window_budget);
+        chunked_pops(container, &mut prio_graph, &mut window_budget);
 
         let mut unblock_this_batch =
             Vec::with_capacity(self.consume_work_senders.len() * TARGET_NUM_TRANSACTIONS_PER_BATCH);
@@ -177,11 +161,11 @@ impl PrioGraphScheduler {
         let mut num_unschedulable: usize = 0;
         while num_scheduled < MAX_TRANSACTIONS_SCANNED_PER_SCHEDULING_PASS {
             // If nothing is in the main-queue of the `PrioGraph` then there's nothing left to schedule.
-            if self.prio_graph.is_empty() {
+            if prio_graph.is_empty() {
                 break;
             }
 
-            while let Some(id) = self.prio_graph.pop() {
+            while let Some(id) = prio_graph.pop() {
                 num_scanned += 1;
                 unblock_this_batch.push(id);
 
@@ -260,11 +244,11 @@ impl PrioGraphScheduler {
 
             // Refresh window budget and do chunked pops
             saturating_add_assign!(window_budget, unblock_this_batch.len());
-            chunked_pops(container, &mut self.prio_graph, &mut window_budget);
+            chunked_pops(container, &mut prio_graph, &mut window_budget);
 
             // Unblock all transactions that were blocked by the transactions that were just sent.
             for id in unblock_this_batch.drain(..) {
-                self.prio_graph.unblock(&id);
+                prio_graph.unblock(&id);
             }
         }
 
@@ -277,13 +261,9 @@ impl PrioGraphScheduler {
         }
 
         // Push remaining transactions back into the container
-        while let Some((id, _)) = self.prio_graph.pop_and_unblock() {
+        while let Some((id, _)) = prio_graph.pop_and_unblock() {
             container.push_id_into_queue(id);
         }
-        // No more remaining items in the queue.
-        // Clear here to make sure the next scheduling pass starts fresh
-        // without detecting any conflicts.
-        self.prio_graph.clear();
 
         assert_eq!(
             num_scheduled, num_sent,
@@ -577,20 +557,10 @@ fn try_schedule_transaction(
     }
 
     // Schedule the transaction if it can be.
-    let message = transaction.message();
-    let account_keys = message.account_keys();
-    let write_account_locks = account_keys
-        .iter()
-        .enumerate()
-        .filter_map(|(index, key)| message.is_writable(index).then_some(key));
-    let read_account_locks = account_keys
-        .iter()
-        .enumerate()
-        .filter_map(|(index, key)| (!message.is_writable(index)).then_some(key));
-
+    let transaction_locks = transaction.get_account_locks_unchecked();
     let Some(thread_id) = account_locks.try_lock_accounts(
-        write_account_locks,
-        read_account_locks,
+        transaction_locks.writable.into_iter(),
+        transaction_locks.readonly.into_iter(),
         ThreadSet::any(num_threads),
         thread_selector,
     ) else {

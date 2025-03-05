@@ -9,10 +9,9 @@ use {
     log::*,
     memmap2::MmapMut,
     rayon::prelude::*,
-    solana_lattice_hash::lt_hash::LtHash,
     solana_measure::{measure::Measure, measure_us},
     solana_sdk::{
-        hash::{Hash, Hasher, HASH_BYTES},
+        hash::{Hash, Hasher},
         pubkey::Pubkey,
         rent_collector::RentCollector,
         slot_history::Slot,
@@ -206,8 +205,6 @@ pub struct HashStats {
     pub sum_ancient_scans_us: AtomicU64,
     pub count_ancient_scans: AtomicU64,
     pub pubkey_bin_search_us: AtomicU64,
-    pub num_zero_lamport_accounts: AtomicU64,
-    pub num_zero_lamport_accounts_ancient: Arc<AtomicU64>,
 }
 impl HashStats {
     pub fn calc_storage_size_quartiles(&mut self, storages: &[Arc<AccountStorageEntry>]) {
@@ -307,17 +304,6 @@ impl HashStats {
             (
                 "pubkey_bin_search_us",
                 self.pubkey_bin_search_us.load(Ordering::Relaxed),
-                i64
-            ),
-            (
-                "num_zero_lamport_accounts",
-                self.num_zero_lamport_accounts.load(Ordering::Relaxed),
-                i64
-            ),
-            (
-                "num_zero_lamport_accounts_ancient",
-                self.num_zero_lamport_accounts_ancient
-                    .load(Ordering::Relaxed),
                 i64
             ),
         );
@@ -1180,9 +1166,6 @@ impl<'a> AccountsHasher<'a> {
                     .expect("summing lamports cannot overflow");
                 hashes.write(&item.hash.0);
             } else {
-                stats
-                    .num_zero_lamport_accounts
-                    .fetch_add(1, Ordering::Relaxed);
                 // if lamports == 0, check if they should be included
                 if self.zero_lamport_accounts == ZeroLamportAccounts::Included {
                     // For incremental accounts hash, the hash of a zero lamport account is
@@ -1252,21 +1235,6 @@ pub struct AccountHash(pub Hash);
 // Ensure the newtype wrapper never changes size from the underlying Hash
 // This also ensures there are no padding bytes, which is required to safely implement Pod
 const _: () = assert!(std::mem::size_of::<AccountHash>() == std::mem::size_of::<Hash>());
-
-/// The AccountHash for a zero-lamport account
-pub const ZERO_LAMPORT_ACCOUNT_HASH: AccountHash =
-    AccountHash(Hash::new_from_array([0; HASH_BYTES]));
-
-/// Lattice hash of an account
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct AccountLtHash(pub LtHash);
-
-/// The AccountLtHash for a zero-lamport account
-pub const ZERO_LAMPORT_ACCOUNT_LT_HASH: AccountLtHash = AccountLtHash(LtHash::identity());
-
-/// Lattice hash of all accounts
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct AccountsLtHash(pub LtHash);
 
 /// Hash of accounts
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]

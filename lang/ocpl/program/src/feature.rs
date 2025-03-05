@@ -11,12 +11,9 @@
 //! 2. When the next epoch is entered the runtime will check for new activation requests and
 //!    active them.  When this occurs, the activation slot is recorded in the feature account
 
-use {
-    crate::{
-        account_info::AccountInfo, instruction::Instruction, program_error::ProgramError,
-        pubkey::Pubkey, rent::Rent, system_instruction,
-    },
-    solana_clock::Slot,
+use crate::{
+    account_info::AccountInfo, clock::Slot, instruction::Instruction, program_error::ProgramError,
+    pubkey::Pubkey, rent::Rent, system_instruction,
 };
 
 crate::declare_id!("Feature111111111111111111111111111111111111");
@@ -63,7 +60,7 @@ pub fn activate_with_lamports(
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use {super::*, solana_program::clock::Slot};
 
     #[test]
     fn test_feature_size_of() {

@@ -1,38 +1,43 @@
 extern crate proc_macro;
 
+// This file littered with these essential cfgs so ensure them.
+#[cfg(not(any(RUSTC_WITH_SPECIALIZATION, RUSTC_WITHOUT_SPECIALIZATION)))]
+compile_error!("rustc_version is missing in build dependency and build.rs is not specified");
+
+#[cfg(any(RUSTC_WITH_SPECIALIZATION, RUSTC_WITHOUT_SPECIALIZATION))]
 use proc_macro::TokenStream;
 
 // Define dummy macro_attribute and macro_derive for stable rustc
 
-#[cfg(not(feature = "frozen-abi"))]
+#[cfg(RUSTC_WITHOUT_SPECIALIZATION)]
 #[proc_macro_attribute]
 pub fn frozen_abi(_attrs: TokenStream, item: TokenStream) -> TokenStream {
     item
 }
 
-#[cfg(not(feature = "frozen-abi"))]
+#[cfg(RUSTC_WITHOUT_SPECIALIZATION)]
 #[proc_macro_derive(AbiExample)]
 pub fn derive_abi_sample(_item: TokenStream) -> TokenStream {
     "".parse().unwrap()
 }
 
-#[cfg(not(feature = "frozen-abi"))]
+#[cfg(RUSTC_WITHOUT_SPECIALIZATION)]
 #[proc_macro_derive(AbiEnumVisitor)]
 pub fn derive_abi_enum_visitor(_item: TokenStream) -> TokenStream {
     "".parse().unwrap()
 }
 
-#[cfg(feature = "frozen-abi")]
+#[cfg(RUSTC_WITH_SPECIALIZATION)]
 use proc_macro2::{Span, TokenStream as TokenStream2, TokenTree};
-#[cfg(feature = "frozen-abi")]
+#[cfg(RUSTC_WITH_SPECIALIZATION)]
 use quote::{quote, ToTokens};
-#[cfg(feature = "frozen-abi")]
+#[cfg(RUSTC_WITH_SPECIALIZATION)]
 use syn::{
     parse_macro_input, Attribute, Error, Fields, Ident, Item, ItemEnum, ItemStruct, ItemType,
     LitStr, Variant,
 };
 
-#[cfg(feature = "frozen-abi")]
+#[cfg(RUSTC_WITH_SPECIALIZATION)]
 fn filter_serde_attrs(attrs: &[Attribute]) -> bool {
     fn contains_skip(tokens: TokenStream2) -> bool {
         for token in tokens.into_iter() {
@@ -67,7 +72,7 @@ fn filter_serde_attrs(attrs: &[Attribute]) -> bool {
     false
 }
 
-#[cfg(feature = "frozen-abi")]
+#[cfg(RUSTC_WITH_SPECIALIZATION)]
 fn filter_allow_attrs(attrs: &mut Vec<Attribute>) {
     attrs.retain(|attr| {
         let ss = &attr.path().segments.first().unwrap().ident.to_string();
@@ -75,7 +80,7 @@ fn filter_allow_attrs(attrs: &mut Vec<Attribute>) {
     });
 }
 
-#[cfg(feature = "frozen-abi")]
+#[cfg(RUSTC_WITH_SPECIALIZATION)]
 fn derive_abi_sample_enum_type(input: ItemEnum) -> TokenStream {
     let type_name = &input.ident;
 
@@ -152,7 +157,7 @@ fn derive_abi_sample_enum_type(input: ItemEnum) -> TokenStream {
     result.into()
 }
 
-#[cfg(feature = "frozen-abi")]
+#[cfg(RUSTC_WITH_SPECIALIZATION)]
 fn derive_abi_sample_struct_type(input: ItemStruct) -> TokenStream {
     let type_name = &input.ident;
     let mut sample_fields = quote! {};
@@ -207,7 +212,7 @@ fn derive_abi_sample_struct_type(input: ItemStruct) -> TokenStream {
     result.into()
 }
 
-#[cfg(feature = "frozen-abi")]
+#[cfg(RUSTC_WITH_SPECIALIZATION)]
 #[proc_macro_derive(AbiExample)]
 pub fn derive_abi_sample(item: TokenStream) -> TokenStream {
     let item = parse_macro_input!(item as Item);
@@ -221,7 +226,7 @@ pub fn derive_abi_sample(item: TokenStream) -> TokenStream {
     }
 }
 
-#[cfg(feature = "frozen-abi")]
+#[cfg(RUSTC_WITH_SPECIALIZATION)]
 fn do_derive_abi_enum_visitor(input: ItemEnum) -> TokenStream {
     let type_name = &input.ident;
     let mut serialized_variants = quote! {};
@@ -251,7 +256,7 @@ fn do_derive_abi_enum_visitor(input: ItemEnum) -> TokenStream {
                 let enum_name = #type_str;
                 use ::serde::ser::Serialize;
                 use ::solana_frozen_abi::abi_example::AbiExample;
-                digester.update_with_string(::std::format!("enum {} (variants = {})", enum_name, #variant_count));
+                digester.update_with_string(format!("enum {} (variants = {})", enum_name, #variant_count));
                 #serialized_variants
                 digester.create_child()
             }
@@ -259,7 +264,7 @@ fn do_derive_abi_enum_visitor(input: ItemEnum) -> TokenStream {
     }).into()
 }
 
-#[cfg(feature = "frozen-abi")]
+#[cfg(RUSTC_WITH_SPECIALIZATION)]
 #[proc_macro_derive(AbiEnumVisitor)]
 pub fn derive_abi_enum_visitor(item: TokenStream) -> TokenStream {
     let item = parse_macro_input!(item as Item);
@@ -272,7 +277,7 @@ pub fn derive_abi_enum_visitor(item: TokenStream) -> TokenStream {
     }
 }
 
-#[cfg(feature = "frozen-abi")]
+#[cfg(RUSTC_WITH_SPECIALIZATION)]
 fn quote_for_test(
     test_mod_ident: &Ident,
     type_name: &Ident,
@@ -298,7 +303,7 @@ fn quote_for_test(
                     ::solana_frozen_abi::__private::log::error!("digest error: {:#?}", result);
                 }
                 result.unwrap();
-                let actual_digest = ::std::format!("{}", hash);
+                let actual_digest = format!("{}", hash);
                 if ::std::env::var("SOLANA_ABI_BULK_UPDATE").is_ok() {
                     if #expected_digest != actual_digest {
                         #p!("sed -i -e 's/{}/{}/g' $(git grep --files-with-matches frozen_abi)", #expected_digest, hash);
@@ -316,12 +321,12 @@ fn quote_for_test(
     }
 }
 
-#[cfg(feature = "frozen-abi")]
+#[cfg(RUSTC_WITH_SPECIALIZATION)]
 fn test_mod_name(type_name: &Ident) -> Ident {
     Ident::new(&format!("{type_name}_frozen_abi"), Span::call_site())
 }
 
-#[cfg(feature = "frozen-abi")]
+#[cfg(RUSTC_WITH_SPECIALIZATION)]
 fn frozen_abi_type_alias(input: ItemType, expected_digest: &str) -> TokenStream {
     let type_name = &input.ident;
     let test = quote_for_test(&test_mod_name(type_name), type_name, expected_digest);
@@ -332,7 +337,7 @@ fn frozen_abi_type_alias(input: ItemType, expected_digest: &str) -> TokenStream 
     result.into()
 }
 
-#[cfg(feature = "frozen-abi")]
+#[cfg(RUSTC_WITH_SPECIALIZATION)]
 fn frozen_abi_struct_type(input: ItemStruct, expected_digest: &str) -> TokenStream {
     let type_name = &input.ident;
     let test = quote_for_test(&test_mod_name(type_name), type_name, expected_digest);
@@ -343,7 +348,7 @@ fn frozen_abi_struct_type(input: ItemStruct, expected_digest: &str) -> TokenStre
     result.into()
 }
 
-#[cfg(feature = "frozen-abi")]
+#[cfg(RUSTC_WITH_SPECIALIZATION)]
 fn quote_sample_variant(
     type_name: &Ident,
     ty_generics: &syn::TypeGenerics,
@@ -389,7 +394,7 @@ fn quote_sample_variant(
     }
 }
 
-#[cfg(feature = "frozen-abi")]
+#[cfg(RUSTC_WITH_SPECIALIZATION)]
 fn frozen_abi_enum_type(input: ItemEnum, expected_digest: &str) -> TokenStream {
     let type_name = &input.ident;
     let test = quote_for_test(&test_mod_name(type_name), type_name, expected_digest);
@@ -400,7 +405,7 @@ fn frozen_abi_enum_type(input: ItemEnum, expected_digest: &str) -> TokenStream {
     result.into()
 }
 
-#[cfg(feature = "frozen-abi")]
+#[cfg(RUSTC_WITH_SPECIALIZATION)]
 #[proc_macro_attribute]
 pub fn frozen_abi(attrs: TokenStream, item: TokenStream) -> TokenStream {
     let mut expected_digest: Option<String> = None;

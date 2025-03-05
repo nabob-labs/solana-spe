@@ -61,17 +61,12 @@ pub enum LoaderV4Instruction {
 
     /// Transfers the authority over a program account.
     ///
-    /// # Account references
-    ///   0. `[writable]` The program account to change the authority of.
-    ///   1. `[signer]` The current authority of the program.
-    ///   2. `[signer]` The new authority of the program.
-    TransferAuthority,
-
-    /// Finalizes the program account, rendering it immutable.
+    /// WARNING: Using this instruction without providing a new authority
+    /// finalizes the program (it becomes immutable).
     ///
     /// # Account references
     ///   0. `[writable]` The program account to change the authority of.
     ///   1. `[signer]` The current authority of the program.
-    ///   2. `[]` The next version of the program (can be itself).
-    Finalize,
+    ///   2. `[signer]` The new authority of the program. Optional if program is currently deployed.
+    TransferAuthority,
 }

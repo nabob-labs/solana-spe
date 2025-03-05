@@ -1,5 +1,8 @@
 use {
-    crate::invoke_context::{BuiltinFunctionWithContext, InvokeContext},
+    crate::{
+        invoke_context::{BuiltinFunctionWithContext, InvokeContext},
+        timings::ExecuteDetailsTimings,
+    },
     log::{debug, error, log_enabled, trace},
     percentage::PercentageInteger,
     solana_measure::measure::Measure,
@@ -16,7 +19,6 @@ use {
         pubkey::Pubkey,
         saturating_add_assign,
     },
-    solana_timings::ExecuteDetailsTimings,
     solana_type_overrides::{
         rand::{thread_rng, Rng},
         sync::{
@@ -55,6 +57,11 @@ pub enum BlockRelation {
 pub trait ForkGraph {
     /// Returns the BlockRelation of A to B
     fn relationship(&self, a: Slot, b: Slot) -> BlockRelation;
+
+    /// Returns the epoch of the given slot
+    fn slot_epoch(&self, _slot: Slot) -> Option<Epoch> {
+        Some(0)
+    }
 }
 
 /// The owner of a programs accounts, thus the loader of a program
@@ -1189,7 +1196,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
     pub fn get_flattened_entries(
         &self,
         include_program_runtime_v1: bool,
-        _include_program_runtime_v2: bool,
+        include_program_runtime_v2: bool,
     ) -> Vec<(Pubkey, Arc<ProgramCacheEntry>)> {
         match &self.index {
             IndexImplementation::V1 { entries, .. } => entries
@@ -1199,7 +1206,11 @@ impl<FG: ForkGraph> ProgramCache<FG> {
                         .iter()
                         .filter_map(move |program| match program.program {
                             ProgramCacheEntryType::Loaded(_) => {
-                                if include_program_runtime_v1 {
+                                if (program.account_owner != ProgramCacheEntryOwner::LoaderV4
+                                    && include_program_runtime_v1)
+                                    || (program.account_owner == ProgramCacheEntryOwner::LoaderV4
+                                        && include_program_runtime_v2)
+                                {
                                     Some((*id, program.clone()))
                                 } else {
                                     None
@@ -1347,7 +1358,7 @@ impl<FG: ForkGraph> ProgramCache<FG> {
     }
 }
 
-#[cfg(feature = "frozen-abi")]
+#[cfg(all(RUSTC_WITH_SPECIALIZATION, feature = "frozen-abi"))]
 impl solana_frozen_abi::abi_example::AbiExample for ProgramCacheEntry {
     fn example() -> Self {
         // ProgramCacheEntry isn't serializable by definition.
@@ -1355,7 +1366,7 @@ impl solana_frozen_abi::abi_example::AbiExample for ProgramCacheEntry {
     }
 }
 
-#[cfg(feature = "frozen-abi")]
+#[cfg(all(RUSTC_WITH_SPECIALIZATION, feature = "frozen-abi"))]
 impl<FG: ForkGraph> solana_frozen_abi::abi_example::AbiExample for ProgramCache<FG> {
     fn example() -> Self {
         // ProgramCache isn't serializable by definition.

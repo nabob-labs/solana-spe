@@ -1,6 +1,5 @@
 use {
-    solana_log_collector::ic_msg,
-    solana_program_runtime::invoke_context::InvokeContext,
+    solana_program_runtime::{ic_msg, invoke_context::InvokeContext},
     solana_sdk::{
         instruction::{checked_add, InstructionError},
         nonce::{

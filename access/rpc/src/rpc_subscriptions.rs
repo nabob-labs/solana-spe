@@ -17,9 +17,7 @@ use {
     itertools::Either,
     rayon::prelude::*,
     serde::Serialize,
-    solana_account_decoder::{
-        encode_ui_account, parse_token::is_known_spl_token_id, UiAccount, UiAccountEncoding,
-    },
+    solana_account_decoder::{parse_token::is_known_spl_token_id, UiAccount, UiAccountEncoding},
     solana_ledger::{blockstore::Blockstore, get_tmp_ledger_path},
     solana_measure::measure::Measure,
     solana_rpc_client_api::response::{
@@ -387,7 +385,7 @@ fn filter_account_result(
         {
             get_parsed_token_account(&bank, &params.pubkey, account, None)
         } else {
-            encode_ui_account(&params.pubkey, &account, params.encoding, None, None)
+            UiAccount::encode(&params.pubkey, &account, params.encoding, None, None)
         }
     });
     (account, last_modified_slot)
@@ -430,7 +428,7 @@ fn filter_program_results(
     } else {
         let accounts = keyed_accounts.map(move |(pubkey, account)| RpcKeyedAccount {
             pubkey: pubkey.to_string(),
-            account: encode_ui_account(&pubkey, &account, encoding, None, None),
+            account: UiAccount::encode(&pubkey, &account, encoding, None, None),
         });
         Either::Right(accounts)
     };
@@ -3002,7 +3000,7 @@ pub(crate) mod tests {
             .get(0)
             .unwrap()
             .process_transaction_with_metadata(tx.clone())
-            .is_ok());
+            .was_executed());
 
         subscriptions.notify_subscribers(CommitmentSlots::new_from_slot(0));
 

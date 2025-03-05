@@ -8,7 +8,6 @@ license.workspace = true
 edition.workspace = true
 
 [dependencies]
-ahash = { workspace = true }
 bincode = { workspace = true }
 blake3 = { workspace = true }
 bv = { workspace = true, features = ["serde"] }
@@ -35,21 +34,16 @@ serde = { workspace = true, features = ["rc"] }
 serde_derive = { workspace = true }
 smallvec = { workspace = true, features = ["const_generics"] }
 solana-bucket-map = { workspace = true }
-solana-frozen-abi = { workspace = true, optional = true, features = [
-    "frozen-abi",
-] }
-solana-frozen-abi-macro = { workspace = true, optional = true, features = [
-    "frozen-abi",
-] }
+solana-frozen-abi = { workspace = true, optional = true }
+solana-frozen-abi-macro = { workspace = true, optional = true }
 solana-inline-spl = { workspace = true }
-solana-lattice-hash = { workspace = true }
 solana-measure = { workspace = true }
 solana-metrics = { workspace = true }
 solana-nohash-hasher = { workspace = true }
 solana-rayon-threadlimit = { workspace = true }
 solana-sdk = { workspace = true }
 solana-stake-program = { workspace = true, optional = true }
-solana-svm-transaction = { workspace = true }
+solana-svm = { workspace = true }
 solana-vote-program = { workspace = true, optional = true }
 static_assertions = { workspace = true }
 tar = { workspace = true }
@@ -63,6 +57,7 @@ name = "solana_accounts_db"
 [dev-dependencies]
 assert_matches = { workspace = true }
 criterion = { workspace = true }
+ed25519-dalek = { workspace = true }
 libsecp256k1 = { workspace = true }
 memoffset = { workspace = true }
 rand_chacha = { workspace = true }
@@ -72,6 +67,7 @@ solana-accounts-db = { path = ".", features = ["dev-context-only-utils"] }
 solana-compute-budget = { workspace = true }
 solana-logger = { workspace = true }
 solana-sdk = { workspace = true, features = ["dev-context-only-utils"] }
+solana-svm = { workspace = true, features = ["dev-context-only-utils"] }
 static_assertions = { workspace = true }
 strum = { workspace = true, features = ["derive"] }
 strum_macros = { workspace = true }
@@ -80,18 +76,15 @@ test-case = { workspace = true }
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
 
+[build-dependencies]
+rustc_version = { workspace = true }
+
 [features]
-dev-context-only-utils = [
-    "dep:qualifier_attr",
-    "dep:solana-stake-program",
-    "dep:solana-vote-program",
-]
+dev-context-only-utils = ["dep:qualifier_attr", "dep:solana-stake-program", "dep:solana-vote-program"]
 frozen-abi = [
     "dep:solana-frozen-abi",
     "dep:solana-frozen-abi-macro",
     "solana-sdk/frozen-abi",
+    "solana-svm/frozen-abi",
     "solana-vote-program/frozen-abi",
 ]
-
-[lints]
-workspace = true

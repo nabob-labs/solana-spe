@@ -6,8 +6,11 @@ use {
     bincode::serialized_size,
     bv::BitVec,
     flate2::{Compress, Compression, Decompress, FlushCompress, FlushDecompress},
-    solana_sanitize::{Sanitize, SanitizeError},
-    solana_sdk::{clock::Slot, pubkey::Pubkey},
+    solana_sdk::{
+        clock::Slot,
+        pubkey::Pubkey,
+        sanitize::{Sanitize, SanitizeError},
+    },
 };
 
 pub const MAX_SLOTS_PER_ENTRY: usize = 2048 * 8;

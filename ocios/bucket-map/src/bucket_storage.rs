@@ -283,15 +283,15 @@ impl<O: BucketOccupied> BucketStorage<O> {
     /// 'is_resizing' false if caller is adding an item to the index (so increment count)
     pub fn occupy(&mut self, ix: u64, is_resizing: bool) -> Result<(), BucketStorageError> {
         debug_assert!(ix < self.capacity(), "occupy: bad index size");
+        let mut e = Err(BucketStorageError::AlreadyOccupied);
         //debug!("ALLOC {} {}", ix, uid);
         if self.try_lock(ix) {
+            e = Ok(());
             if !is_resizing {
                 self.count.fetch_add(1, Ordering::Relaxed);
             }
-            Ok(())
-        } else {
-            Err(BucketStorageError::AlreadyOccupied)
         }
+        e
     }
 
     pub fn free(&mut self, ix: u64) {
@@ -396,16 +396,17 @@ impl<O: BucketOccupied> BucketStorage<O> {
             .read(true)
             .write(true)
             .create(create)
-            .open(&path);
-        if let Err(err) = data {
+            .open(path.clone());
+        if let Err(e) = data {
             if !create {
                 // we can't load this file, so bail without error
                 return None;
             }
             panic!(
-                "Unable to create data file '{}' in current dir ({:?}): {err}",
-                path.as_ref().display(),
+                "Unable to create data file {:?} in current dir({:?}): {:?}",
+                path,
                 std::env::current_dir(),
+                e
             );
         }
         let mut data = data.unwrap();
@@ -426,17 +427,15 @@ impl<O: BucketOccupied> BucketStorage<O> {
                 .fetch_add(measure_flush.end_as_us(), Ordering::Relaxed);
         }
         let mut measure_mmap = Measure::start("measure_mmap");
-        let mmap = unsafe { MmapMut::map_mut(&data) }.unwrap_or_else(|err| {
+        let res = unsafe { MmapMut::map_mut(&data) };
+        if let Err(e) = res {
             panic!(
-                "Unable to mmap file '{}' in current dir ({:?}): {err}",
-                path.as_ref().display(),
+                "Unable to mmap file {:?} in current dir({:?}): {:?}",
+                path,
                 std::env::current_dir(),
+                e
             );
-        });
-        // Access to the disk bucket files are random (excluding the linear search on collisions),
-        // so advise the kernel to treat the mmaps as such.
-        #[cfg(unix)]
-        mmap.advise(memmap2::Advice::Random).unwrap();
+        }
         measure_mmap.stop();
         stats
             .new_file_us
@@ -444,7 +443,7 @@ impl<O: BucketOccupied> BucketStorage<O> {
         stats
             .mmap_us
             .fetch_add(measure_mmap.as_us(), Ordering::Relaxed);
-        Some(mmap)
+        res.ok()
     }
 
     /// allocate a new memory mapped file of size `bytes` on one of `drives`
@@ -545,15 +544,12 @@ impl<O: BucketOccupied> BucketStorage<O> {
 mod test {
     use {
         super::*,
-        crate::{
-            bucket_storage::BucketOccupied,
-            index_entry::{BucketWithHeader, IndexBucket},
-        },
+        crate::{bucket_storage::BucketOccupied, index_entry::IndexBucket},
         tempfile::tempdir,
     };
 
     #[test]
-    fn test_bucket_storage_index_bucket() {
+    fn test_bucket_storage() {
         let tmpdir = tempdir().unwrap();
         let paths: Vec<PathBuf> = vec![tmpdir.path().to_path_buf()];
         assert!(!paths.is_empty());
@@ -564,29 +560,7 @@ mod test {
         let max_search = 1;
         let stats = Arc::default();
         let count = Arc::default();
-        // this uses `IndexBucket`. `IndexBucket` doesn't change state on `occupy()`
         let mut storage = BucketStorage::<IndexBucket<u64>>::new(
-            drives, num_elems, elem_size, max_search, stats, count,
-        )
-        .0;
-        let ix = 0;
-        assert!(storage.is_free(ix));
-        assert!(storage.occupy(ix, false).is_ok());
-    }
-
-    #[test]
-    fn test_bucket_storage_using_header() {
-        let tmpdir = tempdir().unwrap();
-        let paths: Vec<PathBuf> = vec![tmpdir.path().to_path_buf()];
-        assert!(!paths.is_empty());
-
-        let drives = Arc::new(paths);
-        let num_elems = 1;
-        let elem_size = std::mem::size_of::<crate::index_entry::IndexEntry<u64>>() as u64;
-        let max_search = 1;
-        let stats = Arc::default();
-        let count = Arc::default();
-        let mut storage = BucketStorage::<BucketWithHeader>::new(
             drives, num_elems, elem_size, max_search, stats, count,
         )
         .0;

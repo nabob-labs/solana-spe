@@ -4,15 +4,14 @@ use {
         instruction::CompiledInstruction,
         message::{legacy::Message as LegacyMessage, v0::MessageAddressTableLookup, MessageHeader},
         pubkey::Pubkey,
+        sanitize::{Sanitize, SanitizeError},
+        short_vec,
     },
     serde::{
         de::{self, Deserializer, SeqAccess, Unexpected, Visitor},
         ser::{SerializeTuple, Serializer},
     },
     serde_derive::{Deserialize, Serialize},
-    solana_hash::HASH_BYTES,
-    solana_sanitize::{Sanitize, SanitizeError},
-    solana_short_vec as short_vec,
     std::{collections::HashSet, fmt},
 };
 
@@ -34,7 +33,7 @@ pub const MESSAGE_VERSION_PREFIX: u8 = 0x80;
 /// format.
 #[cfg_attr(
     feature = "frozen-abi",
-    frozen_abi(digest = "EjjHMjAnRrd86DuTgysFXRicMiAQv3vTvzRzcMJCjYfC"),
+    frozen_abi(digest = "G4EAiqmGgBprgf5ePYemLJcoFfx4R7rhC1Weo2FVJ7fn"),
     derive(AbiEnumVisitor, AbiExample)
 )]
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -162,8 +161,7 @@ impl VersionedMessage {
         let mut hasher = blake3::Hasher::new();
         hasher.update(b"solana-tx-message-v1");
         hasher.update(message_bytes);
-        let hash_bytes: [u8; HASH_BYTES] = hasher.finalize().into();
-        hash_bytes.into()
+        Hash(hasher.finalize().into())
     }
 }
 

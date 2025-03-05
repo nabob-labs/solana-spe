@@ -225,6 +225,14 @@ impl CrdsGossip {
         )
     }
 
+    /// Process a pull request and create a response.
+    pub fn process_pull_requests<I>(&self, callers: I, now: u64)
+    where
+        I: IntoIterator<Item = CrdsValue>,
+    {
+        CrdsGossipPull::process_pull_requests(&self.crds, callers, now);
+    }
+
     pub fn generate_pull_responses(
         &self,
         thread_pool: &ThreadPool,
