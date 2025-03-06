@@ -1163,9 +1163,8 @@ fn show_votes_and_credits(
         )?;
         writeln!(
             f,
-            "  credits/max credits: {}/{}",
-            entry.credits_earned,
-            entry.slots_in_epoch * u64::from(entry.max_credits_per_slot)
+            "  credits/slots: {}/{}",
+            entry.credits_earned, entry.slots_in_epoch
         )?;
     }
     if let Some(oldest) = epoch_voting_history.iter().next() {
@@ -1734,7 +1733,6 @@ pub struct CliEpochVotingHistory {
     pub credits_earned: u64,
     pub credits: u64,
     pub prev_credits: u64,
-    pub max_credits_per_slot: u8,
 }
 
 #[derive(Serialize, Deserialize)]

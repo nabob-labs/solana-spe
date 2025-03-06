@@ -1681,118 +1681,118 @@ impl JsonRpcRequestProcessor {
         let commitment = config.commitment.unwrap_or_default();
         check_is_at_least_confirmed(commitment)?;
 
-        if !self.config.enable_rpc_transaction_history {
-            return Err(RpcCustomError::TransactionHistoryNotAvailable.into());
-        }
-
-        let highest_super_majority_root = self
-            .block_commitment_cache
-            .read()
-            .unwrap()
-            .highest_super_majority_root();
-        let highest_slot = if commitment.is_confirmed() {
-            let confirmed_bank = self.get_bank_with_config(config)?;
-            confirmed_bank.slot()
-        } else {
-            let min_context_slot = config.min_context_slot.unwrap_or_default();
-            if highest_super_majority_root < min_context_slot {
-                return Err(RpcCustomError::MinContextSlotNotReached {
-                    context_slot: highest_super_majority_root,
-                }
-                .into());
-            }
-            highest_super_majority_root
-        };
-
-        let SignatureInfosForAddress {
-            infos: mut results,
-            found_before,
-        } = self
-            .blockstore
-            .get_confirmed_signatures_for_address2(address, highest_slot, before, until, limit)
-            .map_err(|err| Error::invalid_params(format!("{err}")))?;
-
-        let map_results = |results: Vec<ConfirmedTransactionStatusWithSignature>| {
-            results
-                .into_iter()
-                .map(|x| {
-                    let mut item: RpcConfirmedTransactionStatusWithSignature = x.into();
-                    if item.slot <= highest_super_majority_root {
-                        item.confirmation_status = Some(TransactionConfirmationStatus::Finalized);
-                    } else {
-                        item.confirmation_status = Some(TransactionConfirmationStatus::Confirmed);
-                        if item.block_time.is_none() {
-                            let r_bank_forks = self.bank_forks.read().unwrap();
-                            item.block_time = r_bank_forks
-                                .get(item.slot)
-                                .map(|bank| bank.clock().unix_timestamp);
-                        }
+        if self.config.enable_rpc_transaction_history {
+            let highest_super_majority_root = self
+                .block_commitment_cache
+                .read()
+                .unwrap()
+                .highest_super_majority_root();
+            let highest_slot = if commitment.is_confirmed() {
+                let confirmed_bank = self.get_bank_with_config(config)?;
+                confirmed_bank.slot()
+            } else {
+                let min_context_slot = config.min_context_slot.unwrap_or_default();
+                if highest_super_majority_root < min_context_slot {
+                    return Err(RpcCustomError::MinContextSlotNotReached {
+                        context_slot: highest_super_majority_root,
                     }
-                    item
-                })
-                .collect()
-        };
-
-        if results.len() < limit {
-            if let Some(bigtable_ledger_storage) = &self.bigtable_ledger_storage {
-                let mut bigtable_before = before;
-                if !results.is_empty() {
-                    limit -= results.len();
-                    bigtable_before = results.last().map(|x| x.signature);
+                    .into());
                 }
+                highest_super_majority_root
+            };
 
-                // If the oldest address-signature found in Blockstore has not yet been
-                // uploaded to long-term storage, modify the storage query to return all latest
-                // signatures to prevent erroring on RowNotFound. This can race with upload.
-                if found_before && bigtable_before.is_some() {
-                    match bigtable_ledger_storage
-                        .get_signature_status(&bigtable_before.unwrap())
-                        .await
-                    {
-                        Err(StorageError::SignatureNotFound) => {
-                            bigtable_before = None;
-                        }
-                        Err(err) => {
-                            warn!("Failed to query Bigtable: {:?}", err);
-                            return Err(RpcCustomError::LongTermStorageUnreachable.into());
-                        }
-                        Ok(_) => {}
-                    }
-                }
+            let SignatureInfosForAddress {
+                infos: mut results,
+                found_before,
+            } = self
+                .blockstore
+                .get_confirmed_signatures_for_address2(address, highest_slot, before, until, limit)
+                .map_err(|err| Error::invalid_params(format!("{err}")))?;
 
-                let bigtable_results = bigtable_ledger_storage
-                    .get_confirmed_signatures_for_address(
-                        &address,
-                        bigtable_before.as_ref(),
-                        until.as_ref(),
-                        limit,
-                    )
-                    .await;
-                match bigtable_results {
-                    Ok(bigtable_results) => {
-                        let results_set: HashSet<_> =
-                            results.iter().map(|result| result.signature).collect();
-                        for (bigtable_result, _) in bigtable_results {
-                            // In the upload race condition, latest address-signatures in
-                            // long-term storage may include original `before` signature...
-                            if before != Some(bigtable_result.signature)
-                                    // ...or earlier Blockstore signatures
-                                    && !results_set.contains(&bigtable_result.signature)
-                            {
-                                results.push(bigtable_result);
+            let map_results = |results: Vec<ConfirmedTransactionStatusWithSignature>| {
+                results
+                    .into_iter()
+                    .map(|x| {
+                        let mut item: RpcConfirmedTransactionStatusWithSignature = x.into();
+                        if item.slot <= highest_super_majority_root {
+                            item.confirmation_status =
+                                Some(TransactionConfirmationStatus::Finalized);
+                        } else {
+                            item.confirmation_status =
+                                Some(TransactionConfirmationStatus::Confirmed);
+                            if item.block_time.is_none() {
+                                let r_bank_forks = self.bank_forks.read().unwrap();
+                                item.block_time = r_bank_forks
+                                    .get(item.slot)
+                                    .map(|bank| bank.clock().unix_timestamp);
                             }
                         }
+                        item
+                    })
+                    .collect()
+            };
+
+            if results.len() < limit {
+                if let Some(bigtable_ledger_storage) = &self.bigtable_ledger_storage {
+                    let mut bigtable_before = before;
+                    if !results.is_empty() {
+                        limit -= results.len();
+                        bigtable_before = results.last().map(|x| x.signature);
                     }
-                    Err(StorageError::SignatureNotFound) => {}
-                    Err(err) => {
-                        warn!("Failed to query Bigtable: {:?}", err);
-                        return Err(RpcCustomError::LongTermStorageUnreachable.into());
+
+                    // If the oldest address-signature found in Blockstore has not yet been
+                    // uploaded to long-term storage, modify the storage query to return all latest
+                    // signatures to prevent erroring on RowNotFound. This can race with upload.
+                    if found_before && bigtable_before.is_some() {
+                        match bigtable_ledger_storage
+                            .get_signature_status(&bigtable_before.unwrap())
+                            .await
+                        {
+                            Err(StorageError::SignatureNotFound) => {
+                                bigtable_before = None;
+                            }
+                            Err(err) => {
+                                warn!("{:?}", err);
+                                return Ok(map_results(results));
+                            }
+                            Ok(_) => {}
+                        }
+                    }
+
+                    let bigtable_results = bigtable_ledger_storage
+                        .get_confirmed_signatures_for_address(
+                            &address,
+                            bigtable_before.as_ref(),
+                            until.as_ref(),
+                            limit,
+                        )
+                        .await;
+                    match bigtable_results {
+                        Ok(bigtable_results) => {
+                            let results_set: HashSet<_> =
+                                results.iter().map(|result| result.signature).collect();
+                            for (bigtable_result, _) in bigtable_results {
+                                // In the upload race condition, latest address-signatures in
+                                // long-term storage may include original `before` signature...
+                                if before != Some(bigtable_result.signature)
+                                    // ...or earlier Blockstore signatures
+                                    && !results_set.contains(&bigtable_result.signature)
+                                {
+                                    results.push(bigtable_result);
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            warn!("{:?}", err);
+                        }
                     }
                 }
             }
-        }
 
-        Ok(map_results(results))
+            Ok(map_results(results))
+        } else {
+            Err(RpcCustomError::TransactionHistoryNotAvailable.into())
+        }
     }
 
     pub async fn get_first_available_block(&self) -> Slot {
@@ -2196,7 +2196,9 @@ impl JsonRpcRequestProcessor {
     ) -> Result<RpcResponse<RpcBlockhash>> {
         let mut bank = self.get_bank_with_config(config.context)?;
         if config.rollback > MAX_PROCESSING_AGE {
-            return Err(Error::invalid_params(format!("rollback exceeds ${MAX_PROCESSING_AGE}")));
+            return Err(Error::invalid_params(format!(
+                "rollback exceeds ${MAX_PROCESSING_AGE}"
+            )));
         }
         if config.rollback > 0 {
             let r_bank_forks = self.bank_forks.read().unwrap();

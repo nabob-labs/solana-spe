@@ -119,8 +119,8 @@ impl SchedulerController {
             self.timing_metrics
                 .maybe_report_and_reset_slot(new_leader_slot);
 
-            self.receive_completed()?;
             self.process_transactions(&decision)?;
+            self.receive_completed()?;
             if !self.receive_and_buffer_packets(&decision) {
                 break;
             }
@@ -435,11 +435,11 @@ impl SchedulerController {
 
     /// Returns whether the packet receiver is still connected.
     fn receive_and_buffer_packets(&mut self, decision: &BufferedPacketsDecision) -> bool {
-        const MAX_RECEIVE_PACKETS: usize = 5_000;
+        let remaining_queue_capacity = self.container.remaining_queue_capacity();
 
-        const MAX_PACKET_RECEIVE_TIME: Duration = Duration::from_millis(10);
+        const MAX_PACKET_RECEIVE_TIME: Duration = Duration::from_millis(100);
         let (recv_timeout, should_buffer) = match decision {
-            BufferedPacketsDecision::Consume(_) | BufferedPacketsDecision::Hold => (
+            BufferedPacketsDecision::Consume(_) => (
                 if self.container.is_empty() {
                     MAX_PACKET_RECEIVE_TIME
                 } else {
@@ -448,12 +448,14 @@ impl SchedulerController {
                 true,
             ),
             BufferedPacketsDecision::Forward => (MAX_PACKET_RECEIVE_TIME, self.forwarder.is_some()),
-            BufferedPacketsDecision::ForwardAndHold => (MAX_PACKET_RECEIVE_TIME, true),
+            BufferedPacketsDecision::ForwardAndHold | BufferedPacketsDecision::Hold => {
+                (MAX_PACKET_RECEIVE_TIME, true)
+            }
         };
 
         let (received_packet_results, receive_time_us) = measure_us!(self
             .packet_receiver
-            .receive_packets(recv_timeout, MAX_RECEIVE_PACKETS, |packet| {
+            .receive_packets(recv_timeout, remaining_queue_capacity, |packet| {
                 packet.check_excessive_precompiles()?;
                 Ok(packet)
             }));

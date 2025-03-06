@@ -28,8 +28,8 @@ spl-type-length-value = { workspace = true }
 [dev-dependencies]
 futures = "0.3.30"
 futures-util = "0.3"
-#solana-client = { workspace = true }
-#solana-program-test = { workspace = true }
+solana-client = { workspace = true }
+solana-program-test = { workspace = true }
 solana-sdk = { workspace = true }
 
 [features]
