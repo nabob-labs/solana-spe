@@ -609,9 +609,9 @@ pub struct Delegation {
     pub voter_pubkey: Pubkey,
     /// activated stake amount, set at delegate() time
     pub stake: u64,
-    /// epoch at which this stake was activated, ocp::Epoch::MAX if is a bootstrap stake
+    /// epoch at which this stake was activated, std::Epoch::MAX if is a bootstrap stake
     pub activation_epoch: Epoch,
-    /// epoch the stake was deactivated, ocp::Epoch::MAX if not deactivated
+    /// epoch the stake was deactivated, std::Epoch::MAX if not deactivated
     pub deactivation_epoch: Epoch,
     /// how much stake we can activate per-epoch as a fraction of currently effective stake
     #[deprecated(

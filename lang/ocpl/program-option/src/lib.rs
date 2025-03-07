@@ -1,15 +1,15 @@
 //! A C representation of Rust's `Option`, used across the FFI
 //! boundary for Solana program interfaces.
 //!
-//! This implementation mostly matches `ocp::option` except iterators since the iteration
-//! trait requires returning `ocp::option::Option`
+//! This implementation mostly matches `std::option` except iterators since the iteration
+//! trait requires returning `std::option::Option`
 
 use std::{
     convert, mem,
     ops::{Deref, DerefMut},
 };
 
-/// A C representation of Rust's `ocp::option::Option`
+/// A C representation of Rust's `std::option::Option`
 #[repr(C)]
 #[derive(Copy, PartialEq, PartialOrd, Eq, Ord, Debug, Hash)]
 pub enum COption<T> {
@@ -112,8 +112,8 @@ impl<T> COption<T> {
     /// to the value inside the original.
     ///
     /// [`map`]: enum.COption.html#method.map
-    /// [`String`]: ../../ocp/string/struct.String.html
-    /// [`usize`]: ../../ocp/primitive.usize.html
+    /// [`String`]: ../../std/string/struct.String.html
+    /// [`usize`]: ../../std/primitive.usize.html
     ///
     /// ```ignore
     /// let text: COption<String> = COption::Some("Hello, world!".to_string());
@@ -266,8 +266,8 @@ impl<T> COption<T> {
     ///
     /// Converts an `COption<`[`String`]`>` into an `COption<`[`usize`]`>`, consuming the original:
     ///
-    /// [`String`]: ../../ocp/string/struct.String.html
-    /// [`usize`]: ../../ocp/primitive.usize.html
+    /// [`String`]: ../../std/string/struct.String.html
+    /// [`usize`]: ../../std/primitive.usize.html
     ///
     /// ```ignore
     /// let maybe_some_string = COption::Some(String::from("Hello, World!"));
@@ -333,9 +333,9 @@ impl<T> COption<T> {
     /// result of a function call, it is recommended to use [`ok_or_else`], which is
     /// lazily evaluated.
     ///
-    /// [`Result<T, E>`]: ../../ocp/result/enum.Result.html
-    /// [`Ok(v)`]: ../../ocp/result/enum.Result.html#variant.Ok
-    /// [`Err(err)`]: ../../ocp/result/enum.Result.html#variant.Err
+    /// [`Result<T, E>`]: ../../std/result/enum.Result.html
+    /// [`Ok(v)`]: ../../std/result/enum.Result.html#variant.Ok
+    /// [`Err(err)`]: ../../std/result/enum.Result.html#variant.Err
     /// [`COption::None`]: #variant.COption::None
     /// [`COption::Some(v)`]: #variant.COption::Some
     /// [`ok_or_else`]: #method.ok_or_else
@@ -360,9 +360,9 @@ impl<T> COption<T> {
     /// Transforms the `COption<T>` into a [`Result<T, E>`], mapping [`COption::Some(v)`] to
     /// [`Ok(v)`] and [`COption::None`] to [`Err(err())`].
     ///
-    /// [`Result<T, E>`]: ../../ocp/result/enum.Result.html
-    /// [`Ok(v)`]: ../../ocp/result/enum.Result.html#variant.Ok
-    /// [`Err(err())`]: ../../ocp/result/enum.Result.html#variant.Err
+    /// [`Result<T, E>`]: ../../std/result/enum.Result.html
+    /// [`Ok(v)`]: ../../std/result/enum.Result.html#variant.Ok
+    /// [`Err(err())`]: ../../std/result/enum.Result.html#variant.Err
     /// [`COption::None`]: #variant.COption::None
     /// [`COption::Some(v)`]: #variant.COption::Some
     ///
@@ -469,7 +469,7 @@ impl<T> COption<T> {
     ///
     /// [`COption::None`]: #variant.COption::None
     /// [`COption::Some(t)`]: #variant.COption::Some
-    /// [`Iterator::filter()`]: ../../ocp/iter/trait.Iterator.html#method.filter
+    /// [`Iterator::filter()`]: ../../std/iter/trait.Iterator.html#method.filter
     #[inline]
     pub fn filter<P: FnOnce(&T) -> bool>(self, predicate: P) -> Self {
         if let COption::Some(x) = self {
@@ -756,8 +756,8 @@ impl<T: Default> COption<T> {
     /// [`COption::Some`]: #variant.COption::Some
     /// [`COption::None`]: #variant.COption::None
     /// [default value]: ../default/trait.Default.html#tymethod.default
-    /// [`parse`]: ../../ocp/primitive.str.html#method.parse
-    /// [`FromStr`]: ../../ocp/str/trait.FromStr.html
+    /// [`parse`]: ../../std/primitive.str.html#method.parse
+    /// [`FromStr`]: ../../std/str/trait.FromStr.html
     #[inline]
     pub fn unwrap_or_default(self) -> T {
         match self {
@@ -773,7 +773,7 @@ impl<T: Deref> COption<T> {
     /// Leaves the original COption in-place, creating a new one with a reference
     /// to the original one, additionally coercing the contents via [`Deref`].
     ///
-    /// [`Deref`]: ../../ocp/ops/trait.Deref.html
+    /// [`Deref`]: ../../std/ops/trait.Deref.html
     ///
     /// # Examples
     ///
@@ -821,9 +821,9 @@ impl<T, E> COption<Result<T, E>> {
     /// [`Ok`]`(`[`COption::Some`]`(_))` and [`Err`]`(_)`.
     ///
     /// [`COption::None`]: #variant.COption::None
-    /// [`Ok`]: ../../ocp/result/enum.Result.html#variant.Ok
+    /// [`Ok`]: ../../std/result/enum.Result.html#variant.Ok
     /// [`COption::Some`]: #variant.COption::Some
-    /// [`Err`]: ../../ocp/result/enum.Result.html#variant.Err
+    /// [`Err`]: ../../std/result/enum.Result.html#variant.Err
     ///
     /// # Examples
     ///

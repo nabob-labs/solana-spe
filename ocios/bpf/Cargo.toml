@@ -7,33 +7,74 @@ homepage.workspace = true
 license.workspace = true
 edition.workspace = true
 
-[dependencies]
-arbitrary = { version = "1.0", optional = true, features = ["derive"] }
-byteorder = "1.2"
-combine = "3.8.1"
-gdbstub = { version = "0.6.2", optional = true }
-hash32 = "0.2.0"
-log = "0.4.2"
-rand = { version = "0.8.5", features = ["small_rng"]}
-rustc-demangle = "0.1"
-scroll = "0.11"
-shuttle = { version = "0.7.1", optional = true }
-thiserror = "1.0.26"
+[lib]
+name = "solana_rbpf"
+path = "src/lib.rs"
 
-[target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3", features = ["memoryapi", "sysinfoapi", "winnt", "errhandlingapi"], optional = true }
+[dependencies.arbitrary]
+version = "1.0"
+features = ["derive"]
+optional = true
 
-[target.'cfg(not(windows))'.dependencies]
-libc = { version = "0.2", optional = true }
+[dependencies.byteorder]
+version = "1.2"
+
+[dependencies.combine]
+version = "3.8.1"
+
+[dependencies.gdbstub]
+version = "0.6.2"
+optional = true
+
+[dependencies.hash32]
+version = "0.2.0"
+
+[dependencies.log]
+version = "0.4.2"
+
+[dependencies.rand]
+version = "0.8.5"
+features = ["small_rng"]
+
+[dependencies.rustc-demangle]
+version = "0.1"
+
+[dependencies.scroll]
+version = "0.11"
+
+[dependencies.shuttle]
+version = "0.7.1"
+optional = true
+
+[dependencies.thiserror]
+version = "1.0.26"
+
+[dev-dependencies.elf]
+version = "0.0.10"
+
+[dev-dependencies.json]
+version = "0.12"
 
 [features]
-default = ["jit"]
-jit = ["libc", "winapi"]
-fuzzer-not-safe-for-production = ["arbitrary"]
 debugger = ["gdbstub"]
+default = ["jit"]
+fuzzer-not-safe-for-production = ["arbitrary"]
+jit = [
+    "libc",
+    "winapi",
+]
 shuttle-test = ["dep:shuttle"]
 
-[dev-dependencies]
-elf = "0.0.10"
-json = "0.12"
-test_utils = { path = "test_utils/" }
+[target."cfg(not(windows))".dependencies.libc]
+version = "0.2"
+optional = true
+
+[target."cfg(windows)".dependencies.winapi]
+version = "0.3"
+features = [
+    "memoryapi",
+    "sysinfoapi",
+    "winnt",
+    "errhandlingapi",
+]
+optional = true

@@ -48,7 +48,7 @@ arbitrary = { workspace = true, features = ["derive"] }
 bs58 = { workspace = true, features = ["alloc"] }
 # circular dev deps need to be path deps for `cargo publish` to be happy,
 # and for now the doc tests need solana-program
-#solana-program = { path = "../program" }
+solana-program = { path = "../program" }
 solana-pubkey = { path = ".", features = [
     "borsh",
     "curve25519",

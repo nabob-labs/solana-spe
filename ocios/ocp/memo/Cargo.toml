@@ -20,7 +20,7 @@ crate-type = [
 solana-program = { workspace = true }
 
 [dev-dependencies]
-#solana-program-test = { workspace = true }
+solana-program-test = { workspace = true }
 solana-sdk = { workspace = true }
 
 [features]

@@ -542,11 +542,11 @@ impl UsageQueueInner {
             },
             Some(Usage::Writable) => None,
         }
-            .inspect(|&new_usage| {
-                self.current_usage = Some(new_usage);
-            })
-            .map(|_| ())
-            .ok_or(())
+        .inspect(|&new_usage| {
+            self.current_usage = Some(new_usage);
+        })
+        .map(|_| ())
+        .ok_or(())
     }
 
     #[must_use]

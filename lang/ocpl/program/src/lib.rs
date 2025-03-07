@@ -2,12 +2,12 @@
 //!
 //! All Solana Rust programs that run on-chain will link to this crate, which
 //! acts as a standard library for Solana programs. Solana programs also link to
-//! the [Rust standard library][ocp], though it is [modified][sstd] for the
+//! the [Rust standard library][std], though it is [modified][sstd] for the
 //! Solana runtime environment. While off-chain programs that interact with the
 //! Solana network _can_ link to this crate, they typically instead use the
 //! [`solana-sdk`] crate, which reexports all modules from `solana-program`.
 //!
-//! [ocp]: https://doc.rust-lang.org/stable/std/
+//! [std]: https://doc.rust-lang.org/stable/std/
 //! [sstd]: https://solana.com/docs/programs/lang-rust#restrictions
 //! [`solana-sdk`]: https://docs.rs/solana-sdk/latest/solana_sdk/
 //!
@@ -48,12 +48,12 @@
 //! - They are compiled as the ["cdylib"] crate type for dynamic loading
 //!   by the Solana runtime.
 //! - They run in a constrained VM environment, and while they do have access to
-//!   the [Rust standard library][ocp], many features of the standard library,
+//!   the [Rust standard library][std], many features of the standard library,
 //!   particularly related to OS services, will fail at runtime, will silently
 //!   do nothing, or are not defined. See the [restrictions to the Rust standard
 //!   library][sstd] in the Solana documentation for more.
 //!
-//! [ocp]: https://doc.rust-lang.org/std/index.html
+//! [std]: https://doc.rust-lang.org/std/index.html
 //! ["cdylib"]: https://doc.rust-lang.org/reference/linkage.html
 //!
 //! Because multiple crates that are linked together cannot all define

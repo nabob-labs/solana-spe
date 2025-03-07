@@ -312,7 +312,7 @@ unsafe impl std::alloc::GlobalAlloc for BumpAllocator {
     }
 }
 
-/// `assert_eq(ocp::mem::align_of::<u128>(), 8)` is true for BPF but not for some host machines
+/// `assert_eq(std::mem::align_of::<u128>(), 8)` is true for BPF but not for some host machines
 pub const BPF_ALIGN_OF_U128: usize = 8;
 
 #[allow(clippy::arithmetic_side_effects)]
