@@ -2,7 +2,7 @@
 //! `SVMRentCollector` trait methods, which are otherwise implemented on
 //! `RentCollector` directly.
 //!
-//! Solana requires submission of logs and metrics during account rent state
+//! Agave requires submission of logs and metrics during account rent state
 //! assessment, which is not included in the `RentCollector` implementation
 //! of the `SVMRentCollector` trait. This wrapper allows all `SVMRentCollector`
 //! methods to be passed through to the underlying `RentCollector`, except for

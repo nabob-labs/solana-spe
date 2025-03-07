@@ -1,11 +1,13 @@
 [package]
 name = "solana-epoch-schedule"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Configuration for Solana epochs and slots."
+documentation = "https://docs.rs/solana-epoch-schedule"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 serde = { workspace = true, optional = true }

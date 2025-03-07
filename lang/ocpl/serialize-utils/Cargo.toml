@@ -1,11 +1,13 @@
 [package]
 name = "solana-serialize-utils"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana helpers for reading and writing bytes."
+documentation = "https://docs.rs/solana-serialize-utils"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 solana-instruction = { workspace = true, default-features = false, features = [

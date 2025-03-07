@@ -1,11 +1,19 @@
 [package]
 name = "solana-zk-keygen"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = """
+Solana privacy-related key generation utility
+
+The tool currently supports two types of encryption keys that are used in the SPL Token-2022 program:
+  - ElGamal keypair that can be used for public key encryption
+  - AES128 key that can be used for an authenticated symmetric encryption (e.g. AES-GCM-SIV)
+"""
+publish = false
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 bs58 = { workspace = true }

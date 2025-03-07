@@ -1,11 +1,13 @@
 [package]
 name = "solana-transaction-status-client-types"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Core RPC client types for solana-transaction-status"
+documentation = "https://docs.rs/solana-transaction-status-client-types"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 base64 = { workspace = true }

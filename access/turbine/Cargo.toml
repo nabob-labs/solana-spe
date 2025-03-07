@@ -1,11 +1,13 @@
 [package]
 name = "solana-turbine"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Blockchain, Rebuilt for Scale"
+documentation = "https://docs.rs/solana-turbine"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 bincode = { workspace = true }
@@ -46,3 +48,12 @@ assert_matches = { workspace = true }
 solana-logger = { workspace = true }
 solana-runtime = { workspace = true, features = ["dev-context-only-utils"] }
 test-case = { workspace = true }
+
+[[bench]]
+name = "cluster_info"
+
+[[bench]]
+name = "cluster_nodes"
+
+[[bench]]
+name = "retransmit_stage"

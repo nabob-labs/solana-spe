@@ -1,11 +1,13 @@
 [package]
 name = "solana-fee-calculator"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana transaction fee calculation"
+documentation = "https://docs.rs/solana-fee-calculator"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 log = { workspace = true }

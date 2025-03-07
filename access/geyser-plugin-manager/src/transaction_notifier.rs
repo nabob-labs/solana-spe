@@ -1,7 +1,7 @@
 /// Module responsible for notifying plugins of transactions
 use {
     crate::geyser_plugin_manager::GeyserPluginManager,
-    solana_geyser_plugin_interface::geyser_plugin_interface::{
+    agave_geyser_plugin_interface::geyser_plugin_interface::{
         ReplicaTransactionInfoV2, ReplicaTransactionInfoVersions,
     },
     log::*,

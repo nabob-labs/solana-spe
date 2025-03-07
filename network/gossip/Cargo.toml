@@ -1,11 +1,13 @@
 [package]
 name = "solana-gossip"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Blockchain, Rebuilt for Scale"
+documentation = "https://docs.rs/solana-gossip"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 assert_matches = { workspace = true }
@@ -78,6 +80,15 @@ frozen-abi = [
     "solana-vote/frozen-abi",
     "solana-vote-program/frozen-abi",
 ]
+
+[[bench]]
+name = "crds"
+
+[[bench]]
+name = "crds_gossip_pull"
+
+[[bench]]
+name = "crds_shards"
 
 [[bin]]
 name = "solana-gossip"

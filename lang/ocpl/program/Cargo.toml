@@ -1,11 +1,15 @@
 [package]
 name = "solana-program"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana Program"
+documentation = "https://docs.rs/solana-program"
+readme = "README.md"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+rust-version = "1.79.0"                          # solana platform-tools rust version
 
 [dependencies]
 bincode = { workspace = true }

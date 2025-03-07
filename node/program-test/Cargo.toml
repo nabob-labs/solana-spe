@@ -1,11 +1,12 @@
 [package]
+description = "Solana Program Test Framework"
 name = "solana-program-test"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 assert_matches = { workspace = true }
@@ -33,7 +34,7 @@ solana-sdk = { workspace = true }
 solana-svm = { workspace = true }
 solana-timings = { workspace = true }
 solana-vote-program = { workspace = true }
-solana-rbpf = { workspace = true }
+solana_rbpf = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 

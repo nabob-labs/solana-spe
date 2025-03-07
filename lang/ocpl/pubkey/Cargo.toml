@@ -1,11 +1,13 @@
 [package]
 name = "solana-pubkey"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana account addresses"
+documentation = "https://docs.rs/solana-pubkey"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 arbitrary = { workspace = true, features = ["derive"], optional = true }

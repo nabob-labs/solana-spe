@@ -1,11 +1,13 @@
 [package]
 name = "solana-precompile-error"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana PrecompileError type"
+documentation = "https://docs.rs/solana-precompile-error"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 num-traits = { workspace = true }

@@ -145,81 +145,81 @@ impl fmt::Display for TransactionError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::AccountInUse
-            => f.write_str("Account in use"),
+             => f.write_str("Account in use"),
             Self::AccountLoadedTwice
-            => f.write_str("Account loaded twice"),
+             => f.write_str("Account loaded twice"),
             Self::AccountNotFound
-            => f.write_str("Attempt to debit an account but found no record of a prior credit."),
+             => f.write_str("Attempt to debit an account but found no record of a prior credit."),
             Self::ProgramAccountNotFound
-            => f.write_str("Attempt to load a program that does not exist"),
+             => f.write_str("Attempt to load a program that does not exist"),
             Self::InsufficientFundsForFee
-            => f.write_str("Insufficient funds for fee"),
+             => f.write_str("Insufficient funds for fee"),
             Self::InvalidAccountForFee
-            => f.write_str("This account may not be used to pay transaction fees"),
+             => f.write_str("This account may not be used to pay transaction fees"),
             Self::AlreadyProcessed
-            => f.write_str("This transaction has already been processed"),
+             => f.write_str("This transaction has already been processed"),
             Self::BlockhashNotFound
-            => f.write_str("Blockhash not found"),
+             => f.write_str("Blockhash not found"),
             Self::InstructionError(idx, err) =>  write!(f, "Error processing Instruction {idx}: {err}"),
             Self::CallChainTooDeep
-            => f.write_str("Loader call chain is too deep"),
+             => f.write_str("Loader call chain is too deep"),
             Self::MissingSignatureForFee
-            => f.write_str("Transaction requires a fee but has no signature present"),
+             => f.write_str("Transaction requires a fee but has no signature present"),
             Self::InvalidAccountIndex
-            => f.write_str("Transaction contains an invalid account reference"),
+             => f.write_str("Transaction contains an invalid account reference"),
             Self::SignatureFailure
-            => f.write_str("Transaction did not pass signature verification"),
+             => f.write_str("Transaction did not pass signature verification"),
             Self::InvalidProgramForExecution
-            => f.write_str("This program may not be used for executing instructions"),
+             => f.write_str("This program may not be used for executing instructions"),
             Self::SanitizeFailure
-            => f.write_str("Transaction failed to sanitize accounts offsets correctly"),
+             => f.write_str("Transaction failed to sanitize accounts offsets correctly"),
             Self::ClusterMaintenance
-            => f.write_str("Transactions are currently disabled due to cluster maintenance"),
+             => f.write_str("Transactions are currently disabled due to cluster maintenance"),
             Self::AccountBorrowOutstanding
-            => f.write_str("Transaction processing left an account with an outstanding borrowed reference"),
+             => f.write_str("Transaction processing left an account with an outstanding borrowed reference"),
             Self::WouldExceedMaxBlockCostLimit
-            => f.write_str("Transaction would exceed max Block Cost Limit"),
+             => f.write_str("Transaction would exceed max Block Cost Limit"),
             Self::UnsupportedVersion
-            => f.write_str("Transaction version is unsupported"),
+             => f.write_str("Transaction version is unsupported"),
             Self::InvalidWritableAccount
-            => f.write_str("Transaction loads a writable account that cannot be written"),
+             => f.write_str("Transaction loads a writable account that cannot be written"),
             Self::WouldExceedMaxAccountCostLimit
-            => f.write_str("Transaction would exceed max account limit within the block"),
+             => f.write_str("Transaction would exceed max account limit within the block"),
             Self::WouldExceedAccountDataBlockLimit
-            => f.write_str("Transaction would exceed account data limit within the block"),
+             => f.write_str("Transaction would exceed account data limit within the block"),
             Self::TooManyAccountLocks
-            => f.write_str("Transaction locked too many accounts"),
+             => f.write_str("Transaction locked too many accounts"),
             Self::AddressLookupTableNotFound
-            => f.write_str("Transaction loads an address table account that doesn't exist"),
+             => f.write_str("Transaction loads an address table account that doesn't exist"),
             Self::InvalidAddressLookupTableOwner
-            => f.write_str("Transaction loads an address table account with an invalid owner"),
+             => f.write_str("Transaction loads an address table account with an invalid owner"),
             Self::InvalidAddressLookupTableData
-            => f.write_str("Transaction loads an address table account with invalid data"),
+             => f.write_str("Transaction loads an address table account with invalid data"),
             Self::InvalidAddressLookupTableIndex
-            => f.write_str("Transaction address table lookup uses an invalid index"),
+             => f.write_str("Transaction address table lookup uses an invalid index"),
             Self::InvalidRentPayingAccount
-            => f.write_str("Transaction leaves an account with a lower balance than rent-exempt minimum"),
+             => f.write_str("Transaction leaves an account with a lower balance than rent-exempt minimum"),
             Self::WouldExceedMaxVoteCostLimit
-            => f.write_str("Transaction would exceed max Vote Cost Limit"),
+             => f.write_str("Transaction would exceed max Vote Cost Limit"),
             Self::WouldExceedAccountDataTotalLimit
-            => f.write_str("Transaction would exceed total account data limit"),
+             => f.write_str("Transaction would exceed total account data limit"),
             Self::DuplicateInstruction(idx) =>  write!(f, "Transaction contains a duplicate instruction ({idx}) that is not allowed"),
             Self::InsufficientFundsForRent {
                 account_index
             } =>  write!(f,"Transaction results in an account ({account_index}) with insufficient funds for rent"),
             Self::MaxLoadedAccountsDataSizeExceeded
-            => f.write_str("Transaction exceeded max loaded accounts data size cap"),
+             => f.write_str("Transaction exceeded max loaded accounts data size cap"),
             Self::InvalidLoadedAccountsDataSizeLimit
-            => f.write_str("LoadedAccountsDataSizeLimit set for transaction must be greater than 0."),
+             => f.write_str("LoadedAccountsDataSizeLimit set for transaction must be greater than 0."),
             Self::ResanitizationNeeded
-            => f.write_str("ResanitizationNeeded"),
+             => f.write_str("ResanitizationNeeded"),
             Self::ProgramExecutionTemporarilyRestricted {
                 account_index
             } =>  write!(f,"Execution of the program referenced by account at index {account_index} is temporarily restricted."),
             Self::UnbalancedTransaction
-            => f.write_str("Sum of account balances before and after transaction do not match"),
+             => f.write_str("Sum of account balances before and after transaction do not match"),
             Self::ProgramCacheHitMaxLimit
-            => f.write_str("Program cache hit max limit"),
+             => f.write_str("Program cache hit max limit"),
         }
     }
 }

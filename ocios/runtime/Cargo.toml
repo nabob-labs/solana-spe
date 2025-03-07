@@ -1,11 +1,13 @@
 [package]
 name = "solana-runtime"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana runtime"
+documentation = "https://docs.rs/solana-runtime"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 ahash = { workspace = true }
@@ -101,7 +103,7 @@ crate-type = ["lib"]
 name = "solana_runtime"
 
 [dev-dependencies]
-solana-transaction-view = { workspace = true }
+agave-transaction-view = { workspace = true }
 assert_matches = { workspace = true }
 ed25519-dalek = { workspace = true }
 libsecp256k1 = { workspace = true }
@@ -136,6 +138,9 @@ frozen-abi = [
     "solana-vote/frozen-abi",
     "solana-vote-program/frozen-abi",
 ]
+
+[[bench]]
+name = "prioritization_fee_cache"
 
 [lints]
 workspace = true

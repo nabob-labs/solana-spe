@@ -1,11 +1,13 @@
 [package]
-name = "solana-cargo-registry"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+name = "agave-cargo-registry"
+description = "Solana cargo registry"
+documentation = "https://docs.rs/agave-cargo-registry"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 clap = { workspace = true }

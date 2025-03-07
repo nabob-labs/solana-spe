@@ -1,11 +1,13 @@
 [package]
 name = "solana-slot-hashes"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Types and utilities for the Solana SlotHashes sysvar."
+documentation = "https://docs.rs/solana-slot-hashes"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 serde = { workspace = true, optional = true }

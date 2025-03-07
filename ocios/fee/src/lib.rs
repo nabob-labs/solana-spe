@@ -15,7 +15,7 @@ pub fn calculate_fee(
         prioritization_fee,
         remove_rounding_in_fee_calculation,
     )
-        .total_fee()
+    .total_fee()
 }
 
 pub fn calculate_fee_details(

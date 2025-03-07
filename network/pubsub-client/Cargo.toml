@@ -1,11 +1,13 @@
 [package]
 name = "solana-pubsub-client"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana Pubsub Client"
+documentation = "https://docs.rs/solana-pubsub-client"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 crossbeam-channel = { workspace = true }

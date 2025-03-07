@@ -168,7 +168,7 @@ impl Default for TestValidatorGenesis {
             tpu_enable_udp: DEFAULT_TPU_ENABLE_UDP,
             geyser_plugin_manager: Arc::new(RwLock::new(GeyserPluginManager::new())),
             admin_rpc_service_post_init:
-            Arc::<RwLock<Option<AdminRpcRequestMetadataPostInit>>>::default(),
+                Arc::<RwLock<Option<AdminRpcRequestMetadataPostInit>>>::default(),
         }
     }
 }
@@ -185,9 +185,9 @@ fn try_transform_program_data(
         // Ensure the account is a proper programdata account before
         // attempting to serialize into it.
         if let Ok(UpgradeableLoaderState::ProgramData {
-                      upgrade_authority_address,
-                      ..
-                  }) = bincode::deserialize::<UpgradeableLoaderState>(programdata_meta)
+            upgrade_authority_address,
+            ..
+        }) = bincode::deserialize::<UpgradeableLoaderState>(programdata_meta)
         {
             // Serialize new programdata metadata into the resulting account,
             // to overwrite the deployment slot to `0`.
@@ -198,7 +198,7 @@ fn try_transform_program_data(
                     upgrade_authority_address,
                 },
             )
-                .map_err(|_| format!("Failed to write to upgradeable programdata account {address}"))
+            .map_err(|_| format!("Failed to write to upgradeable programdata account {address}"))
         } else {
             Err(format!(
                 "Failed to read upgradeable programdata account {address}"
@@ -412,8 +412,8 @@ impl TestValidatorGenesis {
             let account = self.accounts.get(&address).unwrap();
 
             if let Ok(UpgradeableLoaderState::Program {
-                          programdata_address,
-                      }) = account.deserialize_data()
+                programdata_address,
+            }) = account.deserialize_data()
             {
                 programdata_addresses.insert(programdata_address);
             } else {
@@ -503,10 +503,10 @@ impl TestValidatorGenesis {
                 Ok(dir) => dir,
                 Err(e) => return Err(format!("Cannot read directory {}: {}", &dir, e)),
             }
-                .flatten()
-                .map(|entry| entry.path())
-                .filter(|path| path.is_file() && path.extension() == Some(OsStr::new("json")))
-                .map(|path| String::from(path.to_string_lossy()));
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.is_file() && path.extension() == Some(OsStr::new("json")))
+            .map(|path| String::from(path.to_string_lossy()));
 
             json_files.extend(matched_files);
         }
@@ -628,14 +628,14 @@ impl TestValidatorGenesis {
             socket_addr_space,
             rpc_to_plugin_manager_receiver,
         )
-            .inspect(|test_validator| {
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_io()
-                    .enable_time()
-                    .build()
-                    .unwrap();
-                runtime.block_on(test_validator.wait_for_nonzero_fees());
-            })
+        .inspect(|test_validator| {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_io()
+                .enable_time()
+                .build()
+                .unwrap();
+            runtime.block_on(test_validator.wait_for_nonzero_fees());
+        })
     }
 
     /// Start a test validator
@@ -668,7 +668,7 @@ impl TestValidatorGenesis {
         self.start_async_with_socket_addr_space(SocketAddrSpace::new(
             /*allow_private_addr=*/ true,
         ))
-            .await
+        .await
     }
 
     pub async fn start_async_with_socket_addr_space(
@@ -800,7 +800,7 @@ impl TestValidator {
                 slot: 0,
                 upgrade_authority_address: Some(upgradeable_program.upgrade_authority),
             })
-                .unwrap();
+            .unwrap();
             program_data.extend_from_slice(&data);
             accounts.insert(
                 programdata_address,
@@ -816,7 +816,7 @@ impl TestValidator {
             let data = bincode::serialize(&UpgradeableLoaderState::Program {
                 programdata_address,
             })
-                .unwrap();
+            .unwrap();
             accounts.insert(
                 upgradeable_program.program_id,
                 AccountSharedData::from(Account {
@@ -885,13 +885,13 @@ impl TestValidator {
                         .unwrap_or(MAX_GENESIS_ARCHIVE_UNPACKED_SIZE),
                     LedgerColumnOptions::default(),
                 )
-                    .map_err(|err| {
-                        format!(
-                            "Failed to create ledger at {}: {}",
-                            ledger_path.display(),
-                            err
-                        )
-                    })?;
+                .map_err(|err| {
+                    format!(
+                        "Failed to create ledger at {}: {}",
+                        ledger_path.display(),
+                        err
+                    )
+                })?;
                 ledger_path.to_path_buf()
             }
         };

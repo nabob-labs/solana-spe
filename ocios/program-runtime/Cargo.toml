@@ -1,11 +1,13 @@
 [package]
 name = "solana-program-runtime"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana program runtime"
+documentation = "https://docs.rs/solana-program-runtime"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 base64 = { workspace = true }
@@ -34,7 +36,7 @@ solana-sdk = { workspace = true }
 solana-timings = { workspace = true }
 solana-type-overrides = { workspace = true }
 solana-vote = { workspace = true }
-solana-rbpf = { workspace = true }
+solana_rbpf = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
@@ -57,7 +59,7 @@ frozen-abi = [
     "solana-compute-budget/frozen-abi",
     "solana-sdk/frozen-abi",
 ]
-shuttle-test = ["solana-type-overrides/shuttle-test", "solana-rbpf/shuttle-test"]
+shuttle-test = ["solana-type-overrides/shuttle-test", "solana_rbpf/shuttle-test"]
 
 [lints]
 workspace = true

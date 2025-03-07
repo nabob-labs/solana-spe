@@ -1,11 +1,13 @@
 [package]
 name = "solana-builtins-default-costs"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana builtins default costs"
+documentation = "https://docs.rs/solana-builtins-default-costs"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 ahash = { workspace = true }

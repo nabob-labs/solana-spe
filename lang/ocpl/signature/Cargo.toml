@@ -1,11 +1,13 @@
 [package]
 name = "solana-signature"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana 64-byte signature type"
+documentation = "https://docs.rs/solana-signature"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 bs58 = { workspace = true }

@@ -1,11 +1,13 @@
 [package]
 name = "solana-clap-v3-utils"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana utilities for the clap v3"
+documentation = "https://docs.rs/solana-clap-utils"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 chrono = { workspace = true, features = ["default"] }

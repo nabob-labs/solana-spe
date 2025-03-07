@@ -1,11 +1,13 @@
 [package]
 name = "solana-secp256r1-program"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Precompile implementation for the secp256r1 elliptic curve."
+documentation = "https://docs.rs/solana-secp256r1"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 bytemuck = { workspace = true, features = ["derive"] }

@@ -1,11 +1,13 @@
 [package]
 name = "solana-storage-bigtable"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana Storage BigTable"
+documentation = "https://docs.rs/solana-storage-bigtable"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 backoff = { workspace = true, features = ["tokio"] }

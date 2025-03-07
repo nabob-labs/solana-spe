@@ -1,11 +1,13 @@
 [package]
 name = "solana-program-memory"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Basic low-level memory operations for Solana."
+documentation = "https://docs.rs/solana-program-memory"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 num-traits = { workspace = true }

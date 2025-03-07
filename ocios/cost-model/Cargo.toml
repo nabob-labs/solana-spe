@@ -1,11 +1,13 @@
 [package]
 name = "solana-cost-model"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana cost model"
+documentation = "https://docs.rs/solana-cost-model"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 ahash = { workspace = true }
@@ -54,6 +56,9 @@ frozen-abi = [
     "solana-sdk/frozen-abi",
     "solana-vote-program/frozen-abi",
 ]
+
+[[bench]]
+name = "cost_tracker"
 
 [lints]
 workspace = true

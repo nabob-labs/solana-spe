@@ -359,7 +359,7 @@ pub trait GeyserPlugin: Any + Send + Sync + std::fmt::Debug {
     /// # Examples
     ///
     /// ```
-    /// use solana_geyser_plugin_interface::geyser_plugin_interface::{GeyserPlugin,
+    /// use agave_geyser_plugin_interface::geyser_plugin_interface::{GeyserPlugin,
     /// GeyserPluginError, Result};
     ///
     /// #[derive(Debug)]

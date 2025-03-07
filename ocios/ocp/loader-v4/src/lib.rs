@@ -287,10 +287,10 @@ pub fn process_instruction_deploy(
         buffer.get_data().len(),
         &mut load_program_metrics,
     )
-        .map_err(|err| {
-            ic_logger_msg!(log_collector, "{}", err);
-            InstructionError::InvalidAccountData
-        })?;
+    .map_err(|err| {
+        ic_logger_msg!(log_collector, "{}", err);
+        InstructionError::InvalidAccountData
+    })?;
     load_program_metrics.submit_datapoint(&mut invoke_context.timings);
     if let Some(mut source_program) = source_program {
         let rent = invoke_context.get_sysvar_cache().get_rent()?;
@@ -484,7 +484,7 @@ pub fn process_instruction_inner(
             }
             LoaderV4Instruction::Finalize => process_instruction_finalize(invoke_context),
         }
-            .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)
+        .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)
     } else {
         let program = instruction_context.try_borrow_last_program_account(transaction_context)?;
         let state = get_state(program.get_data())?;
@@ -522,7 +522,7 @@ pub fn process_instruction_inner(
             }
         }
     }
-        .map(|_| 0)
+    .map(|_| 0)
 }
 
 #[cfg(test)]
@@ -751,7 +751,7 @@ mod tests {
                 offset: 2,
                 bytes: vec![8, 8, 8, 8],
             })
-                .unwrap(),
+            .unwrap(),
             transaction_accounts.clone(),
             &[(0, false, true), (1, true, false)],
             Ok(()),
@@ -764,7 +764,7 @@ mod tests {
                 offset: 2,
                 bytes: Vec::new(),
             })
-                .unwrap(),
+            .unwrap(),
             transaction_accounts.clone(),
             &[(0, false, true), (1, true, false)],
             Ok(()),
@@ -777,7 +777,7 @@ mod tests {
                 offset: 8,
                 bytes: vec![8, 8, 8, 8],
             })
-                .unwrap(),
+            .unwrap(),
             transaction_accounts.clone(),
             &[(2, false, true), (1, true, false)],
             Err(InstructionError::InvalidArgument),
@@ -795,7 +795,7 @@ mod tests {
                     .saturating_sub(3) as u32,
                 bytes: vec![8, 8, 8, 8],
             })
-                .unwrap(),
+            .unwrap(),
             transaction_accounts.clone(),
             &[(0, false, true), (1, true, false)],
             Err(InstructionError::AccountDataTooSmall),
@@ -868,7 +868,7 @@ mod tests {
                     .saturating_sub(loader_v4::LoaderV4State::program_data_offset())
                     as u32,
             })
-                .unwrap(),
+            .unwrap(),
             transaction_accounts.clone(),
             &[(0, false, true), (1, true, false)],
             Ok(()),
@@ -892,7 +892,7 @@ mod tests {
                     .saturating_sub(loader_v4::LoaderV4State::program_data_offset())
                     as u32,
             })
-                .unwrap(),
+            .unwrap(),
             transaction_accounts.clone(),
             &[(3, true, true), (1, true, false), (2, false, true)],
             Ok(()),
@@ -913,7 +913,7 @@ mod tests {
                     .saturating_sub(loader_v4::LoaderV4State::program_data_offset())
                     as u32,
             })
-                .unwrap(),
+            .unwrap(),
             transaction_accounts.clone(),
             &[(0, false, true), (1, true, false)],
             Ok(()),
@@ -934,7 +934,7 @@ mod tests {
                     .saturating_sub(loader_v4::LoaderV4State::program_data_offset())
                     as u32,
             })
-                .unwrap(),
+            .unwrap(),
             transaction_accounts.clone(),
             &[(4, false, true), (1, true, false), (2, false, true)],
             Ok(()),
@@ -1055,7 +1055,7 @@ mod tests {
                     .saturating_sub(loader_v4::LoaderV4State::program_data_offset())
                     .saturating_add(1) as u32,
             })
-                .unwrap(),
+            .unwrap(),
             transaction_accounts.clone(),
             &[(0, false, true), (1, true, false)],
             Err(InstructionError::InsufficientFunds),

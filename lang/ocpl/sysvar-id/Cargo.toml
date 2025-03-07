@@ -1,11 +1,13 @@
 [package]
 name = "solana-sysvar-id"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Definition for the sysvar id trait and associated macros."
+documentation = "https://docs.rs/solana-sysvar-id"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 solana-pubkey = { workspace = true, default-features = false }

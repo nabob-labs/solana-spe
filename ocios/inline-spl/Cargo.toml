@@ -1,11 +1,13 @@
 [package]
 name = "solana-inline-spl"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Limited types and ids from the Solana Program Library"
+documentation = "https://docs.rs/solana-inline-spl"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 bytemuck = { workspace = true }

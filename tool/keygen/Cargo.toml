@@ -1,11 +1,13 @@
 [package]
 name = "solana-keygen"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana key generation utility"
+documentation = "https://docs.rs/solana-keygen"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 bs58 = { workspace = true }

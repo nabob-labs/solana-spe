@@ -1,5 +1,5 @@
 use {
-    solana_validator::{
+    agave_validator::{
         admin_rpc_service, cli, dashboard::Dashboard, ledger_lockfile, lock_ledger,
         println_name_value, redirect_stderr_to_file,
     },

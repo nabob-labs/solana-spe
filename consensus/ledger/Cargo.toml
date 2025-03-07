@@ -1,11 +1,13 @@
 [package]
 name = "solana-ledger"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana ledger"
+documentation = "https://docs.rs/solana-ledger"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 assert_matches = { workspace = true }
@@ -106,6 +108,12 @@ frozen-abi = [
 [lib]
 crate-type = ["lib"]
 name = "solana_ledger"
+
+[[bench]]
+name = "sigverify_shreds"
+
+[[bench]]
+name = "blockstore"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]

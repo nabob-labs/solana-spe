@@ -1,14 +1,16 @@
 [package]
 name = "solana-runtime-transaction"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana runtime-transaction"
+documentation = "https://docs.rs/solana-runtime-transaction"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
-solana-transaction-view = { workspace = true }
+agave-transaction-view = { workspace = true }
 log = { workspace = true }
 solana-builtins-default-costs = { workspace = true }
 solana-compute-budget = { workspace = true }
@@ -33,6 +35,14 @@ targets = ["x86_64-unknown-linux-gnu"]
 
 [features]
 dev-context-only-utils = ["solana-builtins-default-costs/dev-context-only-utils"]
+
+[[bench]]
+name = "process_compute_budget_instructions"
+harness = false
+
+[[bench]]
+name = "get_signature_details"
+harness = false
 
 [lints]
 workspace = true
