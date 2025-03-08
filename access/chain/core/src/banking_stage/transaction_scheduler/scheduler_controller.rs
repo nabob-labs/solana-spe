@@ -3,7 +3,7 @@
 
 use {
     super::{
-        scheduler::Scheduler,
+        prio_graph_scheduler::PrioGraphScheduler,
         scheduler_error::SchedulerError,
         scheduler_metrics::{
             SchedulerCountMetrics, SchedulerLeaderDetectionMetrics, SchedulerTimingMetrics,
@@ -46,11 +46,7 @@ use {
 };
 
 /// Controls packet and transaction flow into scheduler, and scheduling execution.
-pub(crate) struct SchedulerController<C, S>
-where
-    C: LikeClusterInfo,
-    S: Scheduler,
-{
+pub(crate) struct SchedulerController<T: LikeClusterInfo> {
     /// Decision maker for determining what should be done with transactions.
     decision_maker: DecisionMaker,
     /// Packet/Transaction ingress.
@@ -62,7 +58,7 @@ where
     /// Shared resource between `packet_receiver` and `scheduler`.
     container: TransactionStateContainer,
     /// State for scheduling and communicating with worker threads.
-    scheduler: S,
+    scheduler: PrioGraphScheduler,
     /// Metrics tracking time for leader bank detection.
     leader_detection_metrics: SchedulerLeaderDetectionMetrics,
     /// Metrics tracking counts on transactions in different states
@@ -74,21 +70,17 @@ where
     /// Metric report handles for the worker threads.
     worker_metrics: Vec<Arc<ConsumeWorkerMetrics>>,
     /// State for forwarding packets to the leader, if enabled.
-    forwarder: Option<Forwarder<C>>,
+    forwarder: Option<Forwarder<T>>,
 }
 
-impl<C, S> SchedulerController<C, S>
-where
-    C: LikeClusterInfo,
-    S: Scheduler,
-{
+impl<T: LikeClusterInfo> SchedulerController<T> {
     pub fn new(
         decision_maker: DecisionMaker,
         packet_deserializer: PacketDeserializer,
         bank_forks: Arc<RwLock<BankForks>>,
-        scheduler: S,
+        scheduler: PrioGraphScheduler,
         worker_metrics: Vec<Arc<ConsumeWorkerMetrics>>,
-        forwarder: Option<Forwarder<C>>,
+        forwarder: Option<Forwarder<T>>,
     ) -> Self {
         Self {
             decision_maker,
@@ -148,7 +140,7 @@ where
                 .maybe_report_and_reset_interval(should_report);
             self.worker_metrics
                 .iter()
-                .for_each(|metrics| metrics.maybe_report_and_reset());
+                .for_each(|metrics| metrics.maybe_report_and_reset(new_leader_slot));
         }
 
         Ok(())
@@ -592,14 +584,6 @@ where
                     .zip(fee_budget_limits_vec.drain(..))
                     .zip(check_results)
                     .filter(|(_, check_result)| check_result.is_ok())
-                    .filter(|((((_, tx), _), _), _)| {
-                        Consumer::check_fee_payer_unlocked(
-                            &working_bank,
-                            tx.message(),
-                            &mut error_counts,
-                        )
-                        .is_ok()
-                    })
             {
                 saturating_add_assign!(post_transaction_check_count, 1);
                 let transaction_id = self.transaction_id_generator.next();
@@ -730,10 +714,8 @@ mod tests {
         crate::{
             banking_stage::{
                 consumer::TARGET_NUM_TRANSACTIONS_PER_BATCH,
-                packet_deserializer::PacketDeserializer,
                 scheduler_messages::{ConsumeWork, FinishedConsumeWork, TransactionBatchId},
                 tests::create_slow_genesis_config,
-                transaction_scheduler::prio_graph_scheduler::PrioGraphScheduler,
             },
             banking_trace::BankingPacketBatch,
             sigverify::SigverifyTracerPacketStats,
@@ -776,12 +758,7 @@ mod tests {
         finished_consume_work_sender: Sender<FinishedConsumeWork>,
     }
 
-    fn create_test_frame(
-        num_threads: usize,
-    ) -> (
-        TestFrame,
-        SchedulerController<Arc<ClusterInfo>, PrioGraphScheduler>,
-    ) {
+    fn create_test_frame(num_threads: usize) -> (TestFrame, SchedulerController<Arc<ClusterInfo>>) {
         let GenesisConfigInfo {
             mut genesis_config,
             mint_keypair,
@@ -876,7 +853,7 @@ mod tests {
     // In the tests, the decision will not become stale, so it is more convenient
     // to receive first and then schedule.
     fn test_receive_then_schedule(
-        scheduler_controller: &mut SchedulerController<Arc<ClusterInfo>, impl Scheduler>,
+        scheduler_controller: &mut SchedulerController<Arc<ClusterInfo>>,
     ) {
         let decision = scheduler_controller
             .decision_maker

@@ -51,7 +51,6 @@ use {
         thread::{self, Builder, JoinHandle},
         time::{Duration, Instant},
     },
-    transaction_scheduler::greedy_scheduler::{GreedyScheduler, GreedySchedulerConfig},
 };
 
 // Below modules are pub to allow use by banking_stage bench
@@ -414,29 +413,21 @@ impl BankingStage {
                     prioritization_fee_cache,
                 )
             }
-            BlockProductionMethod::CentralScheduler
-            | BlockProductionMethod::CentralSchedulerGreedy => {
-                let use_greedy_scheduler = matches!(
-                    block_production_method,
-                    BlockProductionMethod::CentralSchedulerGreedy
-                );
-                Self::new_central_scheduler(
-                    use_greedy_scheduler,
-                    cluster_info,
-                    poh_recorder,
-                    non_vote_receiver,
-                    tpu_vote_receiver,
-                    gossip_vote_receiver,
-                    num_threads,
-                    transaction_status_sender,
-                    replay_vote_sender,
-                    log_messages_bytes_limit,
-                    connection_cache,
-                    bank_forks,
-                    prioritization_fee_cache,
-                    enable_forwarding,
-                )
-            }
+            BlockProductionMethod::CentralScheduler => Self::new_central_scheduler(
+                cluster_info,
+                poh_recorder,
+                non_vote_receiver,
+                tpu_vote_receiver,
+                gossip_vote_receiver,
+                num_threads,
+                transaction_status_sender,
+                replay_vote_sender,
+                log_messages_bytes_limit,
+                connection_cache,
+                bank_forks,
+                prioritization_fee_cache,
+                enable_forwarding,
+            ),
         }
     }
 
@@ -528,7 +519,6 @@ impl BankingStage {
 
     #[allow(clippy::too_many_arguments)]
     pub fn new_central_scheduler(
-        use_greedy_scheduler: bool,
         cluster_info: &impl LikeClusterInfo,
         poh_recorder: &Arc<RwLock<PohRecorder>>,
         non_vote_receiver: BankingPacketReceiver,
@@ -636,63 +626,28 @@ impl BankingStage {
         });
 
         // Spawn the central scheduler thread
-        let packet_deserializer = PacketDeserializer::new(non_vote_receiver);
-        if use_greedy_scheduler {
-            bank_thread_hdls.push(
-                Builder::new()
-                    .name("solBnkTxSched".to_string())
-                    .spawn(move || {
-                        let scheduler = GreedyScheduler::new(
-                            work_senders,
-                            finished_work_receiver,
-                            GreedySchedulerConfig::default(),
-                        );
-                        let scheduler_controller = SchedulerController::new(
-                            decision_maker.clone(),
-                            packet_deserializer,
-                            bank_forks,
-                            scheduler,
-                            worker_metrics,
-                            forwarder,
-                        );
-
-                        match scheduler_controller.run() {
-                            Ok(_) => {}
-                            Err(SchedulerError::DisconnectedRecvChannel(_)) => {}
-                            Err(SchedulerError::DisconnectedSendChannel(_)) => {
-                                warn!("Unexpected worker disconnect from scheduler")
-                            }
-                        }
-                    })
-                    .unwrap(),
+        bank_thread_hdls.push({
+            let packet_deserializer = PacketDeserializer::new(non_vote_receiver);
+            let scheduler = PrioGraphScheduler::new(work_senders, finished_work_receiver);
+            let scheduler_controller = SchedulerController::new(
+                decision_maker.clone(),
+                packet_deserializer,
+                bank_forks,
+                scheduler,
+                worker_metrics,
+                forwarder,
             );
-        } else {
-            bank_thread_hdls.push(
-                Builder::new()
-                    .name("solBnkTxSched".to_string())
-                    .spawn(move || {
-                        let scheduler =
-                            PrioGraphScheduler::new(work_senders, finished_work_receiver);
-                        let scheduler_controller = SchedulerController::new(
-                            decision_maker.clone(),
-                            packet_deserializer,
-                            bank_forks,
-                            scheduler,
-                            worker_metrics,
-                            forwarder,
-                        );
-
-                        match scheduler_controller.run() {
-                            Ok(_) => {}
-                            Err(SchedulerError::DisconnectedRecvChannel(_)) => {}
-                            Err(SchedulerError::DisconnectedSendChannel(_)) => {
-                                warn!("Unexpected worker disconnect from scheduler")
-                            }
-                        }
-                    })
-                    .unwrap(),
-            );
-        }
+            Builder::new()
+                .name("solBnkTxSched".to_string())
+                .spawn(move || match scheduler_controller.run() {
+                    Ok(_) => {}
+                    Err(SchedulerError::DisconnectedRecvChannel(_)) => {}
+                    Err(SchedulerError::DisconnectedSendChannel(_)) => {
+                        warn!("Unexpected worker disconnect from scheduler")
+                    }
+                })
+                .unwrap()
+        });
 
         Self { bank_thread_hdls }
     }
