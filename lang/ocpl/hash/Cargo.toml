@@ -8,9 +8,16 @@ license.workspace = true
 edition.workspace = true
 
 [package.metadata.docs.rs]
-targets = ["x86_64-unknown-linux-gnu"]
 all-features = true
 rustdoc-args = ["--cfg=docsrs"]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "wasm32-unknown-unknown",
+]
+
+[lib]
+name = "solana_hash"
+path = "src/lib.rs"
 
 [dependencies]
 borsh = { workspace = true, optional = true }
@@ -29,24 +36,37 @@ solana-frozen-abi-macro = { workspace = true, optional = true, features = [
 solana-sanitize = { workspace = true }
 
 [dev-dependencies]
-solana-hash = { path = ".", features = ["dev-context-only-utils"] }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-js-sys = { workspace = true }
-wasm-bindgen = { workspace = true }
 
 [features]
-borsh = ["dep:borsh", "std"]
-bytemuck = ["dep:bytemuck", "dep:bytemuck_derive"]
+borsh = [
+    "dep:borsh",
+    "std",
+]
+bytemuck = [
+    "dep:bytemuck",
+    "dep:bytemuck_derive",
+]
 default = ["std"]
 dev-context-only-utils = ["bs58/alloc"]
 frozen-abi = [
     "dep:solana-frozen-abi",
     "dep:solana-frozen-abi-macro",
-    "std"
+    "std",
 ]
-serde = ["dep:serde", "dep:serde_derive"]
+serde = [
+    "dep:serde",
+    "dep:serde_derive",
+]
 std = []
 
-[lints]
-workspace = true
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = { workspace = true }
+wasm-bindgen = { workspace = true }
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+priority = 0
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]

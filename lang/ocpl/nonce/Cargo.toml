@@ -1,0 +1,39 @@
+[package]
+name = "solana-nonce"
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[lib]
+name = "solana_nonce"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true, optional = true }
+serde_derive = { workspace = true, optional = true }
+solana-fee-calculator = { workspace = true }
+solana-hash = { workspace = true, default-features = false }
+solana-pubkey = { workspace = true, default-features = false }
+solana-sha256-hasher = { workspace = true }
+
+[dev-dependencies]
+bincode = { workspace = true }
+solana-nonce = { path = ".", features = ["dev-context-only-utils"] }
+
+[features]
+dev-context-only-utils = ["serde"]
+serde = [
+    "dep:serde",
+    "dep:serde_derive",
+    "solana-fee-calculator/serde",
+    "solana-hash/serde",
+    "solana-pubkey/serde",
+]

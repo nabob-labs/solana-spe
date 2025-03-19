@@ -18,6 +18,7 @@ use {
         clock::{BankId, Slot, MAX_PROCESSING_AGE},
         hash::Hash,
     },
+    solana_unified_scheduler_logic::SchedulingMode,
     std::{
         collections::{hash_map::Entry, BTreeMap, HashMap, HashSet},
         ops::Index,
@@ -32,6 +33,7 @@ use {
 
 pub const MAX_ROOT_DISTANCE_FOR_VOTE_ONLY: Slot = 400;
 pub type AtomicSlot = AtomicU64;
+#[derive(Clone)]
 pub struct ReadOnlyAtomicSlot {
     slot: Arc<AtomicSlot>,
 }
@@ -228,14 +230,22 @@ impl BankForks {
         );
     }
 
-    pub fn insert(&mut self, mut bank: Bank) -> BankWithScheduler {
+    pub fn insert(&mut self, bank: Bank) -> BankWithScheduler {
+        self.insert_with_scheduling_mode(SchedulingMode::BlockVerification, bank)
+    }
+
+    pub fn insert_with_scheduling_mode(
+        &mut self,
+        mode: SchedulingMode,
+        mut bank: Bank,
+    ) -> BankWithScheduler {
         if self.root.load(Ordering::Relaxed) < self.highest_slot_at_startup {
             bank.set_check_program_modification_slot(true);
         }
 
         let bank = Arc::new(bank);
         let bank = if let Some(scheduler_pool) = &self.scheduler_pool {
-            let context = SchedulingContext::new(bank.clone());
+            let context = SchedulingContext::new_with_mode(mode, bank.clone());
             let scheduler = scheduler_pool.take_scheduler(context);
             let bank_with_scheduler = BankWithScheduler::new(bank, Some(scheduler));
             scheduler_pool.register_timeout_listener(bank_with_scheduler.create_timeout_listener());
@@ -293,8 +303,8 @@ impl BankForks {
         self[self.highest_slot()].clone()
     }
 
-    pub fn working_bank_with_scheduler(&self) -> &BankWithScheduler {
-        &self.banks[&self.highest_slot()]
+    pub fn working_bank_with_scheduler(&self) -> BankWithScheduler {
+        self.banks[&self.highest_slot()].clone_with_scheduler()
     }
 
     /// Register to be notified when a bank has been dumped (due to duplicate block handling)

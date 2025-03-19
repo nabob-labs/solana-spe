@@ -1,0 +1,41 @@
+[package]
+name = "spl-elgamal-registry"
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[package.metadata.solana]
+program-id = "regVYJW7tcT8zipN5YiBvHsvR5jXW1uLFxaHSbugABg"
+
+[lib]
+name = "spl_elgamal_registry"
+crate-type = [
+    "cdylib",
+    "lib",
+]
+path = "src/lib.rs"
+
+[dependencies]
+bytemuck = { version = "1.21.0",features = ["derive"] }
+solana-program = { workspace = true }
+solana-zk-sdk = { workspace = true }
+spl-pod = { workspace = true }
+spl-token-confidential-transfer-proof-extraction = { workspace = true }
+
+[features]
+no-entrypoint = []
+test-sbf = []
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+priority = 0
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]

@@ -64,7 +64,7 @@ pub struct BanksTransactionResultWithMetadata {
 pub trait Banks {
     async fn send_transaction_with_context(transaction: VersionedTransaction);
     async fn get_transaction_status_with_context(signature: Signature)
-                                                 -> Option<TransactionStatus>;
+        -> Option<TransactionStatus>;
     async fn get_slot_with_context(commitment: CommitmentLevel) -> Slot;
     async fn get_block_height_with_context(commitment: CommitmentLevel) -> u64;
     async fn process_transaction_with_preflight_and_commitment_and_context(

@@ -11,18 +11,25 @@ edition.workspace = true
 targets = ["x86_64-unknown-linux-gnu"]
 
 [lib]
+name = "spl_type_length_value"
 crate-type = [
     "cdylib",
     "lib",
 ]
+path = "src/lib.rs"
 
 [dependencies]
-bytemuck = { version = "1.16.1", features = ["derive"] }
-solana-program = { workspace = true }
+bytemuck = { version = "1.19.0", features = ["derive"] }
+num-derive = "0.4"
+num-traits = "0.2"
+solana-account-info = { workspace = true }
+solana-decode-error = { workspace = true }
+solana-msg = { workspace = true }
+solana-program-error = { workspace = true }
 spl-discriminator = { workspace = true }
 spl-pod = { workspace = true }
-spl-program-error = { workspace = true }
 spl-type-length-value-derive = { workspace = true, optional = true }
+thiserror = "1.0"
 
 [features]
 derive = ["dep:spl-type-length-value-derive"]

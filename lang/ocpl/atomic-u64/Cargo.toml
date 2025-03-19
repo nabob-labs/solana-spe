@@ -7,8 +7,12 @@ homepage.workspace = true
 license.workspace = true
 edition.workspace = true
 
-[target.'cfg(not(target_pointer_width = "64"))'.dependencies]
-parking_lot = { workspace = true }
-
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
+
+[lib]
+name = "solana_atomic_u64"
+path = "src/lib.rs"
+
+[target.'cfg(not(target_pointer_width = "64"))'.dependencies]
+parking_lot = { workspace = true }

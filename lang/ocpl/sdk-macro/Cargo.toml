@@ -7,7 +7,12 @@ homepage.workspace = true
 license.workspace = true
 edition.workspace = true
 
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
 [lib]
+name = "solana_sdk_macro"
+path = "src/lib.rs"
 proc-macro = true
 
 [dependencies]
@@ -15,6 +20,3 @@ bs58 = { workspace = true, features = ["alloc"] }
 proc-macro2 = { workspace = true }
 quote = { workspace = true }
 syn = { workspace = true, features = ["full"] }
-
-[package.metadata.docs.rs]
-targets = ["x86_64-unknown-linux-gnu"]

@@ -1,0 +1,23 @@
+[package]
+name = "solana-feature-gate-client"
+version = "0.0.2"
+description = "A generated Rust library for the Feature Gate program"
+repository = "https://github.com/solana-program/feature-gate"
+edition = "2021"
+readme = "README.md"
+license-file = "../../LICENSE"
+
+[features]
+test-sbf = []
+serde = ["dep:serde", "dep:serde_with"]
+
+[dependencies]
+borsh = "^0.10"
+num-derive = "0.4"
+num-traits = "^0.2"
+serde = { version = "^1.0", features = ["derive"], optional = true }
+serde_with = { version = "^3.0", optional = true }
+solana-program = "^2"
+thiserror = "^2.0"
+
+[dev-dependencies]

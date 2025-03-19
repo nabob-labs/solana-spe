@@ -1,5 +1,5 @@
 [package]
-name = "solana-validator"
+name = "agave-validator"
 version.workspace = true
 authors.workspace = true
 repository.workspace = true
@@ -8,7 +8,7 @@ license.workspace = true
 edition.workspace = true
 
 [dependencies]
-solana-geyser-plugin-interface = { workspace = true }
+agave-geyser-plugin-interface = { workspace = true }
 chrono = { workspace = true, features = ["default", "serde"] }
 clap = { workspace = true }
 console = { workspace = true }
@@ -74,7 +74,7 @@ solana-runtime = { workspace = true, features = ["dev-context-only-utils"] }
 spl-token-2022 = { workspace = true, features = ["no-entrypoint"] }
 tempfile = { workspace = true }
 
-[target.'cfg(not(target_env = "msvc"))'.dependencies]
+[target.'cfg(not(any(target_env = "msvc", target_os = "freebsd")))'.dependencies]
 jemallocator = { workspace = true }
 
 [target."cfg(unix)".dependencies]

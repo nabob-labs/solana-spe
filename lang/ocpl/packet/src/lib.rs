@@ -2,10 +2,13 @@
 #![cfg_attr(feature = "frozen-abi", feature(min_specialization))]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
-#[cfg(feature = "bincode")]
-use bincode::{Options, Result};
 #[cfg(feature = "frozen-abi")]
 use solana_frozen_abi_macro::AbiExample;
+#[cfg(feature = "bincode")]
+use {
+    bincode::{Options, Result},
+    std::io::Write,
+};
 use {
     bitflags::bitflags,
     std::{
@@ -28,6 +31,18 @@ static_assertions::const_assert_eq!(PACKET_DATA_SIZE, 1232);
 ///   8 bytes is the size of the fragment header
 pub const PACKET_DATA_SIZE: usize = 1280 - 40 - 8;
 
+#[cfg(feature = "bincode")]
+pub trait Encode {
+    fn encode<W: Write>(&self, writer: W) -> Result<()>;
+}
+
+#[cfg(feature = "bincode")]
+impl<T: ?Sized + serde::Serialize> Encode for T {
+    fn encode<W: Write>(&self, writer: W) -> Result<()> {
+        bincode::serialize_into::<W, T>(writer, self)
+    }
+}
+
 bitflags! {
     #[repr(C)]
     #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
@@ -37,9 +52,10 @@ bitflags! {
         const FORWARDED      = 0b0000_0010;
         const REPAIR         = 0b0000_0100;
         const SIMPLE_VOTE_TX = 0b0000_1000;
-        const TRACER_PACKET  = 0b0001_0000;
         // Previously used - this can now be re-used for something else.
-        const UNUSED = 0b0010_0000;
+        const UNUSED_0  = 0b0001_0000;
+        // Previously used - this can now be re-used for something else.
+        const UNUSED_1 = 0b0010_0000;
         /// For tracking performance
         const PERF_TRACK_PACKET  = 0b0100_0000;
         /// For marking packets from staked nodes
@@ -159,21 +175,21 @@ impl Packet {
     }
 
     #[cfg(feature = "bincode")]
-    pub fn from_data<T: serde::Serialize>(dest: Option<&SocketAddr>, data: T) -> Result<Self> {
+    pub fn from_data<T: Encode>(dest: Option<&SocketAddr>, data: T) -> Result<Self> {
         let mut packet = Self::default();
         Self::populate_packet(&mut packet, dest, &data)?;
         Ok(packet)
     }
 
     #[cfg(feature = "bincode")]
-    pub fn populate_packet<T: serde::Serialize>(
+    pub fn populate_packet<T: Encode>(
         &mut self,
         dest: Option<&SocketAddr>,
         data: &T,
     ) -> Result<()> {
         debug_assert!(!self.meta.discard());
         let mut wr = std::io::Cursor::new(self.buffer_mut());
-        bincode::serialize_into(&mut wr, data)?;
+        <T as Encode>::encode(data, &mut wr)?;
         self.meta.size = wr.position() as usize;
         if let Some(dest) = dest {
             self.meta.set_socket_addr(dest);
@@ -250,11 +266,6 @@ impl Meta {
     }
 
     #[inline]
-    pub fn set_tracer(&mut self, is_tracer: bool) {
-        self.flags.set(PacketFlags::TRACER_PACKET, is_tracer);
-    }
-
-    #[inline]
     pub fn set_track_performance(&mut self, is_performance_track: bool) {
         self.flags
             .set(PacketFlags::PERF_TRACK_PACKET, is_performance_track);
@@ -278,11 +289,6 @@ impl Meta {
     #[inline]
     pub fn is_simple_vote_tx(&self) -> bool {
         self.flags.contains(PacketFlags::SIMPLE_VOTE_TX)
-    }
-
-    #[inline]
-    pub fn is_tracer_packet(&self) -> bool {
-        self.flags.contains(PacketFlags::TRACER_PACKET)
     }
 
     #[inline]

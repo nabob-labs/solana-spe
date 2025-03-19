@@ -14,7 +14,8 @@ use {
         },
         DisplayError,
     },
-    solana_sdk::signer::{EncodableKey, SeedDerivable},
+    solana_seed_derivable::SeedDerivable,
+    solana_signer::EncodableKey,
     solana_zk_token_sdk::encryption::{auth_encryption::AeKey, elgamal::ElGamalKeypair},
     std::{error, str::FromStr},
     thiserror::Error,
@@ -337,7 +338,7 @@ impl FromStr for KeyType {
 mod tests {
     use {
         super::*,
-        solana_sdk::pubkey::Pubkey,
+        solana_pubkey::Pubkey,
         tempfile::{tempdir, TempDir},
     };
 
@@ -375,7 +376,7 @@ mod tests {
             &outfile_path,
             "--no-bip39-passphrase",
         ])
-        .unwrap();
+            .unwrap();
 
         // refuse to overwrite file
         let result = process_test_command(&[
@@ -386,8 +387,8 @@ mod tests {
             &outfile_path,
             "--no-bip39-passphrase",
         ])
-        .unwrap_err()
-        .to_string();
+            .unwrap_err()
+            .to_string();
 
         let expected = format!("Refusing to overwrite {outfile_path} without --force flag");
         assert_eq!(result, expected);
@@ -400,7 +401,7 @@ mod tests {
             "--no-bip39-passphrase",
             "--no-outfile",
         ])
-        .unwrap();
+            .unwrap();
     }
 
     #[test]
@@ -418,7 +419,7 @@ mod tests {
             &outfile_path,
             "--no-bip39-passphrase",
         ])
-        .unwrap();
+            .unwrap();
 
         // refuse to overwrite file
         let result = process_test_command(&[
@@ -429,8 +430,8 @@ mod tests {
             &outfile_path,
             "--no-bip39-passphrase",
         ])
-        .unwrap_err()
-        .to_string();
+            .unwrap_err()
+            .to_string();
 
         let expected = format!("Refusing to overwrite {outfile_path} without --force flag");
         assert_eq!(result, expected);
@@ -443,7 +444,7 @@ mod tests {
             "--no-bip39-passphrase",
             "--no-outfile",
         ])
-        .unwrap();
+            .unwrap();
     }
 
     #[test]

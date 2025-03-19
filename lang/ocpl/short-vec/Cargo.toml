@@ -7,6 +7,13 @@ homepage.workspace = true
 license.workspace = true
 edition.workspace = true
 
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[lib]
+name = "solana_short_vec"
+path = "src/lib.rs"
+
 [dependencies]
 serde = { workspace = true }
 solana-frozen-abi = { workspace = true, optional = true, features = [
@@ -22,10 +29,15 @@ bincode = { workspace = true }
 serde_json = { workspace = true }
 
 [features]
-frozen-abi = ["dep:solana-frozen-abi", "dep:solana-frozen-abi-macro"]
+frozen-abi = [
+    "dep:solana-frozen-abi",
+    "dep:solana-frozen-abi-macro",
+]
 
-[package.metadata.docs.rs]
-targets = ["x86_64-unknown-linux-gnu"]
-
-[lints]
-workspace = true
+[lints.rust.unexpected_cfgs]
+level = "warn"
+priority = 0
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]

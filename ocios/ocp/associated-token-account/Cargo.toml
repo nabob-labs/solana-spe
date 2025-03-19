@@ -11,17 +11,19 @@ edition.workspace = true
 targets = ["x86_64-unknown-linux-gnu"]
 
 [lib]
+name = "spl_associated_token_account"
 crate-type = [
     "cdylib",
     "lib",
 ]
+path = "src/lib.rs"
 
 [dependencies]
-assert_matches = "1.5.0"
 borsh = "1.5.1"
 num-derive = "0.4"
 num-traits = "0.2"
 solana-program = { workspace = true }
+spl-associated-token-account-client = { workspace = true }
 spl-token = { workspace = true, features = ["no-entrypoint"] }
 spl-token-2022 = { workspace = true, features = ["no-entrypoint"] }
 thiserror = "1.0"

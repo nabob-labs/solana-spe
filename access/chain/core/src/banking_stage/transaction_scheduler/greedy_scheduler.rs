@@ -9,7 +9,7 @@ use {
         thread_aware_account_locks::{ThreadAwareAccountLocks, ThreadId, ThreadSet},
         transaction_priority_id::TransactionPriorityId,
         transaction_state::{SanitizedTransactionTTL, TransactionState},
-        transaction_state_container::TransactionStateContainer,
+        transaction_state_container::StateContainer,
     },
     crate::banking_stage::{
         consumer::TARGET_NUM_TRANSACTIONS_PER_BATCH,
@@ -20,8 +20,8 @@ use {
     crossbeam_channel::{Receiver, Sender, TryRecvError},
     itertools::izip,
     solana_cost_model::block_cost_limits::MAX_BLOCK_UNITS,
-    solana_sdk::{saturating_add_assign, transaction::SanitizedTransaction},
-    solana_svm_transaction::svm_message::SVMMessage,
+    solana_runtime_transaction::transaction_with_meta::TransactionWithMeta,
+    solana_sdk::saturating_add_assign,
 };
 
 pub(crate) struct GreedySchedulerConfig {
@@ -43,20 +43,20 @@ impl Default for GreedySchedulerConfig {
 /// Dead-simple scheduler that is efficient and will attempt to schedule
 /// in priority order, scheduling anything that can be immediately
 /// scheduled, up to the limits.
-pub struct GreedyScheduler {
+pub struct GreedyScheduler<Tx: TransactionWithMeta> {
     in_flight_tracker: InFlightTracker,
     account_locks: ThreadAwareAccountLocks,
-    consume_work_senders: Vec<Sender<ConsumeWork>>,
-    finished_consume_work_receiver: Receiver<FinishedConsumeWork>,
+    consume_work_senders: Vec<Sender<ConsumeWork<Tx>>>,
+    finished_consume_work_receiver: Receiver<FinishedConsumeWork<Tx>>,
     working_account_set: ReadWriteAccountSet,
     unschedulables: Vec<TransactionPriorityId>,
     config: GreedySchedulerConfig,
 }
 
-impl GreedyScheduler {
+impl<Tx: TransactionWithMeta> GreedyScheduler<Tx> {
     pub(crate) fn new(
-        consume_work_senders: Vec<Sender<ConsumeWork>>,
-        finished_consume_work_receiver: Receiver<FinishedConsumeWork>,
+        consume_work_senders: Vec<Sender<ConsumeWork<Tx>>>,
+        finished_consume_work_receiver: Receiver<FinishedConsumeWork<Tx>>,
         config: GreedySchedulerConfig,
     ) -> Self {
         let num_threads = consume_work_senders.len();
@@ -77,12 +77,12 @@ impl GreedyScheduler {
     }
 }
 
-impl Scheduler for GreedyScheduler {
-    fn schedule(
+impl<Tx: TransactionWithMeta> Scheduler<Tx> for GreedyScheduler<Tx> {
+    fn schedule<S: StateContainer<Tx>>(
         &mut self,
-        container: &mut TransactionStateContainer,
-        _pre_graph_filter: impl Fn(&[&SanitizedTransaction], &mut [bool]),
-        pre_lock_filter: impl Fn(&SanitizedTransaction) -> bool,
+        container: &mut S,
+        _pre_graph_filter: impl Fn(&[&Tx], &mut [bool]),
+        pre_lock_filter: impl Fn(&Tx) -> bool,
     ) -> Result<SchedulingSummary, SchedulerError> {
         let num_threads = self.consume_work_senders.len();
         let target_cu_per_thread = self.config.target_scheduled_cus / num_threads as u64;
@@ -105,7 +105,7 @@ impl Scheduler for GreedyScheduler {
         let mut num_sent: usize = 0;
         let mut num_unschedulable: usize = 0;
 
-        let mut batches = Batches::new(num_threads);
+        let mut batches = Batches::new(num_threads, self.config.target_transactions_per_batch);
         while num_scanned < self.config.max_scanned_transactions_per_scheduling_pass
             && !schedulable_threads.is_empty()
             && !container.is_empty()
@@ -118,7 +118,7 @@ impl Scheduler for GreedyScheduler {
 
             // Should always be in the container, during initial testing phase panic.
             // Later, we can replace with a continue in case this does happen.
-            let Some(transaction_state) = container.get_mut_transaction_state(&id.id) else {
+            let Some(transaction_state) = container.get_mut_transaction_state(id.id) else {
                 panic!("transaction state must exist")
             };
 
@@ -126,7 +126,7 @@ impl Scheduler for GreedyScheduler {
             // we should immediately send out the batches, so this transaction may be scheduled.
             if !self
                 .working_account_set
-                .check_locks(transaction_state.transaction_ttl().transaction.message())
+                .check_locks(&transaction_state.transaction_ttl().transaction)
             {
                 self.working_account_set.clear();
                 num_sent += self.send_batches(&mut batches)?;
@@ -139,7 +139,7 @@ impl Scheduler for GreedyScheduler {
                 &mut self.account_locks,
                 schedulable_threads,
                 |thread_set| {
-                    PrioGraphScheduler::select_thread(
+                    PrioGraphScheduler::<Tx>::select_thread(
                         thread_set,
                         &batches.total_cus,
                         self.in_flight_tracker.cus_in_flight_per_thread(),
@@ -150,7 +150,7 @@ impl Scheduler for GreedyScheduler {
             ) {
                 Err(TransactionSchedulingError::Filtered) => {
                     num_filtered_out += 1;
-                    container.remove_by_id(&id.id);
+                    container.remove_by_id(id.id);
                 }
                 Err(TransactionSchedulingError::UnschedulableConflicts) => {
                     num_unschedulable += 1;
@@ -163,7 +163,7 @@ impl Scheduler for GreedyScheduler {
                     cost,
                 }) => {
                     assert!(
-                        self.working_account_set.take_locks(transaction.message()),
+                        self.working_account_set.take_locks(&transaction),
                         "locks must be available"
                     );
                     saturating_add_assign!(num_scheduled, 1);
@@ -201,9 +201,7 @@ impl Scheduler for GreedyScheduler {
         );
 
         // Push unschedulables back into the queue
-        for id in self.unschedulables.drain(..) {
-            container.push_id_into_queue(id);
-        }
+        container.push_ids_into_queue(self.unschedulables.drain(..));
 
         Ok(SchedulingSummary {
             num_scheduled,
@@ -217,7 +215,7 @@ impl Scheduler for GreedyScheduler {
     /// Returns (num_transactions, num_retryable_transactions) on success.
     fn receive_completed(
         &mut self,
-        container: &mut TransactionStateContainer,
+        container: &mut impl StateContainer<Tx>,
     ) -> Result<(usize, usize), SchedulerError> {
         let mut total_num_transactions: usize = 0;
         let mut total_num_retryable: usize = 0;
@@ -233,12 +231,12 @@ impl Scheduler for GreedyScheduler {
     }
 }
 
-impl GreedyScheduler {
+impl<Tx: TransactionWithMeta> GreedyScheduler<Tx> {
     /// Receive completed batches of transactions.
     /// Returns `Ok((num_transactions, num_retryable))` if a batch was received, `Ok((0, 0))` if no batch was received.
     fn try_receive_completed(
         &mut self,
-        container: &mut TransactionStateContainer,
+        container: &mut impl StateContainer<Tx>,
     ) -> Result<(usize, usize), SchedulerError> {
         match self.finished_consume_work_receiver.try_recv() {
             Ok(FinishedConsumeWork {
@@ -275,7 +273,7 @@ impl GreedyScheduler {
                             continue;
                         }
                     }
-                    container.remove_by_id(&id);
+                    container.remove_by_id(id);
                 }
 
                 Ok((num_transactions, num_retryable))
@@ -289,11 +287,7 @@ impl GreedyScheduler {
 
     /// Mark a given `TransactionBatchId` as completed.
     /// This will update the internal tracking, including account locks.
-    fn complete_batch(
-        &mut self,
-        batch_id: TransactionBatchId,
-        transactions: &[SanitizedTransaction],
-    ) {
+    fn complete_batch(&mut self, batch_id: TransactionBatchId, transactions: &[Tx]) {
         let thread_id = self.in_flight_tracker.complete_batch(batch_id);
         for transaction in transactions {
             let account_keys = transaction.account_keys();
@@ -312,7 +306,7 @@ impl GreedyScheduler {
 
     /// Send all batches of transactions to the worker threads.
     /// Returns the number of transactions sent.
-    fn send_batches(&mut self, batches: &mut Batches) -> Result<usize, SchedulerError> {
+    fn send_batches(&mut self, batches: &mut Batches<Tx>) -> Result<usize, SchedulerError> {
         (0..self.consume_work_senders.len())
             .map(|thread_index| self.send_batch(batches, thread_index))
             .sum()
@@ -322,14 +316,15 @@ impl GreedyScheduler {
     /// Returns the number of transactions sent.
     fn send_batch(
         &mut self,
-        batches: &mut Batches,
+        batches: &mut Batches<Tx>,
         thread_index: usize,
     ) -> Result<usize, SchedulerError> {
         if batches.ids[thread_index].is_empty() {
             return Ok(0);
         }
 
-        let (ids, transactions, max_ages, total_cus) = batches.take_batch(thread_index);
+        let (ids, transactions, max_ages, total_cus) =
+            batches.take_batch(thread_index, self.config.target_transactions_per_batch);
 
         let batch_id = self
             .in_flight_tracker
@@ -350,13 +345,13 @@ impl GreedyScheduler {
     }
 }
 
-fn try_schedule_transaction(
-    transaction_state: &mut TransactionState,
-    pre_lock_filter: impl Fn(&SanitizedTransaction) -> bool,
+fn try_schedule_transaction<Tx: TransactionWithMeta>(
+    transaction_state: &mut TransactionState<Tx>,
+    pre_lock_filter: impl Fn(&Tx) -> bool,
     account_locks: &mut ThreadAwareAccountLocks,
     schedulable_threads: ThreadSet,
     thread_selector: impl Fn(ThreadSet) -> ThreadId,
-) -> Result<TransactionSchedulingInfo, TransactionSchedulingError> {
+) -> Result<TransactionSchedulingInfo<Tx>, TransactionSchedulingError> {
     let transaction = &transaction_state.transaction_ttl().transaction;
     if !pre_lock_filter(transaction) {
         return Err(TransactionSchedulingError::Filtered);
@@ -408,11 +403,12 @@ mod test {
         crossbeam_channel::unbounded,
         itertools::Itertools,
         solana_perf::packet::Packet,
+        solana_pubkey::Pubkey,
+        solana_runtime_transaction::runtime_transaction::RuntimeTransaction,
         solana_sdk::{
             compute_budget::ComputeBudgetInstruction,
             hash::Hash,
             message::Message,
-            pubkey::Pubkey,
             signature::Keypair,
             signer::Signer,
             system_instruction,
@@ -421,26 +417,14 @@ mod test {
         std::{borrow::Borrow, sync::Arc},
     };
 
-    macro_rules! txid {
-        ($value:expr) => {
-            TransactionId::new($value)
-        };
-    }
-
-    macro_rules! txids {
-        ([$($element:expr),*]) => {
-            vec![ $(txid!($element)),* ]
-        };
-    }
-
     #[allow(clippy::type_complexity)]
     fn create_test_frame(
         num_threads: usize,
         config: GreedySchedulerConfig,
     ) -> (
-        GreedyScheduler,
-        Vec<Receiver<ConsumeWork>>,
-        Sender<FinishedConsumeWork>,
+        GreedyScheduler<RuntimeTransaction<SanitizedTransaction>>,
+        Vec<Receiver<ConsumeWork<RuntimeTransaction<SanitizedTransaction>>>>,
+        Sender<FinishedConsumeWork<RuntimeTransaction<SanitizedTransaction>>>,
     ) {
         let (consume_work_senders, consume_work_receivers) =
             (0..num_threads).map(|_| unbounded()).unzip();
@@ -459,7 +443,7 @@ mod test {
         to_pubkeys: impl IntoIterator<Item = impl Borrow<Pubkey>>,
         lamports: u64,
         priority: u64,
-    ) -> SanitizedTransaction {
+    ) -> RuntimeTransaction<SanitizedTransaction> {
         let to_pubkeys_lamports = to_pubkeys
             .into_iter()
             .map(|pubkey| *pubkey.borrow())
@@ -471,7 +455,7 @@ mod test {
         ixs.push(prioritization);
         let message = Message::new(&ixs, Some(&from_keypair.pubkey()));
         let tx = Transaction::new(&[from_keypair], message, Hash::default());
-        SanitizedTransaction::from_transaction_for_tests(tx)
+        RuntimeTransaction::from_transaction_for_tests(tx)
     }
 
     fn create_container(
@@ -483,12 +467,9 @@ mod test {
                 u64,
             ),
         >,
-    ) -> TransactionStateContainer {
+    ) -> TransactionStateContainer<RuntimeTransaction<SanitizedTransaction>> {
         let mut container = TransactionStateContainer::with_capacity(10 * 1024);
-        for (index, (from_keypair, to_pubkeys, lamports, compute_unit_price)) in
-            tx_infos.into_iter().enumerate()
-        {
-            let id = TransactionId::new(index as u64);
+        for (from_keypair, to_pubkeys, lamports, compute_unit_price) in tx_infos.into_iter() {
             let transaction = prioritized_tranfers(
                 from_keypair.borrow(),
                 to_pubkeys,
@@ -507,7 +488,6 @@ mod test {
             };
             const TEST_TRANSACTION_COST: u64 = 5000;
             container.insert_new_transaction(
-                id,
                 transaction_ttl,
                 packet,
                 compute_unit_price,
@@ -519,8 +499,11 @@ mod test {
     }
 
     fn collect_work(
-        receiver: &Receiver<ConsumeWork>,
-    ) -> (Vec<ConsumeWork>, Vec<Vec<TransactionId>>) {
+        receiver: &Receiver<ConsumeWork<RuntimeTransaction<SanitizedTransaction>>>,
+    ) -> (
+        Vec<ConsumeWork<RuntimeTransaction<SanitizedTransaction>>>,
+        Vec<Vec<TransactionId>>,
+    ) {
         receiver
             .try_iter()
             .map(|work| {
@@ -530,11 +513,14 @@ mod test {
             .unzip()
     }
 
-    fn test_pre_graph_filter(_txs: &[&SanitizedTransaction], results: &mut [bool]) {
+    fn test_pre_graph_filter(
+        _txs: &[&RuntimeTransaction<SanitizedTransaction>],
+        results: &mut [bool],
+    ) {
         results.fill(true);
     }
 
-    fn test_pre_lock_filter(_tx: &SanitizedTransaction) -> bool {
+    fn test_pre_lock_filter(_tx: &RuntimeTransaction<SanitizedTransaction>) -> bool {
         true
     }
 
@@ -565,7 +551,7 @@ mod test {
             .unwrap();
         assert_eq!(scheduling_summary.num_scheduled, 2);
         assert_eq!(scheduling_summary.num_unschedulable, 0);
-        assert_eq!(collect_work(&work_receivers[0]).1, vec![txids!([1, 0])]);
+        assert_eq!(collect_work(&work_receivers[0]).1, vec![vec![1, 0]]);
     }
 
     #[test]
@@ -587,7 +573,7 @@ mod test {
             .unwrap();
         assert_eq!(scheduling_summary.num_scheduled, 1);
         assert_eq!(scheduling_summary.num_unschedulable, 0);
-        assert_eq!(collect_work(&work_receivers[0]).1, vec![txids!([1])]);
+        assert_eq!(collect_work(&work_receivers[0]).1, vec![vec![1]]);
     }
 
     #[test]
@@ -609,7 +595,7 @@ mod test {
             .unwrap();
         assert_eq!(scheduling_summary.num_scheduled, 1);
         assert_eq!(scheduling_summary.num_unschedulable, 0);
-        assert_eq!(collect_work(&work_receivers[0]).1, vec![txids!([1])]);
+        assert_eq!(collect_work(&work_receivers[0]).1, vec![vec![1]]);
     }
 
     #[test]
@@ -631,10 +617,7 @@ mod test {
             .unwrap();
         assert_eq!(scheduling_summary.num_scheduled, 2);
         assert_eq!(scheduling_summary.num_unschedulable, 0);
-        assert_eq!(
-            collect_work(&work_receivers[0]).1,
-            vec![txids!([1]), txids!([0])]
-        );
+        assert_eq!(collect_work(&work_receivers[0]).1, vec![vec![1], vec![0]]);
     }
 
     #[test]
@@ -652,10 +635,7 @@ mod test {
             .unwrap();
         assert_eq!(scheduling_summary.num_scheduled, 2);
         assert_eq!(scheduling_summary.num_unschedulable, 0);
-        assert_eq!(
-            collect_work(&work_receivers[0]).1,
-            vec![txids!([1]), txids!([0])]
-        );
+        assert_eq!(collect_work(&work_receivers[0]).1, vec![vec![1], vec![0]]);
     }
 
     #[test]
@@ -670,8 +650,8 @@ mod test {
             .unwrap();
         assert_eq!(scheduling_summary.num_scheduled, 4);
         assert_eq!(scheduling_summary.num_unschedulable, 0);
-        assert_eq!(collect_work(&work_receivers[0]).1, [txids!([3, 1])]);
-        assert_eq!(collect_work(&work_receivers[1]).1, [txids!([2, 0])]);
+        assert_eq!(collect_work(&work_receivers[0]).1, [vec![3, 1]]);
+        assert_eq!(collect_work(&work_receivers[1]).1, [vec![2, 0]]);
     }
 
     #[test]
@@ -706,11 +686,8 @@ mod test {
             .unwrap();
         assert_eq!(scheduling_summary.num_scheduled, 3);
         assert_eq!(scheduling_summary.num_unschedulable, 1);
-        assert_eq!(
-            collect_work(&work_receivers[0]).1,
-            [txids!([3]), txids!([0])]
-        );
-        assert_eq!(collect_work(&work_receivers[1]).1, [txids!([2])]);
+        assert_eq!(collect_work(&work_receivers[0]).1, [vec![3], vec![0]]);
+        assert_eq!(collect_work(&work_receivers[1]).1, [vec![2]]);
     }
 
     #[test]
@@ -741,10 +718,7 @@ mod test {
             .unwrap();
         assert_eq!(scheduling_summary.num_scheduled, 3);
         assert_eq!(scheduling_summary.num_unschedulable, 3);
-        assert_eq!(
-            collect_work(&work_receivers[0]).1,
-            [txids!([5]), txids!([4])]
-        );
-        assert_eq!(collect_work(&work_receivers[1]).1, [txids!([0])]);
+        assert_eq!(collect_work(&work_receivers[0]).1, [vec![5], vec![4]]);
+        assert_eq!(collect_work(&work_receivers[1]).1, [vec![0]]);
     }
 }

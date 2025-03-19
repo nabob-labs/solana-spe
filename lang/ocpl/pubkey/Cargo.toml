@@ -7,6 +7,18 @@ homepage.workspace = true
 license.workspace = true
 edition.workspace = true
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "wasm32-unknown-unknown",
+]
+
+[lib]
+name = "solana_pubkey"
+path = "src/lib.rs"
+
 [dependencies]
 arbitrary = { workspace = true, features = ["derive"], optional = true }
 borsh = { workspace = true, optional = true }
@@ -48,7 +60,7 @@ arbitrary = { workspace = true, features = ["derive"] }
 bs58 = { workspace = true, features = ["alloc"] }
 # circular dev deps need to be path deps for `cargo publish` to be happy,
 # and for now the doc tests need solana-program
-solana-program = { path = "../program" }
+#solana-program = { path = "../program" }
 solana-pubkey = { path = ".", features = [
     "borsh",
     "curve25519",
@@ -59,24 +71,47 @@ strum = { workspace = true }
 strum_macros = { workspace = true }
 
 [features]
-borsh = ["dep:borsh", "dep:borsh0-10", "std"]
-bytemuck = ["dep:bytemuck", "dep:bytemuck_derive"]
-curve25519 = ["dep:curve25519-dalek", "sha2"]
+borsh = [
+    "dep:borsh",
+    "dep:borsh0-10",
+    "std",
+]
+bytemuck = [
+    "dep:bytemuck",
+    "dep:bytemuck_derive",
+]
+curve25519 = [
+    "dep:curve25519-dalek",
+    "sha2",
+]
 default = ["std"]
-dev-context-only-utils = ["dep:arbitrary", "rand"]
+dev-context-only-utils = [
+    "dep:arbitrary",
+    "rand",
+]
 frozen-abi = [
     "dep:solana-frozen-abi",
-    "dep:solana-frozen-abi-macro"
+    "dep:solana-frozen-abi-macro",
+    "std",
 ]
-rand = ["dep:rand", "std"]
-serde = ["dep:serde", "dep:serde_derive"]
-sha2 = ["dep:solana-sha256-hasher", "solana-sha256-hasher/sha2"]
+rand = [
+    "dep:rand",
+    "std",
+]
+serde = [
+    "dep:serde",
+    "dep:serde_derive",
+]
+sha2 = [
+    "dep:solana-sha256-hasher",
+    "solana-sha256-hasher/sha2",
+]
 std = []
 
-[package.metadata.docs.rs]
-targets = ["x86_64-unknown-linux-gnu"]
-all-features = true
-rustdoc-args = ["--cfg=docsrs"]
-
-[lints]
-workspace = true
+[lints.rust.unexpected_cfgs]
+level = "warn"
+priority = 0
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]

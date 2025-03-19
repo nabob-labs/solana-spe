@@ -7,6 +7,10 @@ homepage.workspace = true
 license.workspace = true
 edition.workspace = true
 
+[lib]
+name = "solana_decode_error"
+path = "src/lib.rs"
+
 [dependencies]
 num-traits = { workspace = true }
 

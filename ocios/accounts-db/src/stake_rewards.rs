@@ -2,9 +2,8 @@
 
 use {
     crate::storable_accounts::{AccountForStorage, StorableAccounts},
-    solana_sdk::{
-        account::AccountSharedData, clock::Slot, pubkey::Pubkey, reward_info::RewardInfo,
-    },
+    solana_pubkey::Pubkey,
+    solana_sdk::{account::AccountSharedData, clock::Slot, reward_info::RewardInfo},
 };
 
 #[cfg_attr(feature = "frozen-abi", derive(AbiExample))]
@@ -63,7 +62,7 @@ impl StakeReward {
 
         let rent = Rent::free();
 
-        let validator_pubkey = solana_sdk::pubkey::new_rand();
+        let validator_pubkey = solana_pubkey::new_rand();
         let validator_stake_lamports = 20;
         let validator_staking_keypair = Keypair::new();
         let validator_voting_keypair = Keypair::new();

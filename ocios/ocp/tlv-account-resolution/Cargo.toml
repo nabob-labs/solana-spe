@@ -11,25 +11,35 @@ edition.workspace = true
 targets = ["x86_64-unknown-linux-gnu"]
 
 [lib]
+name = "spl_tlv_account_resolution"
 crate-type = [
     "cdylib",
     "lib",
 ]
+path = "src/lib.rs"
 
 [dependencies]
-bytemuck = { version = "1.16.1", features = ["derive"] }
-serde = { version = "1.0.203", optional = true }
-solana-program = { workspace = true }
+bytemuck = { version = "1.19.0", features = ["derive"] }
+num-derive = "0.4"
+num-traits = "0.2"
+serde = { version = "1.0.214", optional = true }
+solana-account-info = { workspace = true }
+solana-decode-error = { workspace = true }
+solana-instruction = { workspace = true, features = ["std"] }
+solana-msg = { workspace = true }
+solana-program-error = { workspace = true }
+solana-pubkey = { workspace = true }
 spl-discriminator = { workspace = true }
 spl-pod = { workspace = true }
 spl-program-error = { workspace = true }
 spl-type-length-value = { workspace = true }
+thiserror = "1.0"
 
 [dev-dependencies]
-futures = "0.3.30"
+futures = "0.3.31"
 futures-util = "0.3"
-solana-client = { workspace = true }
-solana-program-test = { workspace = true }
+#solana-client = { workspace = true }
+#solana-program-test = { workspace = true }
 solana-sdk = { workspace = true }
 
 [features]

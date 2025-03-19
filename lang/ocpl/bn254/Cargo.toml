@@ -7,9 +7,18 @@ homepage.workspace = true
 license.workspace = true
 edition.workspace = true
 
+[lib]
+name = "solana_bn254"
+path = "src/lib.rs"
+
+[[bench]]
+name = "bn254"
+path = "benches/bn254.rs"
+harness = false
+
 [dependencies]
 bytemuck = { workspace = true, features = ["derive"] }
-solana-program = { workspace = true }
+solana-define-syscall = { workspace = true }
 thiserror = { workspace = true }
 
 [target.'cfg(not(target_os = "solana"))'.dependencies]
@@ -20,9 +29,15 @@ ark-serialize = { workspace = true }
 
 [dev-dependencies]
 array-bytes = { workspace = true }
+criterion = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true }
 serde_json = { workspace = true }
 
-[lints]
-workspace = true
+[lints.rust.unexpected_cfgs]
+level = "warn"
+priority = 0
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]

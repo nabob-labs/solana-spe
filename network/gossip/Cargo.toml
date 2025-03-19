@@ -23,8 +23,10 @@ rand = { workspace = true }
 rand_chacha = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
+serde-big-array = { workspace = true }
 serde_bytes = { workspace = true }
 serde_derive = { workspace = true }
+siphasher = { workspace = true }
 solana-bloom = { workspace = true }
 solana-clap-utils = { workspace = true }
 solana-client = { workspace = true }
@@ -43,6 +45,7 @@ solana-measure = { workspace = true }
 solana-metrics = { workspace = true }
 solana-net-utils = { workspace = true }
 solana-perf = { workspace = true }
+solana-pubkey = { workspace = true }
 solana-rayon-threadlimit = { workspace = true }
 solana-rpc-client = { workspace = true }
 solana-runtime = { workspace = true }
@@ -59,8 +62,13 @@ static_assertions = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+bs58 = { workspace = true }
+criterion = { workspace = true }
 num_cpus = { workspace = true }
+rand0-7 = { workspace = true }
+rand_chacha0-2 = { workspace = true }
 serial_test = { workspace = true }
+solana-perf = { workspace = true, features = ["dev-context-only-utils"] }
 solana-runtime = { workspace = true, features = ["dev-context-only-utils"] }
 test-case = { workspace = true }
 

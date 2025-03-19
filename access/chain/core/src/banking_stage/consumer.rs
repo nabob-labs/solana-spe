@@ -13,6 +13,7 @@ use {
     },
     itertools::Itertools,
     solana_feature_set as feature_set,
+    solana_fee::FeeFeatures,
     solana_ledger::token_balances::collect_token_balances,
     solana_measure::{measure::Measure, measure_us},
     solana_poh::poh_recorder::{
@@ -24,14 +25,13 @@ use {
         transaction_batch::TransactionBatch,
         verify_precompiles::verify_precompiles,
     },
-    solana_runtime_transaction::instructions_processor::process_compute_budget_instructions,
+    solana_runtime_transaction::transaction_with_meta::TransactionWithMeta,
     solana_sdk::{
         clock::{FORWARD_TRANSACTIONS_TO_LEADER_AT_SLOT_OFFSET, MAX_PROCESSING_AGE},
         fee::FeeBudgetLimits,
-        message::SanitizedMessage,
         saturating_add_assign,
         timing::timestamp,
-        transaction::{self, SanitizedTransaction, TransactionError},
+        transaction::{self, TransactionError},
     },
     solana_svm::{
         account_loader::{validate_fee_payer, TransactionCheckResult},
@@ -39,9 +39,9 @@ use {
         transaction_processing_result::TransactionProcessingResultExtensions,
         transaction_processor::{ExecutionRecordingConfig, TransactionProcessingConfig},
     },
-    solana_svm_transaction::svm_message::SVMMessage,
     solana_timings::ExecuteTimings,
     std::{
+        num::Saturating,
         sync::{atomic::Ordering, Arc},
         time::Instant,
     },
@@ -228,7 +228,7 @@ impl Consumer {
         &self,
         bank: &Arc<Bank>,
         bank_creation_time: &Instant,
-        sanitized_transactions: &[SanitizedTransaction],
+        sanitized_transactions: &[impl TransactionWithMeta],
         banking_stage_stats: &BankingStageStats,
         slot_metrics_tracker: &mut LeaderSlotMetricsTracker,
     ) -> ProcessTransactionsSummary {
@@ -284,7 +284,7 @@ impl Consumer {
         &self,
         bank: &Arc<Bank>,
         bank_creation_time: &Instant,
-        transactions: &[SanitizedTransaction],
+        transactions: &[impl TransactionWithMeta],
     ) -> ProcessTransactionsSummary {
         let mut chunk_start = 0;
         let mut all_retryable_tx_indexes = vec![];
@@ -386,7 +386,7 @@ impl Consumer {
     pub fn process_and_record_transactions(
         &self,
         bank: &Arc<Bank>,
-        txs: &[SanitizedTransaction],
+        txs: &[impl TransactionWithMeta],
         chunk_offset: usize,
     ) -> ProcessTransactionBatchOutput {
         let mut error_counters = TransactionErrorMetrics::default();
@@ -429,7 +429,7 @@ impl Consumer {
     pub fn process_and_record_aged_transactions(
         &self,
         bank: &Arc<Bank>,
-        txs: &[SanitizedTransaction],
+        txs: &[impl TransactionWithMeta],
         max_ages: &[MaxAge],
     ) -> ProcessTransactionBatchOutput {
         let move_precompile_verification_to_svm = bank
@@ -473,7 +473,7 @@ impl Consumer {
     fn process_and_record_transactions_with_pre_results(
         &self,
         bank: &Arc<Bank>,
-        txs: &[SanitizedTransaction],
+        txs: &[impl TransactionWithMeta],
         chunk_offset: usize,
         pre_results: impl Iterator<Item = Result<(), TransactionError>>,
     ) -> ProcessTransactionBatchOutput {
@@ -553,7 +553,7 @@ impl Consumer {
     fn execute_and_commit_transactions_locked(
         &self,
         bank: &Arc<Bank>,
-        batch: &TransactionBatch<SanitizedTransaction>,
+        batch: &TransactionBatch<impl TransactionWithMeta>,
     ) -> ExecuteAndCommitTransactionsOutput {
         let transaction_status_sender_enabled = self.committer.transaction_status_sender_enabled();
         let mut execute_and_commit_timings = LeaderExecuteAndCommitTimings::default();
@@ -574,12 +574,11 @@ impl Consumer {
             .sanitized_transactions()
             .iter()
             .filter_map(|transaction| {
-                process_compute_budget_instructions(
-                    SVMMessage::program_instructions_iter(transaction),
-                    &bank.feature_set,
-                )
-                .ok()
-                .map(|limits| limits.compute_unit_price)
+                transaction
+                    .compute_budget_instruction_details()
+                    .sanitize_and_convert_to_compute_budget_limits(&bank.feature_set)
+                    .ok()
+                    .map(|limits| limits.compute_unit_price)
             })
             .minmax();
         let (min_prioritization_fees, max_prioritization_fees) =
@@ -681,7 +680,9 @@ impl Consumer {
             starting_transaction_index,
         } = record_transactions_summary;
         execute_and_commit_timings.record_transactions_timings = RecordTransactionsTimings {
-            processing_results_to_transactions_us,
+            processing_results_to_transactions_us: Saturating(
+                processing_results_to_transactions_us,
+            ),
             ..record_transactions_timings
         };
 
@@ -753,21 +754,21 @@ impl Consumer {
 
     pub fn check_fee_payer_unlocked(
         bank: &Bank,
-        message: &SanitizedMessage,
+        transaction: &impl TransactionWithMeta,
         error_counters: &mut TransactionErrorMetrics,
     ) -> Result<(), TransactionError> {
-        let fee_payer = message.fee_payer();
-        let fee_budget_limits = FeeBudgetLimits::from(process_compute_budget_instructions(
-            SVMMessage::program_instructions_iter(message),
-            &bank.feature_set,
-        )?);
+        let fee_payer = transaction.fee_payer();
+        let fee_budget_limits = FeeBudgetLimits::from(
+            transaction
+                .compute_budget_instruction_details()
+                .sanitize_and_convert_to_compute_budget_limits(&bank.feature_set)?,
+        );
         let fee = solana_fee::calculate_fee(
-            message,
+            transaction,
             bank.get_lamports_per_signature() == 0,
             bank.fee_structure().lamports_per_signature,
             fee_budget_limits.prioritization_fee,
-            bank.feature_set
-                .is_active(&feature_set::remove_rounding_in_fee_calculation::id()),
+            FeeFeatures::from(bank.feature_set.as_ref()),
         );
         let (mut fee_payer_account, _slot) = bank
             .rc
@@ -791,10 +792,11 @@ impl Consumer {
             (0, 0),
             |(units, times), program_timings| {
                 (
-                    units
-                        .saturating_add(program_timings.accumulated_units)
-                        .saturating_add(program_timings.total_errored_units),
-                    times.saturating_add(program_timings.accumulated_us),
+                    (Saturating(units)
+                        + program_timings.accumulated_units
+                        + program_timings.total_errored_units)
+                        .0,
+                    (Saturating(times) + program_timings.accumulated_us).0,
                 )
             },
         )
@@ -806,7 +808,7 @@ impl Consumer {
     /// * `pending_indexes` - identifies which indexes in the `transactions` list are still pending
     fn filter_pending_packets_from_pending_txs(
         bank: &Bank,
-        transactions: &[SanitizedTransaction],
+        transactions: &[impl TransactionWithMeta],
         pending_indexes: &[usize],
     ) -> Vec<usize> {
         let filter =
@@ -867,6 +869,7 @@ mod tests {
         solana_poh::poh_recorder::{PohRecorder, Record, WorkingBankEntry},
         solana_rpc::transaction_status_service::TransactionStatusService,
         solana_runtime::{bank_forks::BankForks, prioritization_fee_cache::PrioritizationFeeCache},
+        solana_runtime_transaction::runtime_transaction::RuntimeTransaction,
         solana_sdk::{
             account::AccountSharedData,
             account_utils::StateMut,
@@ -890,7 +893,7 @@ mod tests {
             signature::Keypair,
             signer::Signer,
             system_instruction, system_program, system_transaction,
-            transaction::{MessageHash, Transaction, VersionedTransaction},
+            transaction::{Transaction, VersionedTransaction},
         },
         solana_svm::account_loader::CheckedTransactionDetails,
         solana_timings::ProgramTiming,
@@ -905,6 +908,7 @@ mod tests {
             thread::{Builder, JoinHandle},
             time::Duration,
         },
+        transaction::MessageHash,
     };
 
     fn execute_transactions_with_dummy_poh_service(
@@ -1036,9 +1040,9 @@ mod tests {
         let poh_recorder = Arc::new(RwLock::new(poh_recorder));
 
         // Set up unparallelizable conflicting transactions
-        let pubkey0 = solana_sdk::pubkey::new_rand();
-        let pubkey1 = solana_sdk::pubkey::new_rand();
-        let pubkey2 = solana_sdk::pubkey::new_rand();
+        let pubkey0 = solana_pubkey::new_rand();
+        let pubkey1 = solana_pubkey::new_rand();
+        let pubkey2 = solana_pubkey::new_rand();
         let transactions = vec![
             system_transaction::transfer(mint_keypair, &pubkey0, 1, genesis_config.hash()),
             system_transaction::transfer(mint_keypair, &pubkey1, 1, genesis_config.hash()),
@@ -1078,7 +1082,7 @@ mod tests {
             ..
         } = create_slow_genesis_config(10_000);
         let (bank, _bank_forks) = Bank::new_no_wallclock_throttle_for_tests(&genesis_config);
-        let pubkey = solana_sdk::pubkey::new_rand();
+        let pubkey = solana_pubkey::new_rand();
 
         let transactions = sanitize_transactions(vec![system_transaction::transfer(
             &mint_keypair,
@@ -1371,7 +1375,7 @@ mod tests {
             ..
         } = create_slow_genesis_config(10_000);
         let (bank, _bank_forks) = Bank::new_no_wallclock_throttle_for_tests(&genesis_config);
-        let pubkey = solana_sdk::pubkey::new_rand();
+        let pubkey = solana_pubkey::new_rand();
 
         let transactions = {
             let mut tx =
@@ -1458,7 +1462,7 @@ mod tests {
         let mut bank = Bank::new_for_tests(&genesis_config);
         bank.ns_per_slot = u128::MAX;
         let (bank, _bank_forks) = bank.wrap_with_bank_forks_for_tests();
-        let pubkey = solana_sdk::pubkey::new_rand();
+        let pubkey = solana_pubkey::new_rand();
 
         let ledger_path = get_tmp_ledger_path_auto_delete!();
         {
@@ -1614,8 +1618,8 @@ mod tests {
             ..
         } = create_slow_genesis_config(10_000);
         let (bank, _bank_forks) = Bank::new_no_wallclock_throttle_for_tests(&genesis_config);
-        let pubkey = solana_sdk::pubkey::new_rand();
-        let pubkey1 = solana_sdk::pubkey::new_rand();
+        let pubkey = solana_pubkey::new_rand();
+        let pubkey1 = solana_pubkey::new_rand();
 
         let transactions = sanitize_transactions(vec![
             system_transaction::transfer(&mint_keypair, &pubkey, 1, genesis_config.hash()),
@@ -1821,7 +1825,7 @@ mod tests {
         } = create_slow_genesis_config(10_000);
         let (bank, _bank_forks) = Bank::new_no_wallclock_throttle_for_tests(&genesis_config);
 
-        let pubkey = solana_sdk::pubkey::new_rand();
+        let pubkey = solana_pubkey::new_rand();
 
         let transactions = sanitize_transactions(vec![system_transaction::transfer(
             &mint_keypair,
@@ -1903,8 +1907,8 @@ mod tests {
         genesis_config.rent.lamports_per_byte_year = 50;
         genesis_config.rent.exemption_threshold = 2.0;
         let (bank, _bank_forks) = Bank::new_no_wallclock_throttle_for_tests(&genesis_config);
-        let pubkey = solana_sdk::pubkey::new_rand();
-        let pubkey1 = solana_sdk::pubkey::new_rand();
+        let pubkey = solana_pubkey::new_rand();
+        let pubkey1 = solana_pubkey::new_rand();
         let keypair1 = Keypair::new();
 
         let rent_exempt_amount = bank.get_minimum_balance_for_rent_exemption(0);
@@ -1969,6 +1973,7 @@ mod tests {
             blockstore.set_roots(std::iter::once(&bank.slot())).unwrap();
 
             let (transaction_status_sender, transaction_status_receiver) = unbounded();
+            let tss_exit = Arc::new(AtomicBool::new(false));
             let transaction_status_service = TransactionStatusService::new(
                 transaction_status_receiver,
                 Arc::new(AtomicU64::default()),
@@ -1976,7 +1981,7 @@ mod tests {
                 None,
                 blockstore.clone(),
                 false,
-                Arc::new(AtomicBool::new(false)),
+                tss_exit.clone(),
             );
 
             let (replay_vote_sender, _replay_vote_receiver) = unbounded();
@@ -1992,7 +1997,8 @@ mod tests {
             let _ = consumer.process_and_record_transactions(&bank, &transactions, 0);
 
             drop(consumer); // drop/disconnect transaction_status_sender
-            transaction_status_service.join().unwrap();
+
+            transaction_status_service.quiesce_and_join_for_tests(tss_exit);
 
             let confirmed_block = blockstore.get_rooted_block(bank.slot(), false).unwrap();
             let actual_tx_results: Vec<_> = confirmed_block
@@ -2062,7 +2068,7 @@ mod tests {
         });
 
         let tx = VersionedTransaction::try_new(message, &[&keypair]).unwrap();
-        let sanitized_tx = SanitizedTransaction::try_create(
+        let sanitized_tx = RuntimeTransaction::try_create(
             tx.clone(),
             MessageHash::Compute,
             Some(false),
@@ -2114,6 +2120,7 @@ mod tests {
             blockstore.set_roots(std::iter::once(&bank.slot())).unwrap();
 
             let (transaction_status_sender, transaction_status_receiver) = unbounded();
+            let tss_exit = Arc::new(AtomicBool::new(false));
             let transaction_status_service = TransactionStatusService::new(
                 transaction_status_receiver,
                 Arc::new(AtomicU64::default()),
@@ -2121,7 +2128,7 @@ mod tests {
                 None,
                 blockstore.clone(),
                 false,
-                Arc::new(AtomicBool::new(false)),
+                tss_exit.clone(),
             );
 
             let (replay_vote_sender, _replay_vote_receiver) = unbounded();
@@ -2137,7 +2144,8 @@ mod tests {
             let _ = consumer.process_and_record_transactions(&bank, &[sanitized_tx.clone()], 0);
 
             drop(consumer); // drop/disconnect transaction_status_sender
-            transaction_status_service.join().unwrap();
+
+            transaction_status_service.quiesce_and_join_for_tests(tss_exit);
 
             let mut confirmed_block = blockstore.get_rooted_block(bank.slot(), false).unwrap();
             assert_eq!(confirmed_block.transactions.len(), 1);
@@ -2345,7 +2353,7 @@ mod tests {
 
             let lock_account = transactions[0].message.account_keys[1];
             let manual_lock_tx =
-                SanitizedTransaction::from_transaction_for_tests(system_transaction::transfer(
+                RuntimeTransaction::from_transaction_for_tests(system_transaction::transfer(
                     &Keypair::new(),
                     &lock_account,
                     1,
@@ -2519,11 +2527,11 @@ mod tests {
             execute_timings.details.per_program_timings.insert(
                 Pubkey::new_unique(),
                 ProgramTiming {
-                    accumulated_us: n * 100,
-                    accumulated_units: n * 1000,
-                    count: n as u32,
+                    accumulated_us: Saturating(n * 100),
+                    accumulated_units: Saturating(n * 1000),
+                    count: Saturating(n as u32),
                     errored_txs_compute_consumed: vec![],
-                    total_errored_units: 0,
+                    total_errored_units: Saturating(0),
                 },
             );
             expected_us += n * 100;
@@ -2569,43 +2577,22 @@ mod tests {
             Consumer::filter_valid_transaction_indexes(&[
                 Err(TransactionError::BlockhashNotFound),
                 Err(TransactionError::BlockhashNotFound),
-                Ok(CheckedTransactionDetails {
-                    nonce: None,
-                    lamports_per_signature: 0
-                }),
+                Ok(CheckedTransactionDetails::default()),
                 Err(TransactionError::BlockhashNotFound),
-                Ok(CheckedTransactionDetails {
-                    nonce: None,
-                    lamports_per_signature: 0
-                }),
-                Ok(CheckedTransactionDetails {
-                    nonce: None,
-                    lamports_per_signature: 0
-                }),
+                Ok(CheckedTransactionDetails::default()),
+                Ok(CheckedTransactionDetails::default()),
             ]),
             [2, 4, 5]
         );
 
         assert_eq!(
             Consumer::filter_valid_transaction_indexes(&[
-                Ok(CheckedTransactionDetails {
-                    nonce: None,
-                    lamports_per_signature: 0,
-                }),
+                Ok(CheckedTransactionDetails::default()),
                 Err(TransactionError::BlockhashNotFound),
                 Err(TransactionError::BlockhashNotFound),
-                Ok(CheckedTransactionDetails {
-                    nonce: None,
-                    lamports_per_signature: 0,
-                }),
-                Ok(CheckedTransactionDetails {
-                    nonce: None,
-                    lamports_per_signature: 0,
-                }),
-                Ok(CheckedTransactionDetails {
-                    nonce: None,
-                    lamports_per_signature: 0,
-                }),
+                Ok(CheckedTransactionDetails::default()),
+                Ok(CheckedTransactionDetails::default()),
+                Ok(CheckedTransactionDetails::default()),
             ]),
             [0, 3, 4, 5]
         );

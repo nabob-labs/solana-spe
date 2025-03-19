@@ -7,6 +7,15 @@ homepage.workspace = true
 license.workspace = true
 edition.workspace = true
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[lib]
+name = "solana_packet"
+path = "src/lib.rs"
+
 [dependencies]
 bincode = { workspace = true, optional = true }
 bitflags = { workspace = true }
@@ -22,21 +31,27 @@ solana-packet = { path = ".", features = ["dev-context-only-utils"] }
 static_assertions = { workspace = true }
 
 [features]
-bincode = ["dep:bincode", "serde"]
+bincode = [
+    "dep:bincode",
+    "serde",
+]
 dev-context-only-utils = ["bincode"]
+frozen-abi = [
+    "dep:solana-frozen-abi",
+    "dep:solana-frozen-abi-macro",
+]
 serde = [
     "bitflags/serde",
     "dep:cfg_eval",
     "dep:serde",
     "dep:serde_derive",
-    "dep:serde_with"
+    "dep:serde_with",
 ]
-frozen-abi = ["dep:solana-frozen-abi", "dep:solana-frozen-abi-macro"]
 
-[package.metadata.docs.rs]
-targets = ["x86_64-unknown-linux-gnu"]
-all-features = true
-rustdoc-args = ["--cfg=docsrs"]
-
-[lints]
-workspace = true
+[lints.rust.unexpected_cfgs]
+level = "warn"
+priority = 0
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]

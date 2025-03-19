@@ -8,7 +8,7 @@ use {
     },
     solana_feature_set::FeatureSet,
     solana_perf::packet::Packet,
-    solana_sdk::transaction::SanitizedTransaction,
+    solana_runtime_transaction::transaction_with_meta::TransactionWithMeta,
     std::sync::Arc,
 };
 
@@ -114,7 +114,7 @@ impl ForwardPacketBatchesByAccounts {
 
     pub fn try_add_packet(
         &mut self,
-        sanitized_transaction: &SanitizedTransaction,
+        sanitized_transaction: &impl TransactionWithMeta,
         immutable_packet: Arc<ImmutableDeserializedPacket>,
         feature_set: &FeatureSet,
     ) -> bool {
@@ -168,9 +168,13 @@ mod tests {
         super::*,
         crate::banking_stage::unprocessed_packet_batches::DeserializedPacket,
         solana_feature_set::FeatureSet,
+        solana_runtime_transaction::runtime_transaction::RuntimeTransaction,
         solana_sdk::{
-            compute_budget::ComputeBudgetInstruction, message::Message, pubkey::Pubkey,
-            system_instruction, transaction::Transaction,
+            compute_budget::ComputeBudgetInstruction,
+            message::Message,
+            pubkey::Pubkey,
+            system_instruction,
+            transaction::{SanitizedTransaction, Transaction},
         },
     };
 
@@ -179,8 +183,12 @@ mod tests {
     fn build_test_transaction_and_packet(
         priority: u64,
         write_to_account: &Pubkey,
-    ) -> (SanitizedTransaction, DeserializedPacket, u32) {
-        let from_account = solana_sdk::pubkey::new_rand();
+    ) -> (
+        RuntimeTransaction<SanitizedTransaction>,
+        DeserializedPacket,
+        u32,
+    ) {
+        let from_account = solana_pubkey::new_rand();
 
         let transaction = Transaction::new_unsigned(Message::new(
             &[
@@ -190,7 +198,7 @@ mod tests {
             Some(&from_account),
         ));
         let sanitized_transaction =
-            SanitizedTransaction::from_transaction_for_tests(transaction.clone());
+            RuntimeTransaction::from_transaction_for_tests(transaction.clone());
         let tx_cost = CostModel::calculate_cost(&sanitized_transaction, &FeatureSet::all_enabled());
         let cost = tx_cost.sum();
         let deserialized_packet =
@@ -206,8 +214,8 @@ mod tests {
     fn test_try_add_packet_to_multiple_batches() {
         // setup two transactions, one has high priority that writes to hot account, the
         // other write to non-contentious account with no priority
-        let hot_account = solana_sdk::pubkey::new_rand();
-        let other_account = solana_sdk::pubkey::new_rand();
+        let hot_account = solana_pubkey::new_rand();
+        let other_account = solana_pubkey::new_rand();
         let (tx_high_priority, packet_high_priority, limit_ratio) =
             build_test_transaction_and_packet(10, &hot_account);
         let (tx_low_priority, packet_low_priority, _) =
@@ -284,7 +292,7 @@ mod tests {
     #[test]
     fn test_try_add_packet_to_single_batch() {
         let (tx, packet, limit_ratio) =
-            build_test_transaction_and_packet(10, &solana_sdk::pubkey::new_rand());
+            build_test_transaction_and_packet(10, &solana_pubkey::new_rand());
         let number_of_batches = 1;
         let mut forward_packet_batches_by_accounts =
             ForwardPacketBatchesByAccounts::new(limit_ratio, number_of_batches);
@@ -324,7 +332,7 @@ mod tests {
         {
             // build a small packet to a non-contentious account with high priority
             let (tx2, packet2, _) =
-                build_test_transaction_and_packet(100, &solana_sdk::pubkey::new_rand());
+                build_test_transaction_and_packet(100, &solana_pubkey::new_rand());
 
             assert!(forward_packet_batches_by_accounts.try_add_packet(
                 &tx2,

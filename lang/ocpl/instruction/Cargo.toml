@@ -7,6 +7,18 @@ homepage.workspace = true
 license.workspace = true
 edition.workspace = true
 
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "wasm32-unknown-unknown",
+]
+
+[lib]
+name = "solana_instruction"
+path = "src/lib.rs"
+
 [dependencies]
 bincode = { workspace = true, optional = true }
 borsh = { workspace = true, optional = true }
@@ -26,10 +38,12 @@ js-sys = { workspace = true }
 wasm-bindgen = { workspace = true }
 
 [dev-dependencies]
-solana-instruction = { path = ".", features = ["borsh"] }
 
 [features]
-bincode = ["dep:bincode", "dep:serde"]
+bincode = [
+    "dep:bincode",
+    "dep:serde",
+]
 borsh = ["dep:borsh"]
 default = ["std"]
 frozen-abi = [
@@ -45,10 +59,10 @@ serde = [
 ]
 std = []
 
-[package.metadata.docs.rs]
-targets = ["x86_64-unknown-linux-gnu"]
-all-features = true
-rustdoc-args = ["--cfg=docsrs"]
-
-[lints]
-workspace = true
+[lints.rust.unexpected_cfgs]
+level = "warn"
+priority = 0
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]

@@ -1,6 +1,7 @@
 use {
-    super::{error::CoreBpfMigrationError, CoreBpfMigrationTargetType},
+    super::error::CoreBpfMigrationError,
     crate::bank::Bank,
+    solana_builtins::core_bpf_migration::CoreBpfMigrationTargetType,
     solana_sdk::{
         account::{AccountSharedData, ReadableAccount},
         bpf_loader_upgradeable::get_program_data_address,
@@ -113,16 +114,13 @@ mod tests {
     #[test_case(solana_stake_program::id(), None)]
     #[test_case(solana_system_program::id(), None)]
     #[test_case(solana_vote_program::id(), None)]
+    #[test_case(solana_sdk::loader_v4::id(), Some(feature_set::enable_loader_v4::id()))]
     #[test_case(
-        solana_sdk::loader_v4::id(),
-        Some(feature_set::enable_program_runtime_v2_and_loader_v4::id())
-    )]
-    #[test_case(
-        solana_zk_token_sdk::zk_token_proof_program::id(),
+        solana_sdk_ids::zk_token_proof_program::id(),
         Some(feature_set::zk_token_sdk_enabled::id())
     )]
     #[test_case(
-        solana_zk_sdk::zk_elgamal_proof_program::id(),
+        solana_sdk_ids::zk_elgamal_proof_program::id(),
         Some(feature_set::zk_elgamal_proof_program_enabled::id())
     )]
     fn test_target_program_builtin(program_address: Pubkey, activation_feature: Option<Pubkey>) {

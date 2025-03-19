@@ -59,7 +59,7 @@ fn get_genesis_config(
             ledger_path,
             max_genesis_archive_unpacked_size,
         )
-        .map_err(|err| format!("Failed to unpack downloaded genesis config: {err}"))?;
+            .map_err(|err| format!("Failed to unpack downloaded genesis config: {err}"))?;
 
         let downloaded_genesis = GenesisConfig::load(ledger_path)
             .map_err(|err| format!("Failed to load downloaded genesis config: {err}"))?;

@@ -4,19 +4,19 @@
 #![cfg_attr(feature = "frozen-abi", feature(min_specialization))]
 #[cfg(any(test, feature = "verify"))]
 use core::convert::TryInto;
-#[cfg(feature = "serde")]
-use serde_derive::{Deserialize, Serialize};
-use {
-    core::{
-        fmt,
-        str::{from_utf8, FromStr},
-    },
-    generic_array::{typenum::U64, GenericArray},
+use core::{
+    fmt,
+    str::{from_utf8, FromStr},
 };
 #[cfg(feature = "std")]
 extern crate std;
 #[cfg(feature = "std")]
 use std::{error::Error, vec::Vec};
+#[cfg(feature = "serde")]
+use {
+    serde_big_array::BigArray,
+    serde_derive::{Deserialize, Serialize},
+};
 
 /// Number of bytes in a signature
 pub const SIGNATURE_BYTES: usize = 64;
@@ -25,9 +25,17 @@ const MAX_BASE58_SIGNATURE_LEN: usize = 88;
 
 #[repr(transparent)]
 #[cfg_attr(feature = "frozen-abi", derive(solana_frozen_abi_macro::AbiExample))]
+#[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[cfg_attr(feature = "serde", derive(Deserialize, Serialize))]
-#[derive(Clone, Copy, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct Signature(GenericArray<u8, U64>);
+pub struct Signature(
+    #[cfg_attr(feature = "serde", serde(with = "BigArray"))] [u8; SIGNATURE_BYTES],
+);
+
+impl Default for Signature {
+    fn default() -> Self {
+        Self([0u8; 64])
+    }
+}
 
 impl solana_sanitize::Sanitize for Signature {}
 
@@ -85,14 +93,14 @@ impl fmt::Display for Signature {
 
 impl From<Signature> for [u8; 64] {
     fn from(signature: Signature) -> Self {
-        signature.0.into()
+        signature.0
     }
 }
 
 impl From<[u8; SIGNATURE_BYTES]> for Signature {
     #[inline]
     fn from(signature: [u8; SIGNATURE_BYTES]) -> Self {
-        Self(GenericArray::from(signature))
+        Self(signature)
     }
 }
 
@@ -156,7 +164,11 @@ impl FromStr for Signature {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, solana_program::pubkey::Pubkey};
+    use {
+        super::*,
+        serde_derive::{Deserialize, Serialize},
+        solana_pubkey::Pubkey,
+    };
 
     #[test]
     fn test_off_curve_pubkey_verify_fails() {
@@ -177,5 +189,88 @@ mod tests {
         // `source()` out of the `SignatureError` returned by `verify_strict()`.  So the best we
         // can do is `is_err()` here.
         assert!(signature.verify_verbose(pubkey.as_ref(), &[0u8]).is_err());
+    }
+
+    #[test]
+    fn test_short_vec() {
+        #[derive(Debug, Deserialize, Serialize, PartialEq)]
+        struct SigShortVec {
+            #[serde(with = "solana_short_vec")]
+            pub signatures: Vec<Signature>,
+        }
+        let sig = Signature::from([
+            120, 138, 162, 185, 59, 209, 241, 157, 71, 157, 74, 131, 4, 87, 54, 28, 38, 180, 222,
+            82, 64, 62, 61, 62, 22, 46, 17, 203, 187, 136, 62, 43, 11, 38, 235, 17, 239, 82, 240,
+            139, 130, 217, 227, 214, 9, 242, 141, 223, 94, 29, 184, 110, 62, 32, 87, 137, 63, 139,
+            100, 221, 20, 137, 4, 5,
+        ]);
+        let to_serialize = SigShortVec {
+            signatures: std::vec![sig],
+        };
+        let json_serialized = serde_json::to_string(&to_serialize).unwrap();
+        assert_eq!(json_serialized, "{\"signatures\":[[1],[120,138,162,185,59,209,241,157,71,157,74,131,4,87,54,28,38,180,222,82,64,62,61,62,22,46,17,203,187,136,62,43,11,38,235,17,239,82,240,139,130,217,227,214,9,242,141,223,94,29,184,110,62,32,87,137,63,139,100,221,20,137,4,5]]}");
+        let json_deserialized: SigShortVec = serde_json::from_str(&json_serialized).unwrap();
+        assert_eq!(json_deserialized, to_serialize);
+        let bincode_serialized = bincode::serialize(&to_serialize).unwrap();
+        assert_eq!(
+            bincode_serialized,
+            [
+                1, 120, 138, 162, 185, 59, 209, 241, 157, 71, 157, 74, 131, 4, 87, 54, 28, 38, 180,
+                222, 82, 64, 62, 61, 62, 22, 46, 17, 203, 187, 136, 62, 43, 11, 38, 235, 17, 239,
+                82, 240, 139, 130, 217, 227, 214, 9, 242, 141, 223, 94, 29, 184, 110, 62, 32, 87,
+                137, 63, 139, 100, 221, 20, 137, 4, 5
+            ]
+        );
+        let bincode_deserialized: SigShortVec = bincode::deserialize(&bincode_serialized).unwrap();
+        assert_eq!(bincode_deserialized, to_serialize);
+    }
+
+    #[test]
+    fn test_signature_fromstr() {
+        let signature = Signature::from([
+            103, 7, 88, 96, 203, 140, 191, 47, 231, 37, 30, 220, 61, 35, 93, 112, 225, 2, 5, 11,
+            158, 105, 246, 147, 133, 64, 109, 252, 119, 73, 108, 248, 167, 240, 160, 18, 222, 3, 1,
+            48, 51, 67, 94, 19, 91, 108, 227, 126, 100, 25, 212, 135, 90, 60, 61, 78, 186, 104, 22,
+            58, 242, 74, 148, 6,
+        ]);
+
+        let mut signature_base58_str = bs58::encode(signature).into_string();
+
+        assert_eq!(signature_base58_str.parse::<Signature>(), Ok(signature));
+
+        signature_base58_str.push_str(&bs58::encode(<[u8; 64]>::from(signature)).into_string());
+        assert_eq!(
+            signature_base58_str.parse::<Signature>(),
+            Err(ParseSignatureError::WrongSize)
+        );
+
+        signature_base58_str.truncate(signature_base58_str.len() / 2);
+        assert_eq!(signature_base58_str.parse::<Signature>(), Ok(signature));
+
+        signature_base58_str.truncate(signature_base58_str.len() / 2);
+        assert_eq!(
+            signature_base58_str.parse::<Signature>(),
+            Err(ParseSignatureError::WrongSize)
+        );
+
+        let mut signature_base58_str = bs58::encode(<[u8; 64]>::from(signature)).into_string();
+        assert_eq!(signature_base58_str.parse::<Signature>(), Ok(signature));
+
+        // throw some non-base58 stuff in there
+        signature_base58_str.replace_range(..1, "I");
+        assert_eq!(
+            signature_base58_str.parse::<Signature>(),
+            Err(ParseSignatureError::Invalid)
+        );
+
+        // too long input string
+        // longest valid encoding
+        let mut too_long = bs58::encode(&[255u8; SIGNATURE_BYTES]).into_string();
+        // and one to grow on
+        too_long.push('1');
+        assert_eq!(
+            too_long.parse::<Signature>(),
+            Err(ParseSignatureError::WrongSize)
+        );
     }
 }

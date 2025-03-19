@@ -1,26 +1,24 @@
 use {
-    super::{
-        scheduler_error::SchedulerError, transaction_state_container::TransactionStateContainer,
-    },
-    solana_sdk::transaction::SanitizedTransaction,
+    super::{scheduler_error::SchedulerError, transaction_state_container::StateContainer},
+    solana_runtime_transaction::transaction_with_meta::TransactionWithMeta,
 };
 
-pub(crate) trait Scheduler {
+pub(crate) trait Scheduler<Tx: TransactionWithMeta> {
     /// Schedule transactions from `container`.
     /// pre-graph and pre-lock filters may be passed to be applied
     /// before specific actions internally.
-    fn schedule(
+    fn schedule<S: StateContainer<Tx>>(
         &mut self,
-        container: &mut TransactionStateContainer,
-        pre_graph_filter: impl Fn(&[&SanitizedTransaction], &mut [bool]),
-        pre_lock_filter: impl Fn(&SanitizedTransaction) -> bool,
+        container: &mut S,
+        pre_graph_filter: impl Fn(&[&Tx], &mut [bool]),
+        pre_lock_filter: impl Fn(&Tx) -> bool,
     ) -> Result<SchedulingSummary, SchedulerError>;
 
     /// Receive completed batches of transactions without blocking.
     /// Returns (num_transactions, num_retryable_transactions) on success.
     fn receive_completed(
         &mut self,
-        container: &mut TransactionStateContainer,
+        container: &mut impl StateContainer<Tx>,
     ) -> Result<(usize, usize), SchedulerError>;
 }
 

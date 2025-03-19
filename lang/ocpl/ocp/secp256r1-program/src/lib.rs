@@ -9,9 +9,8 @@
 //! This property can be problematic for developers who assume each signature is unique. Without enforcing
 //! low-S values, the same message and key can produce two different valid signatures, potentially breaking
 //! replay protection schemes that rely on signature uniqueness.
-solana_pubkey::declare_id!("Secp256r1SigVerify1111111111111111111111111");
-
 use bytemuck::{Pod, Zeroable};
+pub use solana_sdk_ids::secp256r1_program::{check_id, id, ID};
 
 #[derive(Default, Debug, Copy, Clone, Zeroable, Pod, Eq, PartialEq)]
 #[repr(C)]
@@ -586,7 +585,7 @@ mod target_arch {
 
             // Since Transaction::verify_precompiles only returns a vague
             // `InvalidAccountIndex` error on precompile failure, we use verify()
-            // here direclty to check for the specific
+            // here directly to check for the specific
             // InvalidSignatureValueRange error
             let tx_fail = verify(
                 instruction.data.as_slice(),

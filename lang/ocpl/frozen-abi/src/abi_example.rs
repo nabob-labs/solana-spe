@@ -219,15 +219,6 @@ atomic_example_impls! { AtomicI64 }
 atomic_example_impls! { AtomicIsize }
 atomic_example_impls! { AtomicBool }
 
-#[cfg(not(target_os = "solana"))]
-use generic_array::{ArrayLength, GenericArray};
-#[cfg(not(target_os = "solana"))]
-impl<T: Default, U: ArrayLength<T>> AbiExample for GenericArray<T, U> {
-    fn example() -> Self {
-        Self::default()
-    }
-}
-
 use bv::{BitVec, BlockType};
 impl<T: BlockType> AbiExample for BitVec<T> {
     fn example() -> Self {
@@ -246,10 +237,10 @@ impl<T: BlockType> EvenAsOpaque for BitVec<T> {
 }
 
 use serde_with::ser::SerializeAsWrap;
-impl<'a, T: ?Sized, U: ?Sized> TransparentAsHelper for SerializeAsWrap<'a, T, U> {}
+impl<T: ?Sized, U: ?Sized> TransparentAsHelper for SerializeAsWrap<'_, T, U> {}
 // This (EvenAsOpaque) marker trait is needed for serde_with's serde_as(...) because this struct is
 // basically a wrapper struct.
-impl<'a, T: ?Sized, U: ?Sized> EvenAsOpaque for SerializeAsWrap<'a, T, U> {
+impl<T: ?Sized, U: ?Sized> EvenAsOpaque for SerializeAsWrap<'_, T, U> {
     const TYPE_NAME_MATCHER: &'static str = "serde_with::ser::SerializeAsWrap<";
 }
 
@@ -348,7 +339,7 @@ impl<T: AbiExample> AbiExample for std::sync::Arc<T> {
     }
 }
 
-// When T is weakly owned by the likes of `ocp::{sync, rc}::Weak`s, we need to uphold the ownership
+// When T is weakly owned by the likes of `std::{sync, rc}::Weak`s, we need to uphold the ownership
 // of T in some way at least during abi digesting... However, there's no easy way. Stashing them
 // into static is confronted with Send/Sync issue. Stashing them into thread_local is confronted
 // with not enough (T + 'static) lifetime bound..  So, just leak the examples. This should be

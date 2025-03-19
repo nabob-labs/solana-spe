@@ -10,16 +10,17 @@ use {
             immutable_deserialized_packet::ImmutableDeserializedPacket, LikeClusterInfo,
         },
         next_leader::{next_leader, next_leader_tpu_vote},
-        tracer_packet_stats::TracerPacketStats,
     },
     solana_client::connection_cache::ConnectionCache,
     solana_connection_cache::client_connection::ClientConnection as TpuConnection,
     solana_feature_set::FeatureSet,
     solana_measure::measure_us,
+    solana_net_utils::bind_to_unspecified,
     solana_perf::{data_budget::DataBudget, packet::Packet},
     solana_poh::poh_recorder::PohRecorder,
     solana_runtime::bank_forks::BankForks,
-    solana_sdk::{pubkey::Pubkey, transaction::SanitizedTransaction, transport::TransportError},
+    solana_runtime_transaction::transaction_with_meta::TransactionWithMeta,
+    solana_sdk::{pubkey::Pubkey, transport::TransportError},
     solana_streamer::sendmmsg::batch_send,
     std::{
         iter::repeat,
@@ -49,7 +50,7 @@ impl<T: LikeClusterInfo> Forwarder<T> {
         Self {
             poh_recorder,
             bank_forks,
-            socket: UdpSocket::bind("0.0.0.0:0").unwrap(),
+            socket: bind_to_unspecified().unwrap(),
             cluster_info,
             connection_cache,
             data_budget,
@@ -64,7 +65,7 @@ impl<T: LikeClusterInfo> Forwarder<T> {
 
     pub fn try_add_packet(
         &mut self,
-        sanitized_transaction: &SanitizedTransaction,
+        sanitized_transaction: &impl TransactionWithMeta,
         immutable_packet: Arc<ImmutableDeserializedPacket>,
         feature_set: &FeatureSet,
     ) -> bool {
@@ -94,7 +95,6 @@ impl<T: LikeClusterInfo> Forwarder<T> {
         hold: bool,
         slot_metrics_tracker: &mut LeaderSlotMetricsTracker,
         banking_stage_stats: &BankingStageStats,
-        tracer_packet_stats: &mut TracerPacketStats,
     ) {
         let forward_option = unprocessed_transaction_storage.forward_option();
 
@@ -137,19 +137,13 @@ impl<T: LikeClusterInfo> Forwarder<T> {
                 slot_metrics_tracker.increment_forwardable_batches_count(1);
 
                 let batched_forwardable_packets_count = forward_batch.len();
-                let (_forward_result, successful_forwarded_packets_count, leader_pubkey) = self
+                let (_forward_result, successful_forwarded_packets_count, _leader_pubkey) = self
                     .forward_buffered_packets(
                         &forward_option,
                         forward_batch.get_forwardable_packets(),
                         banking_stage_stats,
                     );
 
-                if let Some(leader_pubkey) = leader_pubkey {
-                    tracer_packet_stats.increment_total_forwardable_tracer_packets(
-                        filter_forwarding_result.total_forwardable_tracer_packets,
-                        leader_pubkey,
-                    );
-                }
                 let failed_forwarded_packets_count = batched_forwardable_packets_count
                     .saturating_sub(successful_forwarded_packets_count);
 
@@ -171,9 +165,6 @@ impl<T: LikeClusterInfo> Forwarder<T> {
         if !hold {
             slot_metrics_tracker.increment_cleared_from_buffer_after_forward_count(
                 filter_forwarding_result.total_forwardable_packets as u64,
-            );
-            tracer_packet_stats.increment_total_cleared_from_buffer_after_forward(
-                filter_forwarding_result.total_tracer_packets_in_buffer,
             );
             unprocessed_transaction_storage.clear_forwarded_packets();
         }
@@ -446,7 +437,7 @@ mod tests {
         // Create `PacketBatch` with 1 unprocessed packet
         let tx = system_transaction::transfer(
             &Keypair::new(),
-            &solana_sdk::pubkey::new_rand(),
+            &solana_pubkey::new_rand(),
             rent_min_balance,
             blockhash,
         );
@@ -483,7 +474,6 @@ mod tests {
                 true,
                 &mut LeaderSlotMetricsTracker::new(0),
                 &stats,
-                &mut TracerPacketStats::new(0),
             );
 
             let recv_socket = &local_node.sockets.tpu_forwards_quic[0];
@@ -514,7 +504,7 @@ mod tests {
         } = setup();
 
         let keypair = Keypair::new();
-        let pubkey = solana_sdk::pubkey::new_rand();
+        let pubkey = solana_pubkey::new_rand();
 
         // forwarded packets will not be forwarded again
         let forwarded_packet = {
@@ -582,7 +572,6 @@ mod tests {
                 hold,
                 &mut LeaderSlotMetricsTracker::new(0),
                 &stats,
-                &mut TracerPacketStats::new(0),
             );
 
             let recv_socket = &local_node.sockets.tpu_forwards_quic[0];

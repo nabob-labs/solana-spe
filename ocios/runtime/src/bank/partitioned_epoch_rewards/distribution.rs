@@ -269,7 +269,8 @@ mod tests {
             .map(|_| PartitionedStakeReward::new_random())
             .collect::<Vec<_>>();
 
-        let stake_rewards = hash_rewards_into_partitions(stake_rewards, &Hash::new(&[1; 32]), 2);
+        let stake_rewards =
+            hash_rewards_into_partitions(stake_rewards, &Hash::new_from_array([1; 32]), 2);
 
         bank.set_epoch_reward_status_active(
             bank.block_height() + REWARD_CALCULATION_NUM_BLOCKS,
@@ -293,7 +294,7 @@ mod tests {
 
         let stake_rewards = hash_rewards_into_partitions(
             stake_rewards,
-            &Hash::new(&[1; 32]),
+            &Hash::new_from_array([1; 32]),
             bank.epoch_schedule().slots_per_epoch as usize + 1,
         );
 
@@ -347,15 +348,13 @@ mod tests {
         let (mut genesis_config, _mint_keypair) =
             create_genesis_config(1_000_000 * LAMPORTS_PER_SOL);
         genesis_config.epoch_schedule = EpochSchedule::custom(432000, 432000, false);
-        let mut bank = Bank::new_for_tests(&genesis_config);
-        bank.activate_feature(&solana_feature_set::partitioned_epoch_rewards_superfeature::id());
+        let bank = Bank::new_for_tests(&genesis_config);
 
         // Set up epoch_rewards sysvar with rewards with 1e9 lamports to distribute.
         let total_rewards = 1_000_000_000;
         let num_partitions = 2; // num_partitions is arbitrary and unimportant for this test
         let total_points = (total_rewards * 42) as u128; // total_points is arbitrary for the purposes of this test
         bank.create_epoch_rewards_sysvar(
-            total_rewards,
             0,
             42,
             num_partitions,
@@ -429,7 +428,7 @@ mod tests {
         let stake_rewards = convert_rewards(stake_rewards);
 
         let stake_rewards_bucket =
-            hash_rewards_into_partitions(stake_rewards, &Hash::new(&[1; 32]), 100);
+            hash_rewards_into_partitions(stake_rewards, &Hash::new_from_array([1; 32]), 100);
         bank.set_epoch_reward_status_active(
             bank.block_height() + REWARD_CALCULATION_NUM_BLOCKS,
             stake_rewards_bucket.clone(),

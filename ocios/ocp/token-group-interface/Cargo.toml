@@ -11,17 +11,26 @@ edition.workspace = true
 targets = ["x86_64-unknown-linux-gnu"]
 
 [lib]
+name = "spl_token_group_interface"
 crate-type = [
     "cdylib",
     "lib",
 ]
+path = "src/lib.rs"
 
 [dependencies]
-bytemuck = "1.16.1"
-solana-program = { workspace = true }
+bytemuck = "1.19.0"
+num-derive = "0.4"
+num-traits = "0.2"
+solana-decode-error = { workspace = true }
+solana-instruction = { workspace = true }
+solana-msg = { workspace = true }
+solana-program-error = { workspace = true }
+solana-pubkey = { workspace = true }
 spl-discriminator = { workspace = true }
 spl-pod = { workspace = true, features = ["borsh"] }
-spl-program-error = { workspace = true }
+thiserror = "1.0"
 
 [dev-dependencies]
+solana-sha256-hasher = { workspace = true }
 spl-type-length-value = { workspace = true, features = ["derive"] }

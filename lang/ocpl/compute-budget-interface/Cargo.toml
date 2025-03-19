@@ -1,0 +1,51 @@
+[package]
+name = "solana-compute-budget-interface"
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[lib]
+name = "solana_compute_budget_interface"
+path = "src/lib.rs"
+
+[dependencies]
+borsh = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_derive = { workspace = true, optional = true }
+solana-frozen-abi = { workspace = true, features = [
+    "frozen-abi",
+], optional = true }
+solana-frozen-abi-macro = { workspace = true, features = [
+    "frozen-abi",
+], optional = true }
+solana-instruction = { workspace = true, features = ["std"] }
+solana-sdk-ids = { workspace = true }
+
+[features]
+borsh = ["dep:borsh"]
+dev-context-only-utils = ["borsh"]
+frozen-abi = [
+    "dep:solana-frozen-abi",
+    "dep:solana-frozen-abi-macro",
+    "serde",
+]
+serde = [
+    "dep:serde",
+    "dep:serde_derive",
+]
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+priority = 0
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]

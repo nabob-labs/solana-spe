@@ -69,7 +69,7 @@ pub use {
     solana_banks_client::{BanksClient, BanksClientError},
     solana_banks_interface::BanksTransactionResultWithMetadata,
     solana_program_runtime::invoke_context::InvokeContext,
-    solana_rbpf::{
+    solana_sbpf::{
         error::EbpfError,
         vm::{get_runtime_environment_key, EbpfVm},
     },
@@ -497,7 +497,7 @@ impl Default for ProgramTest {
     ///
     fn default() -> Self {
         solana_logger::setup_with_default(
-            "solana_rbpf::vm=debug,\
+            "solana_sbpf::vm=debug,\
              solana_runtime::message_processor=debug,\
              solana_runtime::system_instruction_processor=trace,\
              solana_program_test=info",
@@ -815,7 +815,7 @@ impl ProgramTest {
             bootstrap_validator_stake_lamports,
             42,
             fee_rate_governor,
-            rent,
+            rent.clone(),
             ClusterType::Development,
             std::mem::take(&mut self.genesis_accounts),
         );
@@ -866,7 +866,16 @@ impl ProgramTest {
         );
 
         // Add commonly-used SPL programs as a convenience to the user
-        for (program_id, account) in programs::spl_programs(&Rent::default()).iter() {
+        for (program_id, account) in programs::spl_programs(&rent).iter() {
+            bank.store_account(program_id, account);
+        }
+
+        // Add migrated Core BPF programs.
+        for (program_id, account) in programs::core_bpf_programs(&rent, |feature_id| {
+            genesis_config.accounts.contains_key(feature_id)
+        })
+        .iter()
+        {
             bank.store_account(program_id, account);
         }
 

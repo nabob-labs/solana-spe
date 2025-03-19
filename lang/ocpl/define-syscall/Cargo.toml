@@ -10,7 +10,11 @@ edition.workspace = true
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
 
-[lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = [
-    'cfg(target_feature, values("static-syscalls"))',
-] }
+[lib]
+name = "solana_define_syscall"
+path = "src/lib.rs"
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+priority = 0
+check-cfg = ['cfg(target_feature, values("static-syscalls"))']

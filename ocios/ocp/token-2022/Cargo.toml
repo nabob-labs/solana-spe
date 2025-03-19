@@ -10,49 +10,64 @@ edition.workspace = true
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
 
+[package.metadata.solana]
+program-id = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
+
 [lib]
+name = "spl_token_2022"
 crate-type = [
     "cdylib",
     "lib",
 ]
+path = "src/lib.rs"
+
+[[test]]
+name = "action"
+path = "tests/action.rs"
+
+[[test]]
+name = "assert_instruction_count"
+path = "tests/assert_instruction_count.rs"
+
+[[test]]
+name = "serialization"
+path = "tests/serialization.rs"
 
 [dependencies]
-arrayref = "0.3.7"
+arrayref = "0.3.9"
 base64 = { version = "0.22.1", optional = true }
-bytemuck = { version = "1.16.1", features = ["derive"] }
+bytemuck = { version = "1.21.0", features = ["derive"] }
 num-derive = "0.4"
 num-traits = "0.2"
-num_enum = "0.7.2"
-serde = { version = "1.0.203", optional = true }
-serde_with = { version = "3.8.1", optional = true }
+num_enum = "0.7.3"
+serde = { version = "1.0.217", optional = true }
+serde_with = { version = "3.12.0", optional = true }
 solana-program = { workspace = true }
 solana-security-txt = { workspace = true }
-solana-zk-token-sdk = { workspace = true }
+solana-zk-sdk = { workspace = true }
+spl-elgamal-registry = { workspace = true, features = ["no-entrypoint"] }
 spl-memo = { workspace = true, features = ["no-entrypoint"] }
 spl-pod = { workspace = true }
 spl-token = { workspace = true, features = ["no-entrypoint"] }
+spl-token-confidential-transfer-ciphertext-arithmetic =  { workspace = true }
+spl-token-confidential-transfer-proof-extraction = { workspace = true }
 spl-token-group-interface = { workspace = true }
 spl-token-metadata-interface = { workspace = true }
 spl-transfer-hook-interface = { workspace = true }
 spl-type-length-value = { workspace = true }
-thiserror = "1.0"
+thiserror = "2.0"
 
 [dev-dependencies]
 lazy_static = "1.5.0"
-proptest = "1.5"
-serde_json = "1.0.117"
-serial_test = "3.1.1"
-solana-program-test = { workspace = true }
+proptest = "1.6"
+serde_json = "1.0.135"
+serial_test = "3.2.0"
+#solana-program-test = { workspace = true }
 solana-sdk = { workspace = true }
 spl-tlv-account-resolution = { workspace = true }
 
 [features]
-confidential-hook = []
-default = [
-    "confidential-hook",
-    "token-group",
-    "zk-ops",
-]
+default = ["zk-ops"]
 no-entrypoint = []
 serde-traits = [
     "dep:serde",
@@ -61,8 +76,15 @@ serde-traits = [
     "spl-pod/serde-traits",
 ]
 test-sbf = []
-token-group = []
 zk-ops = []
 
-[lints]
-workspace = true
+[target.'cfg(not(target_os = "solana"))'.dependencies]
+spl-token-confidential-transfer-proof-generation = { workspace = true }
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+priority = 0
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]

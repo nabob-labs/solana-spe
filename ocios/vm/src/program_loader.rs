@@ -1,21 +1,20 @@
+#[cfg(feature = "dev-context-only-utils")]
+use qualifier_attr::qualifiers;
 use {
     crate::transaction_processing_callback::TransactionProcessingCallback,
+    solana_account::{state_traits::StateMut, AccountSharedData, ReadableAccount},
+    solana_clock::Slot,
+    solana_instruction::error::InstructionError,
+    solana_program::bpf_loader_upgradeable::{self, UpgradeableLoaderState},
     solana_program_runtime::loaded_programs::{
         LoadProgramMetrics, ProgramCacheEntry, ProgramCacheEntryOwner, ProgramCacheEntryType,
         ProgramRuntimeEnvironment, ProgramRuntimeEnvironments, DELAY_VISIBILITY_SLOT_OFFSET,
     },
-    solana_sdk::{
-        account::{AccountSharedData, ReadableAccount},
-        account_utils::StateMut,
-        bpf_loader, bpf_loader_deprecated,
-        bpf_loader_upgradeable::{self, UpgradeableLoaderState},
-        clock::Slot,
-        instruction::InstructionError,
-        loader_v4::{self, LoaderV4State, LoaderV4Status},
-        pubkey::Pubkey,
-        transaction::{self, TransactionError},
-    },
+    solana_pubkey::Pubkey,
+    solana_sdk::loader_v4::{self, LoaderV4State, LoaderV4Status},
+    solana_sdk_ids::{bpf_loader, bpf_loader_deprecated},
     solana_timings::ExecuteTimings,
+    solana_transaction_error::{TransactionError, TransactionResult},
     solana_type_overrides::sync::Arc,
 };
 
@@ -119,7 +118,8 @@ pub(crate) fn load_program_accounts<CB: TransactionProcessingCallback>(
 /// If the account doesn't exist it returns `None`. If the account does exist, it must be a program
 /// account (belong to one of the program loaders). Returns `Some(InvalidAccountData)` if the program
 /// account is `Closed`, contains invalid data or any of the programdata accounts are invalid.
-pub fn load_program_with_pubkey<CB: TransactionProcessingCallback>(
+#[cfg_attr(feature = "dev-context-only-utils", qualifiers(pub))]
+pub(crate) fn load_program_with_pubkey<CB: TransactionProcessingCallback>(
     callbacks: &CB,
     environments: &ProgramRuntimeEnvironments,
     pubkey: &Pubkey,
@@ -192,18 +192,14 @@ pub fn load_program_with_pubkey<CB: TransactionProcessingCallback>(
                     &loader_v4::id(),
                     program_account.data().len(),
                     slot,
-                    environments.program_runtime_v2.clone(),
+                    environments.program_runtime_v1.clone(),
                     reload,
                 )
             })
             .map_err(|_| (slot, ProgramCacheEntryOwner::LoaderV4)),
     }
     .unwrap_or_else(|(slot, owner)| {
-        let env = if let ProgramCacheEntryOwner::LoaderV4 = &owner {
-            environments.program_runtime_v2.clone()
-        } else {
-            environments.program_runtime_v1.clone()
-        };
+        let env = environments.program_runtime_v1.clone();
         ProgramCacheEntry::new_tombstone(
             slot,
             owner,
@@ -223,7 +219,7 @@ pub fn load_program_with_pubkey<CB: TransactionProcessingCallback>(
 pub(crate) fn get_program_modification_slot<CB: TransactionProcessingCallback>(
     callbacks: &CB,
     pubkey: &Pubkey,
-) -> transaction::Result<Slot> {
+) -> TransactionResult<Slot> {
     let program = callbacks
         .get_account_shared_data(pubkey)
         .ok_or(TransactionError::ProgramAccountNotFound)?;
@@ -258,11 +254,12 @@ mod tests {
     use {
         super::*,
         crate::transaction_processor::TransactionBatchProcessor,
+        solana_account::WritableAccount,
         solana_program_runtime::{
             loaded_programs::{BlockRelation, ForkGraph, ProgramRuntimeEnvironments},
-            solana_rbpf::program::BuiltinProgram,
+            solana_sbpf::program::BuiltinProgram,
         },
-        solana_sdk::{account::WritableAccount, bpf_loader, bpf_loader_upgradeable},
+        solana_sdk_ids::{bpf_loader, bpf_loader_upgradeable},
         std::{
             cell::RefCell,
             collections::HashMap,
@@ -281,8 +278,8 @@ mod tests {
     }
 
     #[derive(Default, Clone)]
-    pub struct MockBankCallback {
-        pub account_shared_data: RefCell<HashMap<Pubkey, AccountSharedData>>,
+    pub(crate) struct MockBankCallback {
+        pub(crate) account_shared_data: RefCell<HashMap<Pubkey, AccountSharedData>>,
     }
 
     impl TransactionProcessingCallback for MockBankCallback {

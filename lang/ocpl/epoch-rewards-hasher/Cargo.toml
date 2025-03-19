@@ -1,0 +1,28 @@
+[package]
+name = "solana-epoch-rewards-hasher"
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[lib]
+name = "solana_epoch_rewards_hasher"
+path = "src/lib.rs"
+
+[dependencies]
+siphasher = { workspace = true }
+solana-hash = { workspace = true }
+solana-pubkey = { workspace = true }
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+priority = 0
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]

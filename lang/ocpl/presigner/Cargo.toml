@@ -1,0 +1,23 @@
+[package]
+name = "solana-presigner"
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[lib]
+name = "solana_presigner"
+path = "src/lib.rs"
+
+[dependencies]
+solana-pubkey = { workspace = true }
+solana-signature = { workspace = true, features = ["verify"] }
+solana-signer = { workspace = true }
+
+[dev-dependencies]
+solana-keypair = { workspace = true }

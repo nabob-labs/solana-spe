@@ -3,14 +3,14 @@ use {
         block_metadata_notifier_interface::BlockMetadataNotifier,
         geyser_plugin_manager::GeyserPluginManager,
     },
-    solana_geyser_plugin_interface::geyser_plugin_interface::{
+    agave_geyser_plugin_interface::geyser_plugin_interface::{
         ReplicaBlockInfoV4, ReplicaBlockInfoVersions,
     },
     log::*,
+    solana_clock::UnixTimestamp,
     solana_measure::measure::Measure,
     solana_metrics::*,
     solana_runtime::bank::KeyedRewardsAndNumPartitions,
-    solana_sdk::clock::UnixTimestamp,
     solana_transaction_status::{Reward, RewardsAndNumPartitions},
     std::sync::{Arc, RwLock},
 };

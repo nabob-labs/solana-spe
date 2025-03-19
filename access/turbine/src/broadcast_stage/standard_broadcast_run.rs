@@ -9,7 +9,7 @@ use {
     solana_entry::entry::Entry,
     solana_ledger::{
         blockstore,
-        shred::{shred_code, ProcessShredsStats, ReedSolomonCache, Shred, ShredFlags, Shredder},
+        shred::{shred_code, ProcessShredsStats, ReedSolomonCache, Shred, Shredder},
     },
     solana_sdk::{
         genesis_config::ClusterType, hash::Hash, signature::Keypair, timing::AtomicInterval,
@@ -79,11 +79,11 @@ impl StandardBroadcastRun {
         cluster_type: ClusterType,
         stats: &mut ProcessShredsStats,
     ) -> Vec<Shred> {
-        const SHRED_TICK_REFERENCE_MASK: u8 = ShredFlags::SHRED_TICK_REFERENCE_MASK.bits();
         if self.completed {
             return vec![];
         }
-        let reference_tick = max_ticks_in_slot & SHRED_TICK_REFERENCE_MASK;
+        // Set the reference_tick as if the PoH completed for this slot
+        let reference_tick = max_ticks_in_slot;
         let (mut shreds, coding_shreds) =
             Shredder::new(self.slot, self.parent, reference_tick, self.shred_version)
                 .unwrap()
@@ -268,7 +268,11 @@ impl StandardBroadcastRun {
 
         // 2) Convert entries to shreds and coding shreds
         let is_last_in_slot = last_tick_height == bank.max_tick_height();
-        let reference_tick = bank.tick_height() % bank.ticks_per_slot();
+        // Calculate how many ticks have already occurred in this slot, the
+        // possible range of values is [0, bank.ticks_per_slot()]
+        let reference_tick = last_tick_height
+            .saturating_add(bank.ticks_per_slot())
+            .saturating_sub(bank.max_tick_height());
         let (data_shreds, coding_shreds) = self
             .entries_to_shreds(
                 keypair,
@@ -294,7 +298,7 @@ impl StandardBroadcastRun {
             if shred.index() == 0 {
                 blockstore
                     .insert_shreds(
-                        vec![shred.clone()],
+                        [shred.clone()],
                         None, // leader_schedule
                         true, // is_trusted
                     )
@@ -524,6 +528,7 @@ mod test {
             blockstore::Blockstore, genesis_utils::create_genesis_config, get_tmp_ledger_path,
             shred::max_ticks_per_n_shreds,
         },
+        solana_net_utils::bind_to_unspecified,
         solana_runtime::bank::Bank,
         solana_sdk::{
             genesis_config::GenesisConfig,
@@ -559,7 +564,7 @@ mod test {
             leader_keypair.clone(),
             SocketAddrSpace::Unspecified,
         ));
-        let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
+        let socket = bind_to_unspecified().unwrap();
         let mut genesis_config = create_genesis_config(10_000).genesis_config;
         genesis_config.ticks_per_slot = max_ticks_per_n_shreds(num_shreds_per_slot, None) + 1;
 

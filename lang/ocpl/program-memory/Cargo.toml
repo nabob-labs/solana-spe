@@ -7,14 +7,23 @@ homepage.workspace = true
 license.workspace = true
 edition.workspace = true
 
-[dependencies]
-num-traits = { workspace = true }
-
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
+
+[lib]
+name = "solana_program_memory"
+path = "src/lib.rs"
+
+[dependencies.num-traits]
+version = "0.2"
 
 [target.'cfg(target_os = "solana")'.dependencies]
 solana-define-syscall = { workspace = true }
 
-[lints]
-workspace = true
+[lints.rust.unexpected_cfgs]
+level = "warn"
+priority = 0
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]

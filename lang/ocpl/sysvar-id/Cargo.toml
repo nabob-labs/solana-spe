@@ -7,13 +7,23 @@ homepage.workspace = true
 license.workspace = true
 edition.workspace = true
 
-[dependencies]
-solana-pubkey = { workspace = true, default-features = false }
-
 [package.metadata.docs.rs]
-targets = ["x86_64-unknown-linux-gnu"]
 all-features = true
 rustdoc-args = ["--cfg=docsrs"]
+targets = ["x86_64-unknown-linux-gnu"]
 
-[lints]
-workspace = true
+[lib]
+name = "solana_sysvar_id"
+path = "src/lib.rs"
+
+[dependencies]
+solana-pubkey = { workspace = true, default-features = false }
+solana-sdk-ids = { workspace = true }
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+priority = 0
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]

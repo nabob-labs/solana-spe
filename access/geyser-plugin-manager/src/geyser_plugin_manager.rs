@@ -1,5 +1,5 @@
 use {
-    solana_geyser_plugin_interface::geyser_plugin_interface::GeyserPlugin,
+    agave_geyser_plugin_interface::geyser_plugin_interface::GeyserPlugin,
     jsonrpc_core::{ErrorCode, Result as JsonRpcResult},
     libloading::Library,
     log::*,
@@ -79,6 +79,16 @@ impl GeyserPluginManager {
     pub fn account_data_notifications_enabled(&self) -> bool {
         for plugin in &self.plugins {
             if plugin.account_data_notifications_enabled() {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Check if there is any plugin interested in account data from snapshot
+    pub fn account_data_snapshot_notifications_enabled(&self) -> bool {
+        for plugin in &self.plugins {
+            if plugin.account_data_snapshot_notifications_enabled() {
                 return true;
             }
         }
@@ -440,7 +450,7 @@ mod tests {
         crate::geyser_plugin_manager::{
             GeyserPluginManager, LoadedGeyserPlugin, TESTPLUGIN2_CONFIG, TESTPLUGIN_CONFIG,
         },
-        solana_geyser_plugin_interface::geyser_plugin_interface::GeyserPlugin,
+        agave_geyser_plugin_interface::geyser_plugin_interface::GeyserPlugin,
         libloading::Library,
         std::sync::{Arc, RwLock},
     };

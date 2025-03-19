@@ -1,0 +1,32 @@
+[package]
+name = "solana-rent-debits"
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[lib]
+name = "solana_rent_debits"
+path = "src/lib.rs"
+
+[dependencies]
+solana-pubkey = { workspace = true }
+solana-reward-info = { workspace = true }
+
+[features]
+dev-context-only-utils = []
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+priority = 0
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]

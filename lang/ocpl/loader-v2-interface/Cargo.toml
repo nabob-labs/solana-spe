@@ -1,0 +1,44 @@
+[package]
+name = "solana-loader-v2-interface"
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[lib]
+name = "solana_loader_v2_interface"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true, optional = true }
+serde_bytes = { workspace = true, optional = true }
+serde_derive = { workspace = true, optional = true }
+solana-instruction = { workspace = true, features = ["bincode", "std"], optional = true }
+solana-pubkey = { workspace = true }
+solana-sdk-ids = { workspace = true }
+
+[features]
+bincode = [
+    "dep:solana-instruction",
+    "serde",
+]
+serde = [
+    "dep:serde",
+    "dep:serde_bytes",
+    "dep:serde_derive",
+]
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+priority = 0
+check-cfg = [
+    'cfg(target_os, values("solana"))',
+    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+]

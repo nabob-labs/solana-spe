@@ -2,7 +2,7 @@ use {
     crate::{
         blockstore::Blockstore,
         blockstore_processor::{
-            self, BlockstoreProcessorError, CacheBlockMetaSender, ProcessOptions,
+            self, BlockMetaSender, BlockstoreProcessorError, ProcessOptions,
             TransactionStatusSender,
         },
         entry_notifier_service::EntryNotifierSender,
@@ -83,7 +83,7 @@ pub fn load(
     snapshot_config: Option<&SnapshotConfig>,
     process_options: ProcessOptions,
     transaction_status_sender: Option<&TransactionStatusSender>,
-    cache_block_meta_sender: Option<&CacheBlockMetaSender>,
+    block_meta_sender: Option<&BlockMetaSender>,
     entry_notification_sender: Option<&EntryNotifierSender>,
     accounts_update_notifier: Option<AccountsUpdateNotifier>,
     exit: Arc<AtomicBool>,
@@ -94,7 +94,7 @@ pub fn load(
         account_paths,
         snapshot_config,
         &process_options,
-        cache_block_meta_sender,
+        block_meta_sender,
         entry_notification_sender,
         accounts_update_notifier,
         exit,
@@ -105,7 +105,7 @@ pub fn load(
         &leader_schedule_cache,
         &process_options,
         transaction_status_sender,
-        cache_block_meta_sender,
+        block_meta_sender,
         entry_notification_sender,
         &AbsRequestSender::default(),
     )
@@ -121,7 +121,7 @@ pub fn load_bank_forks(
     account_paths: Vec<PathBuf>,
     snapshot_config: Option<&SnapshotConfig>,
     process_options: &ProcessOptions,
-    cache_block_meta_sender: Option<&CacheBlockMetaSender>,
+    block_meta_sender: Option<&BlockMetaSender>,
     entry_notification_sender: Option<&EntryNotifierSender>,
     accounts_update_notifier: Option<AccountsUpdateNotifier>,
     exit: Arc<AtomicBool>,
@@ -191,7 +191,7 @@ pub fn load_bank_forks(
                 blockstore,
                 account_paths,
                 process_options,
-                cache_block_meta_sender,
+                block_meta_sender,
                 entry_notification_sender,
                 accounts_update_notifier,
                 exit,
@@ -335,7 +335,8 @@ fn bank_forks_from_snapshot(
     // We must inform accounts-db of the latest full snapshot slot, which is used by the background
     // processes to handle zero lamport accounts.  Since we've now successfully loaded the bank
     // from snapshots, this is a good time to do that update.
-    // Note, this must only be set if we should generate snapshots.
+    // Note, this must only be set if we should generate snapshots, so that we correctly
+    // handle (i.e. purge) zero lamport accounts.
     if snapshot_config.should_generate_snapshots() {
         bank.rc
             .accounts

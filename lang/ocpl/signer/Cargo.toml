@@ -1,0 +1,22 @@
+[package]
+name = "solana-signer"
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+license.workspace = true
+edition.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[lib]
+name = "solana_signer"
+path = "src/lib.rs"
+
+[dependencies]
+solana-pubkey = { workspace = true }
+solana-signature = { workspace = true }
+solana-transaction-error = { workspace = true }
