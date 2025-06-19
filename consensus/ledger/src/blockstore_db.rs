@@ -659,10 +659,22 @@ where
     }
 
     #[cfg(test)]
-    pub fn compact_range_raw_key(&self, from: &[u8], to: &[u8]) {
-        self.backend
-            .db
-            .compact_range_cf(self.handle(), Some(from), Some(to));
+    // The validator performs compactions asynchronously, this method is
+    // provided to force a synchronous compaction to test our compaction filter
+    pub fn compact(&self) {
+        // compact_range_cf() optionally takes a start and end key to limit
+        // compaction. Providing values will result in a different method
+        // getting called in the rocksdb code, even if the specified keys span
+        // the entire key range of the column
+        //
+        // Internally, rocksdb will do some checks to figure out if it should
+        // run a compaction. Empirically, it has been found that passing the
+        // keys leads to more variability in whether rocksdb runs a compaction
+        // or not. For the sake of our unit tests, we want the compaction to
+        // run everytime. So, set the keys as None which will result in rocksdb
+        // using the heavier method to determine if a compaction should run
+        let (start, end) = (None::<&[u8]>, None::<&[u8]>);
+        self.backend.db.compact_range_cf(self.handle(), start, end);
     }
 
     #[inline]
@@ -1143,24 +1155,18 @@ fn get_db_options(blockstore_options: &BlockstoreOptions) -> Options {
     // pool is used for compactions whereas the high priority pool is used for
     // memtable flushes. Separate pools are created so that compactions are
     // unable to stall memtable flushes (which could stall memtable writes).
-    let mut env = rocksdb::Env::new().unwrap();
-    env.set_low_priority_background_threads(
-        blockstore_options.num_rocksdb_compaction_threads.get() as i32,
-    );
-    env.set_high_priority_background_threads(
-        blockstore_options.num_rocksdb_flush_threads.get() as i32
-    );
-    options.set_env(&env);
-    // rocksdb will try to scale threadpool sizes automatically based on the
-    // value set for max_background_jobs. The automatic scaling can increase,
-    // but not decrease the number of threads in each pool. But, we already
-    // set desired threadpool sizes with set_low_priority_background_threads()
-    // and set_high_priority_background_threads(). So, set max_background_jobs
-    // to a small number (2) so that rocksdb will leave the previously
-    // configured threadpool sizes as-is. The value (2) would result in one
-    // low priority and one high priority thread which is the minimum for each.
-    options.set_max_background_jobs(2);
-
+    //
+    // For now, use the deprecated methods to configure the exact amount of
+    // threads for each pool. The new method, set_max_background_jobs(N),
+    // configures N/4 low priority threads and 3N/4 high priority threads.
+    #[allow(deprecated)]
+    {
+        options.set_max_background_compactions(
+            blockstore_options.num_rocksdb_compaction_threads.get() as i32,
+        );
+        options
+            .set_max_background_flushes(blockstore_options.num_rocksdb_flush_threads.get() as i32);
+    }
     // Set max total wal size to 4G.
     options.set_max_total_wal_size(4 * 1024 * 1024 * 1024);
 
@@ -1384,23 +1390,6 @@ pub mod tests {
             let serialized_value = C::serialize(value)?;
             self.backend
                 .put_cf(self.handle(), C::deprecated_key(index), &serialized_value)
-        }
-    }
-
-    impl<C> LedgerColumn<C>
-    where
-        C: ColumnIndexDeprecation + ColumnName,
-    {
-        pub(crate) fn iterator_cf_raw_key(
-            &self,
-            iterator_mode: IteratorMode<C::Index>,
-        ) -> impl Iterator<Item = (C::Key, Box<[u8]>)> + '_ {
-            // The conversion of key back into Box<[u8]> incurs an extra
-            // allocation. However, this is test code and the goal is to
-            // maximize code reuse over efficiency
-            self.iter(iterator_mode)
-                .unwrap()
-                .map(|(key, value)| (C::key(&key), value))
         }
     }
 }

@@ -1,11 +1,13 @@
 [package]
 name = "solana-accounts-db"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana accounts db"
+documentation = "https://docs.rs/solana-acounts-db"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 ahash = { workspace = true }
@@ -53,6 +55,7 @@ solana-rayon-threadlimit = { workspace = true }
 solana-sdk = { workspace = true }
 solana-stake-program = { workspace = true, optional = true }
 solana-svm-transaction = { workspace = true }
+solana-transaction-context = { workspace = true }
 solana-vote-program = { workspace = true, optional = true }
 static_assertions = { workspace = true }
 tar = { workspace = true }
@@ -96,6 +99,26 @@ frozen-abi = [
     "solana-sdk/frozen-abi",
     "solana-vote-program/frozen-abi",
 ]
+
+[[bench]]
+name = "bench_accounts_file"
+harness = false
+
+[[bench]]
+name = "bench_hashing"
+harness = false
+
+[[bench]]
+name = "read_only_accounts_cache"
+harness = false
+
+[[bench]]
+name = "bench_serde"
+harness = false
+
+[[bench]]
+name = "bench_lock_accounts"
+harness = false
 
 [lints]
 workspace = true

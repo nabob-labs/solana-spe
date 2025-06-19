@@ -1,20 +1,13 @@
 [package]
 name = "solana-reserved-account-keys"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg=docsrs"]
-targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "solana_reserved_account_keys"
-path = "src/lib.rs"
+description = "Reserved Solana account keys"
+documentation = "https://docs.rs/solana-reserved-account-keys"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 lazy_static = { workspace = true }
@@ -33,15 +26,12 @@ solana-message = { workspace = true }
 solana-sysvar = { workspace = true }
 
 [features]
-frozen-abi = [
-    "dep:solana-frozen-abi",
-    "dep:solana-frozen-abi-macro",
-]
+frozen-abi = ["dep:solana-frozen-abi", "dep:solana-frozen-abi-macro"]
 
-[lints.rust.unexpected_cfgs]
-level = "warn"
-priority = 0
-check-cfg = [
-    'cfg(target_os, values("solana"))',
-    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
-]
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]
+
+[lints]
+workspace = true

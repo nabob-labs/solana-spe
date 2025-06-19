@@ -1,31 +1,16 @@
 [package]
 name = "solana-program"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg=docsrs"]
-targets = [
-    "x86_64-unknown-linux-gnu",
-    "wasm32-unknown-unknown",
-]
-
-[lib]
-name = "solana_program"
-crate-type = [
-    "cdylib",
-    "rlib",
-]
-path = "src/lib.rs"
-
-[[test]]
-name = "test_pubkey_export"
-path = "tests/test_pubkey_export.rs"
+description = "Solana Program"
+documentation = "https://docs.rs/solana-program"
+readme = "README.md"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+rust-version = "1.79.0"                          # solana platform-tools rust version
+include = ["src/**/*", "README.md"]
 
 [dependencies]
 bincode = { workspace = true }
@@ -136,7 +121,16 @@ serde_json = { workspace = true }
 solana-pubkey = { workspace = true, features = ["dev-context-only-utils"] }
 solana-sysvar = { workspace = true, features = ["dev-context-only-utils"] }
 
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [features]
+default = ["borsh"]
 borsh = [
     "dep:borsh",
     "dep:borsh0-10",
@@ -147,7 +141,6 @@ borsh = [
     "solana-pubkey/borsh",
     "solana-stake-interface/borsh",
 ]
-default = ["borsh"]
 dev-context-only-utils = []
 frozen-abi = [
     "dep:solana-frozen-abi",
@@ -162,13 +155,8 @@ frozen-abi = [
     "solana-rent/frozen-abi",
     "solana-short-vec/frozen-abi",
     "solana-stake-interface/frozen-abi",
-    "solana-sysvar/frozen-abi",
+    "solana-sysvar/frozen-abi"
 ]
 
-[lints.rust.unexpected_cfgs]
-level = "warn"
-priority = 0
-check-cfg = [
-    'cfg(target_os, values("solana"))',
-    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
-]
+[lints]
+workspace = true

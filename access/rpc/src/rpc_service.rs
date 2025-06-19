@@ -27,32 +27,85 @@ use {
     solana_perf::thread::renice_this_thread,
     solana_poh::poh_recorder::PohRecorder,
     solana_runtime::{
-        bank_forks::BankForks, commitment::BlockCommitmentCache,
+        bank::Bank, bank_forks::BankForks, commitment::BlockCommitmentCache,
+        non_circulating_supply::calculate_non_circulating_supply,
         prioritization_fee_cache::PrioritizationFeeCache,
-        snapshot_archive_info::SnapshotArchiveInfoGetter, snapshot_config::SnapshotConfig,
+        snapshot_archive_info::SnapshotArchiveInfoGetter,
+        snapshot_bank_utils::DISABLED_SNAPSHOT_ARCHIVE_INTERVAL, snapshot_config::SnapshotConfig,
         snapshot_utils,
     },
     solana_sdk::{
         exit::Exit, genesis_config::DEFAULT_GENESIS_DOWNLOAD_PATH, hash::Hash,
         native_token::lamports_to_sol,
     },
-    solana_send_transaction_service::send_transaction_service::{self, SendTransactionService},
+    solana_send_transaction_service::{
+        send_transaction_service::{self, SendTransactionService},
+        transaction_client::ConnectionCacheClient,
+    },
     solana_storage_bigtable::CredentialType,
     std::{
         net::SocketAddr,
         path::{Path, PathBuf},
+        pin::Pin,
         sync::{
             atomic::{AtomicBool, AtomicU64, Ordering},
             Arc, RwLock,
         },
+        task::{Context, Poll},
         thread::{self, Builder, JoinHandle},
+        time::{Duration, Instant},
     },
-    tokio_util::codec::{BytesCodec, FramedRead},
+    tokio_util::{
+        bytes::Bytes,
+        codec::{BytesCodec, FramedRead},
+    },
 };
 
 const FULL_SNAPSHOT_REQUEST_PATH: &str = "/snapshot.tar.bz2";
 const INCREMENTAL_SNAPSHOT_REQUEST_PATH: &str = "/incremental-snapshot.tar.bz2";
 const LARGEST_ACCOUNTS_CACHE_DURATION: u64 = 60 * 60 * 2;
+/// Default minimum snapshot download speed is 10 MB/s
+/// Full snapshots are ~90 GB, incremental are ~1 GB today but both will increase over time
+/// Full: 120 GB / 10 MB/s = 12,000 seconds -> ~30k slots
+const FALLBACK_FULL_SNAPSHOT_TIMEOUT_SECS: Duration = Duration::from_secs(12_000);
+/// Incremental: 2.5 GB / 10 MB/s = 250 seconds -> ~625 slots
+const FALLBACK_INCREMENTAL_SNAPSHOT_TIMEOUT_SECS: Duration = Duration::from_secs(250);
+
+enum SnapshotKind {
+    Full,
+    Incremental,
+}
+
+struct TimeoutStream<S> {
+    inner: S,
+    deadline: Instant,
+}
+
+impl<S> TimeoutStream<S> {
+    fn new(inner: S, timeout: Duration) -> Self {
+        Self {
+            inner,
+            deadline: Instant::now() + timeout,
+        }
+    }
+}
+
+impl<S> Stream for TimeoutStream<S>
+where
+    S: Stream<Item = std::io::Result<Bytes>> + Unpin,
+{
+    type Item = std::io::Result<Bytes>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        if Instant::now() >= self.deadline {
+            return Poll::Ready(Some(Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "snapshot transfer deadline exceeded",
+            ))));
+        }
+        Pin::new(&mut self.inner).poll_next(cx)
+    }
+}
 
 pub struct JsonRpcService {
     thread_hdl: JoinHandle<()>,
@@ -155,14 +208,14 @@ impl RpcRequestMiddleware {
         tokio::fs::File::open(path).await
     }
 
-    fn find_snapshot_file<P>(&self, stem: P) -> PathBuf
+    fn find_snapshot_file<P>(&self, stem: P) -> (PathBuf, SnapshotKind)
     where
         P: AsRef<Path>,
     {
-        let root = if self
+        let is_full = self
             .full_snapshot_archive_path_regex
-            .is_match(Path::new("").join(&stem).to_str().unwrap())
-        {
+            .is_match(Path::new("").join(&stem).to_str().unwrap());
+        let root = if is_full {
             &self
                 .snapshot_config
                 .as_ref()
@@ -176,37 +229,73 @@ impl RpcRequestMiddleware {
                 .incremental_snapshot_archives_dir
         };
         let local_path = root.join(&stem);
-        if local_path.exists() {
+        let path = if local_path.exists() {
             local_path
         } else {
             // remote snapshot archive path
             snapshot_utils::build_snapshot_archives_remote_dir(root).join(stem)
-        }
+        };
+        (
+            path,
+            if is_full {
+                SnapshotKind::Full
+            } else {
+                SnapshotKind::Incremental
+            },
+        )
     }
 
     fn process_file_get(&self, path: &str) -> RequestMiddlewareAction {
-        let filename = {
+        let (filename, snapshot_type) = {
             let stem = Self::strip_leading_slash(path).expect("path already verified");
             match path {
                 DEFAULT_GENESIS_DOWNLOAD_PATH => {
                     inc_new_counter_info!("rpc-get_genesis", 1);
-                    self.ledger_path.join(stem)
+                    (self.ledger_path.join(stem), None)
                 }
                 _ => {
                     inc_new_counter_info!("rpc-get_snapshot", 1);
-                    self.find_snapshot_file(stem)
+                    let (path, snapshot_type) = self.find_snapshot_file(stem);
+                    (path, Some(snapshot_type))
                 }
             }
         };
-
         let file_length = std::fs::metadata(&filename)
             .map(|m| m.len())
             .unwrap_or(0)
             .to_string();
         info!("get {} -> {:?} ({} bytes)", path, filename, file_length);
+
+        if cfg!(not(test)) {
+            assert!(
+                self.snapshot_config.is_some(),
+                "snapshot_config should never be None outside of tests"
+            );
+        }
+        let snapshot_timeout = self.snapshot_config.as_ref().and_then(|config| {
+            snapshot_type.map(|st| {
+                let slots = match st {
+                    SnapshotKind::Full => config.full_snapshot_archive_interval_slots,
+                    SnapshotKind::Incremental => config.incremental_snapshot_archive_interval_slots,
+                };
+                let computed = if slots == DISABLED_SNAPSHOT_ARCHIVE_INTERVAL {
+                    Duration::ZERO
+                } else {
+                    Duration::from_millis(
+                        slots.saturating_mul(solana_sdk::clock::DEFAULT_MS_PER_SLOT),
+                    )
+                };
+                let fallback = match st {
+                    SnapshotKind::Full => FALLBACK_FULL_SNAPSHOT_TIMEOUT_SECS,
+                    SnapshotKind::Incremental => FALLBACK_INCREMENTAL_SNAPSHOT_TIMEOUT_SECS,
+                };
+                std::cmp::max(computed, fallback)
+            })
+        });
+
         RequestMiddlewareAction::Respond {
             should_validate_hosts: true,
-            response: Box::pin(async {
+            response: Box::pin(async move {
                 match Self::open_no_follow(filename).await {
                     Err(err) => Ok(if err.kind() == std::io::ErrorKind::NotFound {
                         Self::not_found()
@@ -216,8 +305,11 @@ impl RpcRequestMiddleware {
                     Ok(file) => {
                         let stream =
                             FramedRead::new(file, BytesCodec::new()).map_ok(|b| b.freeze());
-                        let body = hyper::Body::wrap_stream(stream);
-
+                        let body = if let Some(timeout) = snapshot_timeout {
+                            hyper::Body::wrap_stream(TimeoutStream::new(stream, timeout))
+                        } else {
+                            hyper::Body::wrap_stream(stream)
+                        };
                         Ok(hyper::Response::builder()
                             .header(hyper::header::CONTENT_LENGTH, file_length)
                             .body(body)
@@ -287,12 +379,8 @@ impl RequestMiddleware for RpcRequestMiddleware {
             }
         }
 
-        if let Some(result) = process_rest(&self.bank_forks, request.uri().path()) {
-            hyper::Response::builder()
-                .status(hyper::StatusCode::OK)
-                .body(hyper::Body::from(result))
-                .unwrap()
-                .into()
+        if let Some(path) = match_supply_path(request.uri().path()) {
+            process_rest(&self.bank_forks, path)
         } else if self.is_file_get_path(request.uri().path()) {
             self.process_file_get(request.uri().path())
         } else if request.uri().path() == "/health" {
@@ -307,19 +395,39 @@ impl RequestMiddleware for RpcRequestMiddleware {
     }
 }
 
-fn process_rest(bank_forks: &Arc<RwLock<BankForks>>, path: &str) -> Option<String> {
+fn match_supply_path(path: &str) -> Option<&str> {
+    match path {
+        "/v0/circulating-supply" | "/v0/total-supply" => Some(path),
+        _ => None,
+    }
+}
+
+#[derive(Debug)]
+pub enum SupplyCalcError {
+    Scan(String),
+}
+
+async fn calculate_circulating_supply_async(bank: &Arc<Bank>) -> Result<u64, SupplyCalcError> {
+    let total_supply = bank.capitalization();
+    let bank = Arc::clone(bank);
+    let non_circulating_supply =
+        tokio::task::spawn_blocking(move || calculate_non_circulating_supply(&bank))
+            .await
+            .expect("Failed to spawn blocking task")
+            .map_err(|e| SupplyCalcError::Scan(e.to_string()))?;
+
+    Ok(total_supply.saturating_sub(non_circulating_supply.lamports))
+}
+
+async fn handle_rest(bank_forks: &Arc<RwLock<BankForks>>, path: &str) -> Option<String> {
     match path {
         "/v0/circulating-supply" => {
             let bank = bank_forks.read().unwrap().root_bank();
-            let total_supply = bank.capitalization();
-            let non_circulating_supply =
-                solana_runtime::non_circulating_supply::calculate_non_circulating_supply(&bank)
-                    .expect("Scan should not error on root banks")
-                    .lamports;
-            Some(format!(
-                "{}",
-                lamports_to_sol(total_supply - non_circulating_supply)
-            ))
+            let supply_result = calculate_circulating_supply_async(&bank).await;
+            match supply_result {
+                Ok(supply) => Some(format!("{}", lamports_to_sol(supply))),
+                Err(_) => None,
+            }
         }
         "/v0/total-supply" => {
             let bank = bank_forks.read().unwrap().root_bank();
@@ -327,6 +435,25 @@ fn process_rest(bank_forks: &Arc<RwLock<BankForks>>, path: &str) -> Option<Strin
             Some(format!("{}", lamports_to_sol(total_supply)))
         }
         _ => None,
+    }
+}
+
+fn process_rest(bank_forks: &Arc<RwLock<BankForks>>, path: &str) -> RequestMiddlewareAction {
+    let bank_forks = bank_forks.clone();
+    let path = path.to_string();
+
+    RequestMiddlewareAction::Respond {
+        should_validate_hosts: true,
+        response: Box::pin(async move {
+            let result = handle_rest(&bank_forks, path.as_str()).await;
+            match result {
+                Some(s) => Ok(hyper::Response::builder()
+                    .status(hyper::StatusCode::OK)
+                    .body(hyper::Body::from(s))
+                    .unwrap()),
+                None => Ok(RpcRequestMiddleware::not_found()),
+            }
+        }),
     }
 }
 
@@ -467,12 +594,17 @@ impl JsonRpcService {
 
         let leader_info =
             poh_recorder.map(|recorder| ClusterTpuInfo::new(cluster_info.clone(), recorder));
-        let _send_transaction_service = Arc::new(SendTransactionService::new_with_config(
+        let client = ConnectionCacheClient::new(
+            connection_cache,
             tpu_address,
-            &bank_forks,
+            send_transaction_service_config.tpu_peers.clone(),
             leader_info,
+            send_transaction_service_config.leader_forward_count,
+        );
+        let _send_transaction_service = Arc::new(SendTransactionService::new_with_client(
+            &bank_forks,
             receiver,
-            &connection_cache,
+            client,
             send_transaction_service_config,
             exit,
         ));
@@ -706,12 +838,25 @@ mod tests {
     #[test]
     fn test_process_rest_api() {
         let bank_forks = create_bank_forks();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
 
-        assert_eq!(None, process_rest(&bank_forks, "not-a-supported-rest-api"));
-        assert_eq!(
-            process_rest(&bank_forks, "/v0/circulating-supply"),
-            process_rest(&bank_forks, "/v0/total-supply")
-        );
+        runtime.block_on(async {
+            assert_eq!(
+                None,
+                handle_rest(&bank_forks, "not-a-supported-rest-api").await
+            );
+
+            let circulating_supply = handle_rest(&bank_forks, "/v0/circulating-supply").await;
+            assert!(circulating_supply.is_some());
+
+            let total_supply = handle_rest(&bank_forks, "/v0/total-supply").await;
+            assert!(total_supply.is_some());
+
+            assert_eq!(
+                handle_rest(&bank_forks, "/v0/circulating-supply").await,
+                handle_rest(&bank_forks, "/v0/total-supply").await
+            );
+        });
     }
 
     #[test]

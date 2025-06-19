@@ -1,23 +1,18 @@
 [package]
 name = "solana-hash"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana wrapper for the 32-byte output of a hashing algorithm."
+documentation = "https://docs.rs/solana-hash"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 all-features = true
 rustdoc-args = ["--cfg=docsrs"]
-targets = [
-    "x86_64-unknown-linux-gnu",
-    "wasm32-unknown-unknown",
-]
-
-[lib]
-name = "solana_hash"
-path = "src/lib.rs"
 
 [dependencies]
 borsh = { workspace = true, optional = true }
@@ -36,37 +31,24 @@ solana-frozen-abi-macro = { workspace = true, optional = true, features = [
 solana-sanitize = { workspace = true }
 
 [dev-dependencies]
-
-[features]
-borsh = [
-    "dep:borsh",
-    "std",
-]
-bytemuck = [
-    "dep:bytemuck",
-    "dep:bytemuck_derive",
-]
-default = ["std"]
-dev-context-only-utils = ["bs58/alloc"]
-frozen-abi = [
-    "dep:solana-frozen-abi",
-    "dep:solana-frozen-abi-macro",
-    "std",
-]
-serde = [
-    "dep:serde",
-    "dep:serde_derive",
-]
-std = []
+solana-hash = { path = ".", features = ["dev-context-only-utils"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = { workspace = true }
 wasm-bindgen = { workspace = true }
 
-[lints.rust.unexpected_cfgs]
-level = "warn"
-priority = 0
-check-cfg = [
-    'cfg(target_os, values("solana"))',
-    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+[features]
+borsh = ["dep:borsh", "std"]
+bytemuck = ["dep:bytemuck", "dep:bytemuck_derive"]
+default = ["std"]
+dev-context-only-utils = ["bs58/alloc"]
+frozen-abi = [
+    "dep:solana-frozen-abi",
+    "dep:solana-frozen-abi-macro",
+    "std"
 ]
+serde = ["dep:serde", "dep:serde_derive"]
+std = []
+
+[lints]
+workspace = true

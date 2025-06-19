@@ -1,33 +1,23 @@
 [package]
 name = "solana-epoch-info"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-
-[package.metadata.docs.rs]
-targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "solana_epoch_info"
-path = "src/lib.rs"
+description = "Information about a Solana epoch."
+documentation = "https://docs.rs/solana-epoch-info"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 serde = { workspace = true, optional = true }
 serde_derive = { workspace = true, optional = true }
 
 [features]
-serde = [
-    "dep:serde",
-    "dep:serde_derive",
-]
+serde = ["dep:serde", "dep:serde_derive"]
 
-[lints.rust.unexpected_cfgs]
-level = "warn"
-priority = 0
-check-cfg = [
-    'cfg(target_os, values("solana"))',
-    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
-]
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[lints]
+workspace = true

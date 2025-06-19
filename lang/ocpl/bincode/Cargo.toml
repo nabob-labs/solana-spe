@@ -1,18 +1,13 @@
 [package]
 name = "solana-bincode"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-
-[package.metadata.docs.rs]
-targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "solana_bincode"
-path = "src/lib.rs"
+description = "Solana bincode utilities"
+documentation = "https://docs.rs/solana-bincode"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 bincode = { workspace = true }
@@ -22,12 +17,10 @@ solana-instruction = { workspace = true, default-features = false, features = [
 ] }
 
 [dev-dependencies]
-#solana-system-interface = { workspace = true, features = ["bincode"] }
+solana-system-interface = { workspace = true, features = ["bincode"] }
 
-[lints.rust.unexpected_cfgs]
-level = "warn"
-priority = 0
-check-cfg = [
-    'cfg(target_os, values("solana"))',
-    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
-]
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[lints]
+workspace = true

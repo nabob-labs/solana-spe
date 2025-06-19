@@ -6,12 +6,13 @@
 )]
 pub use solana_sdk_ids::stake::{check_id, id};
 use {
-    solana_feature_set::{self as feature_set, FeatureSet},
+    agave_feature_set::{self as feature_set, FeatureSet},
     solana_genesis_config::GenesisConfig,
     solana_native_token::LAMPORTS_PER_SOL,
 };
 
 pub mod config;
+pub mod epoch_rewards;
 pub mod points;
 #[doc(hidden)]
 pub mod rewards;
@@ -19,7 +20,9 @@ pub mod stake_instruction;
 pub mod stake_state;
 
 pub fn add_genesis_accounts(genesis_config: &mut GenesisConfig) -> u64 {
-    config::add_genesis_account(genesis_config)
+    let config_lamports = config::add_genesis_account(genesis_config);
+    let rewards_lamports = epoch_rewards::add_genesis_account(genesis_config);
+    config_lamports.saturating_add(rewards_lamports)
 }
 
 /// The minimum stake amount that can be delegated, in lamports.

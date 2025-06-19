@@ -1,20 +1,13 @@
 [package]
 name = "solana-precompiles"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg=docsrs"]
-targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "solana_precompiles"
-path = "src/lib.rs"
+description = "Solana precompiled programs."
+documentation = "https://docs.rs/solana-precompiles"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 lazy_static = { workspace = true }
@@ -28,12 +21,13 @@ solana-secp256k1-program = { workspace = true, features = ["bincode"] }
 solana-secp256r1-program = { workspace = true, default-features = false }
 
 [features]
+# Enables the "vendored" feature of openssl inside of secp256r1-program
 openssl-vendored = ["solana-secp256r1-program/openssl-vendored"]
 
-[lints.rust.unexpected_cfgs]
-level = "warn"
-priority = 0
-check-cfg = [
-    'cfg(target_os, values("solana"))',
-    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
-]
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]
+
+[lints]
+workspace = true

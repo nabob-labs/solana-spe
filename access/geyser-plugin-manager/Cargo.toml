@@ -1,11 +1,13 @@
 [package]
 name = "solana-geyser-plugin-manager"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "The Solana Geyser plugin manager."
+documentation = "https://docs.rs/solana-geyser-plugin-manager"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 agave-geyser-plugin-interface = { workspace = true }

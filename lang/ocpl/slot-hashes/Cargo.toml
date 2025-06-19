@@ -1,18 +1,13 @@
 [package]
 name = "solana-slot-hashes"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-
-[package.metadata.docs.rs]
-targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "solana_slot_hashes"
-path = "src/lib.rs"
+description = "Types and utilities for the Solana SlotHashes sysvar."
+documentation = "https://docs.rs/solana-slot-hashes"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 serde = { workspace = true, optional = true }
@@ -25,12 +20,8 @@ solana-sysvar-id = { workspace = true, optional = true }
 solana-sha256-hasher = { workspace = true }
 
 [features]
-serde = [
-    "dep:serde",
-    "dep:serde_derive",
-    "solana-hash/serde",
-]
-sysvar = [
-    "dep:solana-sdk-ids",
-    "dep:solana-sysvar-id",
-]
+serde = ["dep:serde", "dep:serde_derive", "solana-hash/serde"]
+sysvar = ["dep:solana-sdk-ids", "dep:solana-sysvar-id"]
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]

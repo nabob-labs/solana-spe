@@ -1,20 +1,13 @@
 [package]
 name = "solana-loader-v2-interface"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg=docsrs"]
-targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "solana_loader_v2_interface"
-path = "src/lib.rs"
+description = "Solana non-upgradable BPF loader v2 instructions."
+documentation = "https://docs.rs/solana-loader-v2-interface"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 serde = { workspace = true, optional = true }
@@ -25,20 +18,13 @@ solana-pubkey = { workspace = true }
 solana-sdk-ids = { workspace = true }
 
 [features]
-bincode = [
-    "dep:solana-instruction",
-    "serde",
-]
-serde = [
-    "dep:serde",
-    "dep:serde_bytes",
-    "dep:serde_derive",
-]
+bincode = ["dep:solana-instruction", "serde"]
+serde = ["dep:serde", "dep:serde_bytes", "dep:serde_derive"]
 
-[lints.rust.unexpected_cfgs]
-level = "warn"
-priority = 0
-check-cfg = [
-    'cfg(target_os, values("solana"))',
-    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
-]
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]
+
+[lints]
+workspace = true

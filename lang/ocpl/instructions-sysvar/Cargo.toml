@@ -1,20 +1,13 @@
 [package]
 name = "solana-instructions-sysvar"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg=docsrs"]
-targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "solana_instructions_sysvar"
-path = "src/lib.rs"
+description = "Type for instruction introspection during execution of Solana programs."
+documentation = "https://docs.rs/solana-instructions-sysvar"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 qualifier_attr = { workspace = true, optional = true }
@@ -33,10 +26,10 @@ bitflags = { workspace = true }
 [features]
 dev-context-only-utils = ["dep:qualifier_attr"]
 
-[lints.rust.unexpected_cfgs]
-level = "warn"
-priority = 0
-check-cfg = [
-    'cfg(target_os, values("solana"))',
-    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
-]
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]
+
+[lints]
+workspace = true

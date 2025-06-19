@@ -3,9 +3,9 @@
 #[cfg(feature = "svm-internal")]
 use qualifier_attr::qualifiers;
 use {
+    agave_feature_set::{self as feature_set, FeatureSet},
     ahash::AHashMap,
     lazy_static::lazy_static,
-    solana_feature_set::{self as feature_set, FeatureSet},
     solana_pubkey::Pubkey,
     solana_sdk_ids::{
         address_lookup_table, bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable,
@@ -57,9 +57,9 @@ impl BuiltinCost {
     fn core_bpf_migration_feature(&self) -> Option<&Pubkey> {
         match self {
             BuiltinCost::Migrating(MigratingBuiltinCost {
-                                       core_bpf_migration_feature,
-                                       ..
-                                   }) => Some(core_bpf_migration_feature),
+                core_bpf_migration_feature,
+                ..
+            }) => Some(core_bpf_migration_feature),
             BuiltinCost::NotMigrating(_) => None,
         }
     }
@@ -75,9 +75,9 @@ impl BuiltinCost {
     fn has_migrated(&self, feature_set: &FeatureSet) -> bool {
         match self {
             BuiltinCost::Migrating(MigratingBuiltinCost {
-                                       core_bpf_migration_feature,
-                                       ..
-                                   }) => feature_set.is_active(core_bpf_migration_feature),
+                core_bpf_migration_feature,
+                ..
+            }) => feature_set.is_active(core_bpf_migration_feature),
             BuiltinCost::NotMigrating(_) => false,
         }
     }
@@ -139,7 +139,7 @@ const MIGRATING_BUILTINS_COSTS: &[(Pubkey, BuiltinCost)] = &[
         BuiltinCost::Migrating(MigratingBuiltinCost {
             native_cost: solana_address_lookup_table_program::processor::DEFAULT_COMPUTE_UNITS,
             core_bpf_migration_feature:
-            feature_set::migrate_address_lookup_table_program_to_core_bpf::id(),
+                feature_set::migrate_address_lookup_table_program_to_core_bpf::id(),
             position: 2,
         }),
     ),

@@ -1,18 +1,13 @@
 [package]
 name = "solana-ed25519-program"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-
-[package.metadata.docs.rs]
-targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "solana_ed25519_program"
-path = "src/lib.rs"
+description = "Instructions for the Solana ed25519 native program"
+documentation = "https://docs.rs/solana-ed25519-program"
+version = "2.2.2"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 bytemuck = { workspace = true }
@@ -29,13 +24,11 @@ rand0-7 = { workspace = true }
 solana-hash = { workspace = true }
 solana-keypair = { workspace = true }
 solana-logger = { workspace = true }
-#solana-sdk = { path = "../../sdk" }
+solana-sdk = { path = "../../sdk" }
 solana-signer = { workspace = true }
 
-[lints.rust.unexpected_cfgs]
-level = "warn"
-priority = 0
-check-cfg = [
-    'cfg(target_os, values("solana"))',
-    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
-]
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[lints]
+workspace = true

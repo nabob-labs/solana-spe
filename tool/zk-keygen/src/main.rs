@@ -376,7 +376,7 @@ mod tests {
             &outfile_path,
             "--no-bip39-passphrase",
         ])
-            .unwrap();
+        .unwrap();
 
         // refuse to overwrite file
         let result = process_test_command(&[
@@ -387,8 +387,8 @@ mod tests {
             &outfile_path,
             "--no-bip39-passphrase",
         ])
-            .unwrap_err()
-            .to_string();
+        .unwrap_err()
+        .to_string();
 
         let expected = format!("Refusing to overwrite {outfile_path} without --force flag");
         assert_eq!(result, expected);
@@ -401,7 +401,7 @@ mod tests {
             "--no-bip39-passphrase",
             "--no-outfile",
         ])
-            .unwrap();
+        .unwrap();
     }
 
     #[test]
@@ -419,7 +419,7 @@ mod tests {
             &outfile_path,
             "--no-bip39-passphrase",
         ])
-            .unwrap();
+        .unwrap();
 
         // refuse to overwrite file
         let result = process_test_command(&[
@@ -430,8 +430,8 @@ mod tests {
             &outfile_path,
             "--no-bip39-passphrase",
         ])
-            .unwrap_err()
-            .to_string();
+        .unwrap_err()
+        .to_string();
 
         let expected = format!("Refusing to overwrite {outfile_path} without --force flag");
         assert_eq!(result, expected);
@@ -444,7 +444,7 @@ mod tests {
             "--no-bip39-passphrase",
             "--no-outfile",
         ])
-            .unwrap();
+        .unwrap();
     }
 
     #[test]

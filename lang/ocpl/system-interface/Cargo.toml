@@ -1,23 +1,18 @@
 [package]
 name = "solana-system-interface"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+version = "1.0.0"
+description = "Instructions and constructors for the System program"
+readme = "README.md"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 all-features = true
 rustdoc-args = ["--cfg=docsrs"]
-targets = [
-    "x86_64-unknown-linux-gnu",
-    "wasm32-unknown-unknown",
-]
-
-[lib]
-name = "solana_system_interface"
-path = "src/lib.rs"
 
 [dependencies]
 num-traits = "0.2"
@@ -41,9 +36,9 @@ anyhow = "1.0.89"
 borsh = { version = "1.5.1", features = ["derive", "unstable__schema"] }
 solana-account-info = { workspace = true }
 solana-cpi = { workspace = true }
-#solana-example-mocks = { workspace = true }
+solana-example-mocks = { workspace = true }
 solana-nonce = { workspace = true }
-#solana-program = { workspace = true, default-features = false }
+solana-program = { workspace = true, default-features = false }
 solana-program-entrypoint = { workspace = true }
 solana-program-error = { workspace = true, features = ["borsh"] }
 solana-pubkey = { workspace = true, features = ["std"] }
@@ -52,21 +47,16 @@ static_assertions = "1.1.0"
 strum = "0.24"
 strum_macros = "0.24"
 
-
 [features]
-bincode = [
-    "dep:solana-instruction",
-    "serde",
-]
+bincode = ["dep:solana-instruction", "serde"]
 frozen-abi = [
     "dep:solana-frozen-abi",
     "dep:solana-frozen-abi-macro",
     "dep:solana-logger",
     "solana-pubkey/frozen-abi",
-    "solana-pubkey/std",
+    "solana-pubkey/std"
 ]
-serde = [
-    "dep:serde",
-    "dep:serde_derive",
-    "solana-pubkey/serde",
-]
+serde = ["dep:serde", "dep:serde_derive", "solana-pubkey/serde"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]

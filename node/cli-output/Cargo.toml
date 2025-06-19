@@ -1,14 +1,17 @@
 [package]
 name = "solana-cli-output"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Blockchain, Rebuilt for Scale"
+documentation = "https://docs.rs/solana-cli-output"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 Inflector = { workspace = true }
+agave-reserved-account-keys = { workspace = true }
 base64 = { workspace = true }
 chrono = { workspace = true, features = ["default", "serde"] }
 clap = "2.33.0"
@@ -32,7 +35,6 @@ solana-native-token = { workspace = true }
 solana-packet = { workspace = true }
 solana-program = { workspace = true }
 solana-pubkey = { workspace = true }
-solana-reserved-account-keys = { workspace = true }
 solana-rpc-client-api = { workspace = true }
 solana-sdk-ids = { workspace = true }
 solana-signature = { workspace = true }

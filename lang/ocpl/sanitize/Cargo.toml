@@ -1,15 +1,13 @@
 [package]
 name = "solana-sanitize"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana Message Sanitization"
+documentation = "https://docs.rs/solana-sanitize"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "solana_sanitize"
-path = "src/lib.rs"

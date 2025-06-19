@@ -1,20 +1,13 @@
 [package]
 name = "solana-secp256r1-program"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg=docsrs"]
-targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "solana_secp256r1_program"
-path = "src/lib.rs"
+description = "Precompile implementation for the secp256r1 elliptic curve."
+documentation = "https://docs.rs/solana-secp256r1"
+version = "2.2.2"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 bytemuck = { workspace = true, features = ["derive"] }
@@ -28,16 +21,16 @@ openssl = { workspace = true }
 
 [dev-dependencies]
 solana-logger = { workspace = true }
-#solana-sdk = { path = "../../sdk" }
+solana-sdk = { path = "../../sdk" }
 
 [features]
 default = []
 openssl-vendored = ["openssl/vendored"]
 
-[lints.rust.unexpected_cfgs]
-level = "warn"
-priority = 0
-check-cfg = [
-    'cfg(target_os, values("solana"))',
-    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
-]
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]
+
+[lints]
+workspace = true

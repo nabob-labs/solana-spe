@@ -1,11 +1,13 @@
 [package]
 name = "solana-account-decoder"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana account decoder"
+documentation = "https://docs.rs/solana-account-decoder"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 Inflector = { workspace = true }

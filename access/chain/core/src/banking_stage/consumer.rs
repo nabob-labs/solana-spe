@@ -11,8 +11,8 @@ use {
         unprocessed_transaction_storage::{ConsumeScannerPayload, UnprocessedTransactionStorage},
         BankingStageStats,
     },
+    agave_feature_set as feature_set,
     itertools::Itertools,
-    solana_feature_set as feature_set,
     solana_fee::FeeFeatures,
     solana_ledger::token_balances::collect_token_balances,
     solana_measure::{measure::Measure, measure_us},
@@ -691,6 +691,10 @@ impl Consumer {
                 |(index, processing_result)| processing_result.was_processed().then_some(index),
             ));
 
+            // retryable indexes are expected to be sorted - in this case the
+            // `extend` can cause that assumption to be violated.
+            retryable_transaction_indexes.sort_unstable();
+
             return ExecuteAndCommitTransactionsOutput {
                 transaction_counts,
                 retryable_transaction_indexes,
@@ -855,13 +859,17 @@ mod tests {
             unprocessed_packet_batches::{DeserializedPacket, UnprocessedPacketBatches},
             unprocessed_transaction_storage::ThreadType,
         },
+        agave_reserved_account_keys::ReservedAccountKeys,
         crossbeam_channel::{unbounded, Receiver},
         solana_cost_model::{cost_model::CostModel, transaction_cost::TransactionCost},
         solana_entry::entry::{next_entry, next_versioned_entry},
         solana_ledger::{
             blockstore::{entries_to_test_shreds, Blockstore},
             blockstore_processor::TransactionStatusSender,
-            genesis_utils::GenesisConfigInfo,
+            genesis_utils::{
+                bootstrap_validator_stake_lamports, create_genesis_config_with_leader,
+                GenesisConfigInfo,
+            },
             get_tmp_ledger_path_auto_delete,
             leader_schedule_cache::LeaderScheduleCache,
         },
@@ -889,7 +897,6 @@ mod tests {
             nonce_account::verify_nonce_account,
             poh_config::PohConfig,
             pubkey::Pubkey,
-            reserved_account_keys::ReservedAccountKeys,
             signature::Keypair,
             signer::Signer,
             system_instruction, system_program, system_transaction,
@@ -1080,7 +1087,11 @@ mod tests {
             genesis_config,
             mint_keypair,
             ..
-        } = create_slow_genesis_config(10_000);
+        } = create_genesis_config_with_leader(
+            10_000,
+            &Pubkey::new_unique(),
+            bootstrap_validator_stake_lamports(),
+        );
         let (bank, _bank_forks) = Bank::new_no_wallclock_throttle_for_tests(&genesis_config);
         let pubkey = solana_pubkey::new_rand();
 
@@ -1214,7 +1225,11 @@ mod tests {
             genesis_config,
             mint_keypair,
             ..
-        } = create_slow_genesis_config(10_000);
+        } = create_genesis_config_with_leader(
+            10_000,
+            &Pubkey::new_unique(),
+            bootstrap_validator_stake_lamports(),
+        );
         let (bank, _bank_forks) = Bank::new_no_wallclock_throttle_for_tests(&genesis_config);
         let pubkey = Pubkey::new_unique();
 

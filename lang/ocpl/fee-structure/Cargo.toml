@@ -1,20 +1,13 @@
 [package]
 name = "solana-fee-structure"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg=docsrs"]
-targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "solana_fee_structure"
-path = "src/lib.rs"
+description = "Solana fee structures."
+documentation = "https://docs.rs/solana-fee-structure"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 serde = { workspace = true, optional = true }
@@ -24,6 +17,11 @@ solana-frozen-abi = { workspace = true, optional = true, features = [
 ] }
 solana-native-token = { workspace = true }
 
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]
+
 [target.'cfg(not(target_os = "solana"))'.dependencies]
 solana-message = { workspace = true }
 
@@ -31,10 +29,5 @@ solana-message = { workspace = true }
 frozen-abi = ["dep:solana-frozen-abi"]
 serde = ["dep:serde", "dep:serde_derive"]
 
-[lints.rust.unexpected_cfgs]
-level = "warn"
-priority = 0
-check-cfg = [
-    'cfg(target_os, values("solana"))',
-    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
-]
+[lints]
+workspace = true

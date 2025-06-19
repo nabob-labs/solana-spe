@@ -1,20 +1,14 @@
 [package]
 name = "solana-bn254"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-
-[lib]
-name = "solana_bn254"
-path = "src/lib.rs"
-
-[[bench]]
-name = "bn254"
-path = "benches/bn254.rs"
-harness = false
+description = "Solana BN254"
+documentation = "https://docs.rs/solana-bn254"
+version = "2.2.2"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
+include = ["src/**/*"]
 
 [dependencies]
 bytemuck = { workspace = true, features = ["derive"] }
@@ -34,10 +28,9 @@ serde = { workspace = true }
 serde_derive = { workspace = true }
 serde_json = { workspace = true }
 
-[lints.rust.unexpected_cfgs]
-level = "warn"
-priority = 0
-check-cfg = [
-    'cfg(target_os, values("solana"))',
-    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
-]
+[[bench]]
+name = "bn254"
+harness = false
+
+[lints]
+workspace = true

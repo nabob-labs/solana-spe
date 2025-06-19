@@ -1,13 +1,16 @@
 [package]
 name = "solana-turbine"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Blockchain, Rebuilt for Scale"
+documentation = "https://docs.rs/solana-turbine"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
+agave-feature-set = { workspace = true }
 bincode = { workspace = true }
 bytes = { workspace = true }
 crossbeam-channel = { workspace = true }
@@ -22,7 +25,6 @@ rand_chacha = { workspace = true }
 rayon = { workspace = true }
 rustls = { workspace = true }
 solana-entry = { workspace = true }
-solana-feature-set = { workspace = true }
 solana-geyser-plugin-manager = { workspace = true }
 solana-gossip = { workspace = true }
 solana-ledger = { workspace = true }
@@ -49,3 +51,12 @@ bs58 = { workspace = true }
 solana-logger = { workspace = true }
 solana-runtime = { workspace = true, features = ["dev-context-only-utils"] }
 test-case = { workspace = true }
+
+[[bench]]
+name = "cluster_info"
+
+[[bench]]
+name = "cluster_nodes"
+
+[[bench]]
+name = "retransmit_stage"

@@ -1,24 +1,17 @@
 [package]
 name = "solana-account"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg=docsrs"]
-targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "solana_account"
-path = "src/lib.rs"
+description = "Solana Account type"
+documentation = "https://docs.rs/solana-account"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
-bincode = { workspace = true ,optional = true }
-qualifier_attr = { workspace = true, optional = true, default-features = false }
+bincode = { workspace = true, optional = true }
+qualifier_attr = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_bytes = { workspace = true, optional = true }
 serde_derive = { workspace = true, optional = true }
@@ -26,13 +19,14 @@ solana-account-info = { workspace = true }
 solana-clock = { workspace = true }
 solana-frozen-abi = { workspace = true, optional = true }
 solana-frozen-abi-macro = { workspace = true, optional = true }
-solana-instruction = { workspace = true, default-features = false }
+solana-instruction = { workspace = true }
 solana-logger = { workspace = true, optional = true }
-solana-pubkey = { workspace = true, default-features = false }
+solana-pubkey = { workspace = true }
 solana-sdk-ids = { workspace = true }
 solana-sysvar = { workspace = true, features = ["bincode"], optional = true }
 
 [dev-dependencies]
+solana-account = { path = ".", features = ["dev-context-only-utils"] }
 
 [features]
 bincode = [
@@ -54,3 +48,8 @@ serde = [
     "dep:serde_derive",
     "solana-pubkey/serde",
 ]
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]

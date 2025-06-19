@@ -1,5 +1,5 @@
 use {
-    solana_feature_set::{enable_secp256r1_precompile, FeatureSet},
+    agave_feature_set::{enable_secp256r1_precompile, FeatureSet},
     solana_fee_structure::FeeDetails,
     solana_svm_transaction::svm_message::SVMMessage,
 };
@@ -38,7 +38,7 @@ pub fn calculate_fee(
         prioritization_fee,
         fee_features,
     )
-        .total_fee()
+    .total_fee()
 }
 
 pub fn calculate_fee_details(

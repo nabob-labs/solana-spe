@@ -1,11 +1,13 @@
 [package]
 name = "solana-storage-proto"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana Storage Protobuf Definitions"
+documentation = "https://docs.rs/solana-storage-proto"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 bincode = { workspace = true }

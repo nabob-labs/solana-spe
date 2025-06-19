@@ -1,23 +1,13 @@
 [package]
 name = "solana-message"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg=docsrs"]
-targets = [
-    "x86_64-unknown-linux-gnu",
-    "wasm32-unknown-unknown",
-]
-
-[lib]
-name = "solana_message"
-path = "src/lib.rs"
+description = "Solana transaction message types."
+documentation = "https://docs.rs/solana-message"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 bincode = { workspace = true, optional = true }
@@ -49,9 +39,9 @@ bitflags = { workspace = true }
 borsh = { workspace = true }
 itertools = { workspace = true }
 serde_json = { workspace = true }
-#solana-message = { path = ".", features = ["dev-context-only-utils"] }
+solana-message = { path = ".", features = ["dev-context-only-utils"] }
 solana-nonce = { workspace = true }
-#solana-program = { path = "../program" }
+solana-program = { path = "../program" }
 solana-sha256-hasher = { workspace = true }
 solana-sysvar = { workspace = true }
 static_assertions = { workspace = true }
@@ -64,10 +54,7 @@ bincode = [
     "serde",
 ]
 blake3 = ["dep:blake3"]
-dev-context-only-utils = [
-    "bincode",
-    "blake3",
-]
+dev-context-only-utils = ["bincode", "blake3"]
 frozen-abi = [
     "dep:solana-frozen-abi",
     "dep:solana-frozen-abi-macro",
@@ -83,10 +70,10 @@ serde = [
     "solana-pubkey/serde",
 ]
 
-[lints.rust.unexpected_cfgs]
-level = "warn"
-priority = 0
-check-cfg = [
-    'cfg(target_os, values("solana"))',
-    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
-]
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]
+
+[lints]
+workspace = true

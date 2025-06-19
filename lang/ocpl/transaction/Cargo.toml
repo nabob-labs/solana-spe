@@ -1,23 +1,13 @@
 [package]
 name = "solana-transaction"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg=docsrs"]
-targets = [
-    "x86_64-unknown-linux-gnu",
-    "wasm32-unknown-unknown",
-]
-
-[lib]
-name = "solana_transaction"
-path = "src/lib.rs"
+description = "Solana transaction-types"
+documentation = "https://docs.rs/solana-transaction"
+version = "2.2.2"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 bincode = { workspace = true, optional = true }
@@ -33,7 +23,6 @@ solana-logger = { workspace = true, optional = true }
 solana-message = { workspace = true }
 solana-precompiles = { workspace = true, optional = true }
 solana-pubkey = { workspace = true }
-solana-reserved-account-keys = { workspace = true, optional = true }
 solana-sanitize = { workspace = true }
 solana-sdk-ids = { workspace = true }
 solana-short-vec = { workspace = true, optional = true }
@@ -73,25 +62,16 @@ bincode = [
     "solana-message/bincode",
 ]
 blake3 = [
-    "dep:solana-reserved-account-keys",
     "bincode",
     "solana-message/blake3",
 ]
-dev-context-only-utils = [
-    "blake3",
-    "precompiles",
-    "serde",
-    "verify",
-]
+dev-context-only-utils = ["blake3", "precompiles", "serde", "verify"]
 frozen-abi = [
     "dep:solana-frozen-abi",
     "dep:solana-frozen-abi-macro",
     "dep:solana-logger",
 ]
-precompiles = [
-    "dep:solana-feature-set",
-    "dep:solana-precompiles",
-]
+precompiles = ["dep:solana-feature-set", "dep:solana-precompiles"]
 serde = [
     "dep:serde",
     "dep:serde_derive",
@@ -99,7 +79,9 @@ serde = [
     "solana-message/serde",
     "solana-signature/serde",
 ]
-verify = [
-    "blake3",
-    "solana-signature/verify",
-]
+verify = ["blake3", "solana-signature/verify"]
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]

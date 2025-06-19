@@ -1,18 +1,16 @@
 [package]
 name = "solana-sha256-hasher"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana SHA256 hashing"
+documentation = "https://docs.rs/solana-sha256-hasher"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "solana_sha256_hasher"
-path = "src/lib.rs"
 
 [dependencies]
 solana-hash = { workspace = true }
@@ -30,10 +28,5 @@ solana-define-syscall = { workspace = true }
 [features]
 sha2 = ["dep:sha2"]
 
-[lints.rust.unexpected_cfgs]
-level = "warn"
-priority = 0
-check-cfg = [
-    'cfg(target_os, values("solana"))',
-    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
-]
+[lints]
+workspace = true

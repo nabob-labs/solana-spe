@@ -1,11 +1,13 @@
 [package]
 name = "solana-rpc-client-api"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana Client Common Utilities"
+documentation = "https://docs.rs/solana-rpc-client-api"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 anyhow = { workspace = true }

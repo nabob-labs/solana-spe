@@ -1,18 +1,13 @@
 [package]
 name = "solana-client-traits"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-
-[package.metadata.docs.rs]
-targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "solana_client_traits"
-path = "src/lib.rs"
+description = "Traits for Solana clients"
+documentation = "https://docs.rs/solana-client-traits"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 solana-account = { workspace = true }
@@ -28,3 +23,6 @@ solana-signer = { workspace = true }
 solana-system-interface = { workspace = true }
 solana-transaction = { workspace = true, features = ["bincode"] }
 solana-transaction-error = { workspace = true }
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]

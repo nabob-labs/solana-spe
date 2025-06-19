@@ -1,20 +1,13 @@
 [package]
 name = "solana-signature"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg=docsrs"]
-targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "solana_signature"
-path = "src/lib.rs"
+description = "Solana 64-byte signature type"
+documentation = "https://docs.rs/solana-signature"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 bs58 = { workspace = true }
@@ -47,21 +40,17 @@ default = ["std"]
 frozen-abi = [
     "dep:solana-frozen-abi",
     "dep:solana-frozen-abi-macro",
-    "std",
+    "std"
 ]
 rand = ["dep:rand"]
-serde = [
-    "dep:serde",
-    "dep:serde_derive",
-    "dep:serde-big-array",
-]
+serde = ["dep:serde", "dep:serde_derive", "dep:serde-big-array"]
 std = []
 verify = ["dep:ed25519-dalek"]
 
-[lints.rust.unexpected_cfgs]
-level = "warn"
-priority = 0
-check-cfg = [
-    'cfg(target_os, values("solana"))',
-    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
-]
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]
+
+[lints]
+workspace = true

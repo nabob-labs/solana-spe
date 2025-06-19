@@ -1,20 +1,18 @@
 [package]
 name = "solana-define-syscall"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana define_syscall macro and core syscall definitions."
+documentation = "https://docs.rs/solana-define-syscall"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
 
-[lib]
-name = "solana_define_syscall"
-path = "src/lib.rs"
-
-[lints.rust.unexpected_cfgs]
-level = "warn"
-priority = 0
-check-cfg = ['cfg(target_feature, values("static-syscalls"))']
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = [
+  'cfg(target_feature, values("static-syscalls"))',
+] }

@@ -1,20 +1,13 @@
 [package]
 name = "solana-last-restart-slot"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg=docsrs"]
-targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "solana_last_restart_slot"
-path = "src/lib.rs"
+description = "Types and utilities for the Solana LastRestartSlot sysvar."
+documentation = "https://docs.rs/solana-last-restart-slot"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 serde = { workspace = true, optional = true }
@@ -24,11 +17,10 @@ solana-sdk-macro = { workspace = true }
 solana-sysvar-id = { workspace = true, optional = true }
 
 [features]
-serde = [
-    "dep:serde",
-    "dep:serde_derive",
-]
-sysvar = [
-    "dep:solana-sdk-ids",
-    "dep:solana-sysvar-id",
-]
+serde = ["dep:serde", "dep:serde_derive"]
+sysvar = ["dep:solana-sdk-ids", "dep:solana-sysvar-id"]
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]

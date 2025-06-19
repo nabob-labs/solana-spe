@@ -1,20 +1,13 @@
 [package]
 name = "solana-secp256k1-program"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg=docsrs"]
-targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "solana_secp256k1_program"
-path = "src/lib.rs"
+description = "Instructions for the Solana Secp256k1 native program."
+documentation = "https://docs.rs/solana-secp256k1-program"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 bincode = { workspace = true, optional = true }
@@ -40,8 +33,8 @@ solana-keypair = { workspace = true }
 solana-logger = { workspace = true }
 solana-msg = { workspace = true }
 solana-program-error = { workspace = true }
-#solana-sdk = { path = "../../sdk" }
-#solana-secp256k1-program = { path = ".", features = ["dev-context-only-utils"] }
+solana-sdk = { path = "../../sdk" }
+solana-secp256k1-program = { path = ".", features = ["dev-context-only-utils"] }
 solana-signer = { workspace = true }
 
 [features]
@@ -54,7 +47,9 @@ bincode = [
     "serde",
 ]
 dev-context-only-utils = ["bincode"]
-serde = [
-    "dep:serde",
-    "dep:serde_derive",
-]
+serde = ["dep:serde", "dep:serde_derive"]
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]

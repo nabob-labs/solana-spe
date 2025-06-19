@@ -1,11 +1,13 @@
 [package]
 name = "solana-poh"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana PoH"
+documentation = "https://docs.rs/solana-poh"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 core_affinity = { workspace = true }
@@ -43,6 +45,9 @@ dev-context-only-utils = []
 [lib]
 crate-type = ["lib"]
 name = "solana_poh"
+
+[[bench]]
+name = "poh"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]

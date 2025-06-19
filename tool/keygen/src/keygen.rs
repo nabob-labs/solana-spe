@@ -349,9 +349,9 @@ fn app<'a>(num_threads: &'a str, crate_version: &'a str) -> Command<'a> {
                 .key_generation_common_args()
                 .arg(
                     no_outfile_arg()
-                        // Require a seed phrase to avoid generating a keypair
-                        // but having no way to get the private key
-                        .requires("use_mnemonic")
+                    // Require a seed phrase to avoid generating a keypair
+                    // but having no way to get the private key
+                    .requires("use_mnemonic")
                 )
         )
         .subcommand(
@@ -706,12 +706,12 @@ fn do_main(matches: &ArgMatches) -> Result<(), Box<dyn error::Error>> {
                                 && grind_matches_thread_safe[i].ends.is_empty()
                                 && pubkey.starts_with(&grind_matches_thread_safe[i].starts))
                                 || (grind_matches_thread_safe[i].starts.is_empty()
-                                && !grind_matches_thread_safe[i].ends.is_empty()
-                                && pubkey.ends_with(&grind_matches_thread_safe[i].ends))
+                                    && !grind_matches_thread_safe[i].ends.is_empty()
+                                    && pubkey.ends_with(&grind_matches_thread_safe[i].ends))
                                 || (!grind_matches_thread_safe[i].starts.is_empty()
-                                && !grind_matches_thread_safe[i].ends.is_empty()
-                                && pubkey.starts_with(&grind_matches_thread_safe[i].starts)
-                                && pubkey.ends_with(&grind_matches_thread_safe[i].ends))
+                                    && !grind_matches_thread_safe[i].ends.is_empty()
+                                    && pubkey.starts_with(&grind_matches_thread_safe[i].starts)
+                                    && pubkey.ends_with(&grind_matches_thread_safe[i].ends))
                             {
                                 let _found = found.fetch_add(1, Ordering::Relaxed);
                                 grind_matches_thread_safe[i]
@@ -719,7 +719,7 @@ fn do_main(matches: &ArgMatches) -> Result<(), Box<dyn error::Error>> {
                                     .fetch_sub(1, Ordering::Relaxed);
                                 if !no_outfile {
                                     write_keypair_file(&keypair, format!("{}.json", keypair.pubkey()))
-                                        .unwrap();
+                                    .unwrap();
                                     println!(
                                         "Wrote keypair to {}",
                                         &format!("{}.json", keypair.pubkey())
@@ -758,7 +758,7 @@ fn do_main(matches: &ArgMatches) -> Result<(), Box<dyn error::Error>> {
                 )],
                 Some(&keypair.pubkey()),
             )
-                .serialize();
+            .serialize();
             let signature = keypair.try_sign_message(&simple_message)?;
             let pubkey_bs58 = matches.try_get_one::<String>("pubkey")?.unwrap();
             let pubkey = bs58::decode(pubkey_bs58).into_vec().unwrap();
@@ -849,7 +849,7 @@ mod tests {
             &correct_pubkey.to_string(),
             &keypair_path,
         ])
-            .unwrap();
+        .unwrap();
 
         // success case using a config file
         process_test_command(&[
@@ -859,7 +859,7 @@ mod tests {
             "--config",
             &config_path,
         ])
-            .unwrap();
+        .unwrap();
 
         // fail case using a keypair file
         let incorrect_pubkey = Pubkey::new_unique();
@@ -869,8 +869,8 @@ mod tests {
             &incorrect_pubkey.to_string(),
             &keypair_path,
         ])
-            .unwrap_err()
-            .to_string();
+        .unwrap_err()
+        .to_string();
 
         let expected = format!("Verification for public key: {incorrect_pubkey}: Failed");
         assert_eq!(result, expected);
@@ -883,8 +883,8 @@ mod tests {
             "--config",
             &config_path,
         ])
-            .unwrap_err()
-            .to_string();
+        .unwrap_err()
+        .to_string();
 
         let expected = format!("Verification for public key: {incorrect_pubkey}: Failed");
         assert_eq!(result, expected);
@@ -903,7 +903,7 @@ mod tests {
             "--config",
             &alt_config_path,
         ])
-            .unwrap();
+        .unwrap();
 
         process_test_command(&[
             "solana-keygen",
@@ -913,8 +913,8 @@ mod tests {
             "--config",
             &config_path,
         ])
-            .unwrap_err()
-            .to_string();
+        .unwrap_err()
+        .to_string();
 
         let expected = format!("Verification for public key: {incorrect_pubkey}: Failed");
         assert_eq!(result, expected);
@@ -939,7 +939,7 @@ mod tests {
                 "--outfile",
                 &outfile_path,
             ])
-                .unwrap();
+            .unwrap();
 
             let result_pubkey = read_pubkey_file(&outfile_path).unwrap();
             assert_eq!(result_pubkey, expected_pubkey);
@@ -958,7 +958,7 @@ mod tests {
                 "--outfile",
                 &outfile_path,
             ])
-                .unwrap();
+            .unwrap();
 
             let result_pubkey = read_pubkey_file(&outfile_path).unwrap();
             assert_eq!(result_pubkey, expected_pubkey);
@@ -982,7 +982,7 @@ mod tests {
                 "--outfile",
                 &outfile_path,
             ])
-                .unwrap();
+            .unwrap();
 
             let result_pubkey = read_pubkey_file(&outfile_path).unwrap();
             assert_eq!(result_pubkey, expected_pubkey);
@@ -1000,7 +1000,7 @@ mod tests {
                 "--outfile",
                 &outfile_path,
             ])
-                .unwrap();
+            .unwrap();
 
             let result = process_test_command(&[
                 "solana-keygen",
@@ -1010,8 +1010,8 @@ mod tests {
                 "--outfile",
                 &outfile_path,
             ])
-                .unwrap_err()
-                .to_string();
+            .unwrap_err()
+            .to_string();
 
             let expected = format!("Refusing to overwrite {outfile_path} without --force flag");
             assert_eq!(result, expected);
@@ -1036,7 +1036,7 @@ mod tests {
             &outfile_path,
             "--no-bip39-passphrase",
         ])
-            .unwrap();
+        .unwrap();
 
         // refuse to overwrite file
         let result = process_test_command(&[
@@ -1046,8 +1046,8 @@ mod tests {
             &outfile_path,
             "--no-bip39-passphrase",
         ])
-            .unwrap_err()
-            .to_string();
+        .unwrap_err()
+        .to_string();
 
         let expected = format!("Refusing to overwrite {outfile_path} without --force flag");
         assert_eq!(result, expected);
@@ -1059,7 +1059,7 @@ mod tests {
             "--no-bip39-passphrase",
             "--no-outfile",
         ])
-            .unwrap();
+        .unwrap();
 
         // sanity check on languages and word count combinations
         let languages = [
@@ -1086,7 +1086,7 @@ mod tests {
                     "--word-count",
                     word_count,
                 ])
-                    .unwrap();
+                .unwrap();
             }
         }
 
@@ -1099,7 +1099,7 @@ mod tests {
             "--derivation-path",
             // empty derivation path
         ])
-            .unwrap();
+        .unwrap();
 
         process_test_command(&[
             "solana-keygen",
@@ -1109,7 +1109,7 @@ mod tests {
             "--derivation-path",
             "m/44'/501'/0'/0'", // default derivation path
         ])
-            .unwrap();
+        .unwrap();
 
         let result = process_test_command(&[
             "solana-keygen",
@@ -1119,8 +1119,8 @@ mod tests {
             "--derivation-path",
             "-", // invalid derivation path
         ])
-            .unwrap_err()
-            .to_string();
+        .unwrap_err()
+        .to_string();
 
         let expected = "invalid derivation path: invalid prefix: -";
         assert_eq!(result, expected);
@@ -1138,7 +1138,7 @@ mod tests {
             "--starts-with",
             "a:1",
         ])
-            .unwrap();
+        .unwrap();
 
         process_test_command(&[
             "solana-keygen",
@@ -1149,7 +1149,7 @@ mod tests {
             "--ends-with",
             "b:1",
         ])
-            .unwrap();
+        .unwrap();
     }
 
     #[test]

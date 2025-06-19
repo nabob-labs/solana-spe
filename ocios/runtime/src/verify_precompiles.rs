@@ -1,8 +1,8 @@
 use {
-    solana_feature_set::FeatureSet,
+    agave_feature_set::FeatureSet,
+    agave_precompiles::get_precompiles,
     solana_sdk::{
         instruction::InstructionError,
-        precompiles::get_precompiles,
         transaction::{Result, TransactionError},
     },
     solana_svm_transaction::svm_message::SVMMessage,

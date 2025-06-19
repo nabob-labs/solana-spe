@@ -1,11 +1,13 @@
 [package]
 name = "solana-frozen-abi"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana Frozen ABI"
+documentation = "https://docs.rs/solana-frozen-abi"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 bs58 = { workspace = true, features = ["alloc"] }

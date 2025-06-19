@@ -1,18 +1,13 @@
 [package]
 name = "solana-derivation-path"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-
-[package.metadata.docs.rs]
-targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "solana_derivation_path"
-path = "src/lib.rs"
+description = "Solana BIP44 derivation paths."
+documentation = "https://docs.rs/solana-derivation-path"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 derivation-path = { workspace = true }
@@ -21,3 +16,6 @@ uriparse = { workspace = true }
 
 [dev-dependencies]
 assert_matches = { workspace = true }
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]

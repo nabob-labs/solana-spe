@@ -1,20 +1,18 @@
 [package]
 name = "solana-blake3-hasher"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana BLAKE3 hashing"
+documentation = "https://docs.rs/solana-blake3-hasher"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
 all-features = true
 rustdoc-args = ["--cfg=docsrs"]
-targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "solana_blake3_hasher"
-path = "src/lib.rs"
 
 [dependencies]
 borsh = { workspace = true, optional = true }
@@ -51,10 +49,5 @@ serde = ["dep:serde", "dep:serde_derive"]
 blake3 = ["dep:blake3"]
 std = ["solana-hash/std"]
 
-[lints.rust.unexpected_cfgs]
-level = "warn"
-priority = 0
-check-cfg = [
-    'cfg(target_os, values("solana"))',
-    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
-]
+[lints]
+workspace = true

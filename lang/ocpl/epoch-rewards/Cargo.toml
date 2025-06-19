@@ -1,20 +1,13 @@
 [package]
 name = "solana-epoch-rewards"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg=docsrs"]
-targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "solana_epoch_rewards"
-path = "src/lib.rs"
+description = "Solana epoch rewards sysvar."
+documentation = "https://docs.rs/solana-epoch-rewards"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 serde = { workspace = true, optional = true }
@@ -27,26 +20,18 @@ solana-sdk-macro = { workspace = true }
 solana-sysvar-id = { workspace = true, optional = true }
 
 [dev-dependencies]
+solana-epoch-rewards = { path = ".", features = ["sysvar"] }
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]
 
 [features]
-frozen-abi = [
-    "dep:solana-frozen-abi",
-    "dep:solana-frozen-abi-macro",
-    "solana-hash/frozen-abi",
-    "std",
-]
-serde = [
-    "dep:serde",
-    "dep:serde_derive",
-    "solana-hash/serde",
-]
+frozen-abi = ["dep:solana-frozen-abi", "dep:solana-frozen-abi-macro", "solana-hash/frozen-abi", "std"]
+serde = ["dep:serde", "dep:serde_derive", "solana-hash/serde"]
 std = []
 sysvar = ["dep:solana-sysvar-id"]
 
-[lints.rust.unexpected_cfgs]
-level = "warn"
-priority = 0
-check-cfg = [
-    'cfg(target_os, values("solana"))',
-    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
-]
+[lints]
+workspace = true

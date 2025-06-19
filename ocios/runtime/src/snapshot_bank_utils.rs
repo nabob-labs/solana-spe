@@ -23,6 +23,7 @@ use {
         },
         status_cache,
     },
+    agave_feature_set as feature_set,
     bincode::{config::Options, serialize_into},
     log::*,
     solana_accounts_db::{
@@ -39,7 +40,6 @@ use {
     solana_measure::{measure::Measure, measure_time},
     solana_sdk::{
         clock::{Epoch, Slot},
-        feature_set,
         genesis_config::GenesisConfig,
         pubkey::Pubkey,
         slot_history::{Check, SlotHistory},
@@ -383,7 +383,7 @@ pub fn bank_from_snapshot_dir(
         storage,
         next_append_vec_id,
     };
-    let ((bank, _info), measure_rebuild_bank) = measure_time!(
+    let ((bank, info), measure_rebuild_bank) = measure_time!(
         rebuild_bank_from_snapshot(
             bank_snapshot,
             account_paths,
@@ -402,9 +402,27 @@ pub fn bank_from_snapshot_dir(
     );
     info!("{}", measure_rebuild_bank);
 
-    // Skip bank.verify_snapshot_bank.  Subsequent snapshot requests/accounts hash verification requests
-    // will calculate and check the accounts hash, so we will still have safety/correctness there.
-    bank.set_initial_accounts_hash_verification_completed();
+    if bank
+        .feature_set
+        .is_active(&feature_set::accounts_lt_hash::id())
+    {
+        // Skip bank.verify_snapshot_bank.  Subsequent snapshot requests/accounts hash verification requests
+        // will calculate and check the accounts hash, so we will still have safety/correctness there.
+        bank.set_initial_accounts_hash_verification_completed();
+    } else {
+        // Until the accounts lattice hash feature is enabled, always do accounts verification
+        if !bank.verify_snapshot_bank(
+            false,     // do not test hash calculation
+            true,      // do not shrink
+            false,     // do not clean
+            Slot::MIN, // doesn't matter, only used for calling clean (which we are skipping)
+            None,      // not used for lt hash
+            info.duplicates_lt_hash,
+        ) && limit_load_slot_count_from_snapshot.is_none()
+        {
+            panic!("Snapshot bank for slot {} failed to verify", bank.slot());
+        }
+    }
 
     let timings = BankFromDirTimings {
         rebuild_storages_us: measure_rebuild_storages.as_us(),
@@ -1106,13 +1124,13 @@ mod tests {
             },
             status_cache::Status,
         },
+        agave_feature_set as feature_set,
         solana_accounts_db::{
             accounts_db::ACCOUNTS_DB_CONFIG_FOR_TESTING,
             accounts_hash::{CalcAccountsHashConfig, HashStats},
             sorted_storages::SortedStorages,
         },
         solana_sdk::{
-            feature_set,
             genesis_config::create_genesis_config,
             native_token::{sol_to_lamports, LAMPORTS_PER_SOL},
             signature::{Keypair, Signer},

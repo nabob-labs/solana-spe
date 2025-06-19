@@ -1,15 +1,13 @@
 [package]
 name = "solana-native-token"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Definitions for the native SOL token and its fractional lamports."
+documentation = "https://docs.rs/solana-native-token"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "solana_native_token"
-path = "src/lib.rs"

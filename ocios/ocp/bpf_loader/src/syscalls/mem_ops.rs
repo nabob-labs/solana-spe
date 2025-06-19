@@ -14,6 +14,20 @@ fn mem_op_consume(invoke_context: &mut InvokeContext, n: u64) -> Result<(), Erro
     consume_compute_meter(invoke_context, cost)
 }
 
+/// Check that two regions do not overlap.
+pub(crate) fn is_nonoverlapping<N>(src: N, src_len: N, dst: N, dst_len: N) -> bool
+where
+    N: Ord + num_traits::SaturatingSub,
+{
+    // If the absolute distance between the ptrs is at least as big as the size of the other,
+    // they do not overlap.
+    if src > dst {
+        src.saturating_sub(&dst) >= dst_len
+    } else {
+        dst.saturating_sub(&src) >= src_len
+    }
+}
+
 declare_builtin_function!(
     /// memcpy
     SyscallMemcpy,
@@ -71,7 +85,7 @@ declare_builtin_function!(
 
         if invoke_context
             .get_feature_set()
-            .is_active(&solana_feature_set::bpf_account_data_direct_mapping::id())
+            .is_active(&agave_feature_set::bpf_account_data_direct_mapping::id())
         {
             let cmp_result = translate_type_mut::<i32>(
                 memory_mapping,
@@ -129,7 +143,7 @@ declare_builtin_function!(
 
         if invoke_context
             .get_feature_set()
-            .is_active(&solana_feature_set::bpf_account_data_direct_mapping::id())
+            .is_active(&agave_feature_set::bpf_account_data_direct_mapping::id())
         {
             let syscall_context = invoke_context.get_syscall_context()?;
 
@@ -156,7 +170,7 @@ fn memmove(
 ) -> Result<u64, Error> {
     if invoke_context
         .get_feature_set()
-        .is_active(&solana_feature_set::bpf_account_data_direct_mapping::id())
+        .is_active(&agave_feature_set::bpf_account_data_direct_mapping::id())
     {
         let syscall_context = invoke_context.get_syscall_context()?;
 
@@ -532,7 +546,7 @@ impl<'a> Iterator for MemoryChunkIterator<'a> {
                     account_index = account_index.saturating_add(1);
                     self.account_index = Some(account_index);
                 } else {
-                    region_is_account = region.vm_addr == account_addr
+                    region_is_account = (account.original_data_len != 0 && region.vm_addr == account_addr)
                         // unaligned programs do not have a resize area
                         || (self.resize_area && region.vm_addr == resize_addr);
                     break;
@@ -606,7 +620,7 @@ impl DoubleEndedIterator for MemoryChunkIterator<'_> {
 
                 self.account_index = Some(account_index);
             } else {
-                region_is_account = region.vm_addr == account_addr
+                region_is_account = (account.original_data_len != 0 && region.vm_addr == account_addr)
                     // unaligned programs do not have a resize area
                     || (self.resize_area && region.vm_addr == resize_addr);
                 break;
@@ -1170,5 +1184,20 @@ mod tests {
 
     fn flatten_memory(mem: &[Vec<u8>]) -> Vec<u8> {
         mem.iter().flatten().copied().collect()
+    }
+
+    #[test]
+    fn test_is_nonoverlapping() {
+        for dst in 0..8 {
+            assert!(is_nonoverlapping(10, 3, dst, 3));
+        }
+        for dst in 8..13 {
+            assert!(!is_nonoverlapping(10, 3, dst, 3));
+        }
+        for dst in 13..20 {
+            assert!(is_nonoverlapping(10, 3, dst, 3));
+        }
+        assert!(is_nonoverlapping::<u8>(255, 3, 254, 1));
+        assert!(!is_nonoverlapping::<u8>(255, 2, 254, 3));
     }
 }

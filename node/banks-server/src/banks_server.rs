@@ -1,4 +1,5 @@
 use {
+    agave_feature_set::{move_precompile_verification_to_svm, FeatureSet},
     bincode::{deserialize, serialize},
     crossbeam_channel::{unbounded, Receiver, Sender},
     futures::{future, prelude::stream::StreamExt},
@@ -8,7 +9,6 @@ use {
         TransactionSimulationDetails, TransactionStatus,
     },
     solana_client::connection_cache::ConnectionCache,
-    solana_feature_set::{move_precompile_verification_to_svm, FeatureSet},
     solana_runtime::{
         bank::{Bank, TransactionSimulationResult},
         bank_forks::BankForks,
@@ -27,8 +27,9 @@ use {
         transaction::{self, MessageHash, SanitizedTransaction, VersionedTransaction},
     },
     solana_send_transaction_service::{
-        send_transaction_service::{SendTransactionService, TransactionInfo},
+        send_transaction_service::{Config, SendTransactionService, TransactionInfo},
         tpu_info::NullTpuInfo,
+        transaction_client::ConnectionCacheClient,
     },
     std::{
         io,
@@ -454,14 +455,22 @@ pub async fn start_tcp_server(
         .map(move |chan| {
             let (sender, receiver) = unbounded();
 
-            SendTransactionService::new::<NullTpuInfo>(
+            let client = ConnectionCacheClient::<NullTpuInfo>::new(
+                connection_cache.clone(),
                 tpu_addr,
-                &bank_forks,
                 None,
-                receiver,
-                &connection_cache,
-                5_000,
+                None,
                 0,
+            );
+
+            SendTransactionService::new_with_client(
+                &bank_forks,
+                receiver,
+                client,
+                Config {
+                    retry_rate_ms: 5_000,
+                    ..Config::default()
+                },
                 exit.clone(),
             );
 

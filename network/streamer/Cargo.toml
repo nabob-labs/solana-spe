@@ -1,11 +1,13 @@
 [package]
 name = "solana-streamer"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana Streamer"
+documentation = "https://docs.rs/solana-streamer"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 async-channel = { workspace = true }

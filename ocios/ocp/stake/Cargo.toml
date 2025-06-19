@@ -1,20 +1,22 @@
 [package]
 name = "solana-stake-program"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana Stake program"
+documentation = "https://docs.rs/solana-stake-program"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
+agave-feature-set = { workspace = true }
 bincode = { workspace = true }
 log = { workspace = true }
 solana-account = { workspace = true }
 solana-bincode = { workspace = true }
 solana-clock = { workspace = true }
 solana-config-program = { workspace = true }
-solana-feature-set = { workspace = true }
 solana-genesis-config = { workspace = true }
 solana-instruction = { workspace = true }
 solana-log-collector = { workspace = true }
@@ -49,6 +51,10 @@ name = "solana_stake_program"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
+
+[[bench]]
+name = "stake"
+harness = false
 
 [lints]
 workspace = true

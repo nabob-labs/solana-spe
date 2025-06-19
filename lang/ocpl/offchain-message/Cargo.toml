@@ -1,20 +1,13 @@
 [package]
 name = "solana-offchain-message"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg=docsrs"]
-targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "solana_offchain_message"
-path = "src/lib.rs"
+description = "Solana offchain message signing"
+documentation = "https://docs.rs/solana-offchain-message"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 num_enum = { workspace = true }
@@ -33,7 +26,9 @@ static_assertions = { workspace = true }
 
 [features]
 dev-context-only-utils = ["verify"]
-verify = [
-    "dep:solana-pubkey",
-    "solana-signature/verify",
-]
+verify = ["dep:solana-pubkey", "solana-signature/verify"]
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]

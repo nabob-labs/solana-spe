@@ -4,6 +4,7 @@
 // Export tokio for test clients
 pub use tokio;
 use {
+    agave_feature_set::FEATURE_NAMES,
     async_trait::async_trait,
     base64::{prelude::BASE64_STANDARD, Engine},
     chrono_humanize::{Accuracy, HumanTime, Tense},
@@ -13,7 +14,6 @@ use {
     solana_banks_server::banks_server::start_local_server,
     solana_bpf_loader_program::serialization::serialize_parameters,
     solana_compute_budget::compute_budget::ComputeBudget,
-    solana_feature_set::FEATURE_NAMES,
     solana_instruction::{error::InstructionError, Instruction},
     solana_log_collector::ic_msg,
     solana_program_runtime::{
@@ -73,7 +73,7 @@ pub use {
         error::EbpfError,
         vm::{get_runtime_environment_key, EbpfVm},
     },
-    solana_sdk::transaction_context::IndexOfAccount,
+    solana_transaction_context::IndexOfAccount,
 };
 
 pub mod programs;
@@ -127,10 +127,14 @@ pub fn invoke_builtin_function(
     let deduplicated_indices: HashSet<IndexOfAccount> = instruction_account_indices.collect();
 
     // Serialize entrypoint parameters with SBF ABI
+    let mask_out_rent_epoch_in_vm_serialization = invoke_context
+        .get_feature_set()
+        .is_active(&agave_feature_set::mask_out_rent_epoch_in_vm_serialization::id());
     let (mut parameter_bytes, _regions, _account_lengths) = serialize_parameters(
         transaction_context,
         instruction_context,
         true, // copy_account_data // There is no VM so direct mapping can not be implemented here
+        mask_out_rent_epoch_in_vm_serialization,
     )?;
 
     // Deserialize data back into instruction params

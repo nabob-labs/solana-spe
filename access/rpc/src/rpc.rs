@@ -7,6 +7,7 @@ use {
         optimistically_confirmed_bank_tracker::OptimisticallyConfirmedBank,
         parsed_token_accounts::*, rpc_cache::LargestAccountsCache, rpc_health::*,
     },
+    agave_feature_set as feature_set,
     base64::{prelude::BASE64_STANDARD, Engine},
     bincode::{config::Options, serialize},
     crossbeam_channel::{unbounded, Receiver, Sender},
@@ -29,7 +30,6 @@ use {
     solana_client::connection_cache::Protocol,
     solana_entry::entry::Entry,
     solana_faucet::faucet::request_airdrop_transaction,
-    solana_feature_set as feature_set,
     solana_gossip::cluster_info::ClusterInfo,
     solana_inline_spl::{
         token::{SPL_TOKEN_ACCOUNT_MINT_OFFSET, SPL_TOKEN_ACCOUNT_OWNER_OFFSET},
@@ -83,11 +83,11 @@ use {
             self, AddressLoader, MessageHash, SanitizedTransaction, TransactionError,
             VersionedTransaction, MAX_TX_ACCOUNT_LOCKS,
         },
-        transaction_context::TransactionAccount,
     },
     solana_send_transaction_service::send_transaction_service::TransactionInfo,
     solana_stake_program,
     solana_storage_bigtable::Error as StorageError,
+    solana_transaction_context::TransactionAccount,
     solana_transaction_status::{
         map_inner_instructions, BlockEncodingOptions, ConfirmedBlock,
         ConfirmedTransactionStatusWithSignature, ConfirmedTransactionWithStatusMeta,
@@ -126,7 +126,9 @@ use {
     solana_ledger::get_tmp_ledger_path,
     solana_runtime::commitment::CommitmentSlots,
     solana_send_transaction_service::{
+        send_transaction_service::Config as SendTransactionServiceConfig,
         send_transaction_service::SendTransactionService, tpu_info::NullTpuInfo,
+        transaction_client::ConnectionCacheClient,
     },
     solana_streamer::socket::SocketAddrSpace,
 };
@@ -458,14 +460,24 @@ impl JsonRpcRequestProcessor {
             .tpu(connection_cache.protocol())
             .unwrap();
         let (transaction_sender, transaction_receiver) = unbounded();
-        SendTransactionService::new::<NullTpuInfo>(
+
+        let client = ConnectionCacheClient::<NullTpuInfo>::new(
+            connection_cache.clone(),
             tpu_address,
-            &bank_forks,
             None,
-            transaction_receiver,
-            &connection_cache,
-            1000,
+            None,
             1,
+        );
+
+        SendTransactionService::new_with_client(
+            &bank_forks,
+            transaction_receiver,
+            client,
+            SendTransactionServiceConfig {
+                retry_rate_ms: 1_000,
+                leader_forward_count: 1,
+                ..SendTransactionServiceConfig::default()
+            },
             exit.clone(),
         );
 
@@ -2423,7 +2435,7 @@ impl JsonRpcRequestProcessor {
     }
 }
 
-fn optimize_filters(filters: &mut [RpcFilterType]) {
+pub(crate) fn optimize_filters(filters: &mut [RpcFilterType]) {
     filters.iter_mut().for_each(|filter_type| {
         if let RpcFilterType::Memcmp(compare) = filter_type {
             if let Err(err) = compare.convert_to_raw_bytes() {
@@ -2451,6 +2463,18 @@ fn verify_transaction(
         }
     }
 
+    Ok(())
+}
+
+pub(crate) fn verify_filters(filters: &[RpcFilterType]) -> Result<()> {
+    if filters.len() > MAX_GET_PROGRAM_ACCOUNT_FILTERS {
+        return Err(Error::invalid_params(format!(
+            "Too many filters provided; max {MAX_GET_PROGRAM_ACCOUNT_FILTERS}"
+        )));
+    }
+    for filter in filters {
+        verify_filter(filter)?;
+    }
     Ok(())
 }
 
@@ -3402,14 +3426,7 @@ pub mod rpc_accounts_scan {
                 } else {
                     (None, vec![], false, true)
                 };
-                if filters.len() > MAX_GET_PROGRAM_ACCOUNT_FILTERS {
-                    return Err(Error::invalid_params(format!(
-                        "Too many filters provided; max {MAX_GET_PROGRAM_ACCOUNT_FILTERS}"
-                    )));
-                }
-                for filter in &filters {
-                    verify_filter(filter)?;
-                }
+                verify_filters(&filters)?;
                 meta.get_program_accounts(program_id, config, filters, with_context, sort_results)
                     .await
             }
@@ -4598,6 +4615,7 @@ pub mod tests {
             rpc_service::service_runtime,
             rpc_subscriptions::RpcSubscriptions,
         },
+        agave_reserved_account_keys::ReservedAccountKeys,
         bincode::deserialize,
         jsonrpc_core::{futures, ErrorCode, MetaIoHandler, Output, Response, Value},
         jsonrpc_core_client::transports::local,
@@ -4640,7 +4658,6 @@ pub mod tests {
                 Message, MessageHeader, VersionedMessage,
             },
             nonce::{self, state::DurableNonce},
-            reserved_account_keys::ReservedAccountKeys,
             rpc_port,
             signature::{Keypair, Signer},
             slot_hashes::SlotHashes,
@@ -6773,15 +6790,24 @@ pub mod tests {
             Arc::new(PrioritizationFeeCache::default()),
             service_runtime(rpc_threads, rpc_blocking_threads, rpc_niceness_adj),
         );
-        SendTransactionService::new::<NullTpuInfo>(
+
+        let client = ConnectionCacheClient::<NullTpuInfo>::new(
+            connection_cache.clone(),
             tpu_address,
-            &bank_forks,
             None,
-            receiver,
-            &connection_cache,
-            1000,
+            None,
             1,
-            exit,
+        );
+        SendTransactionService::new_with_client(
+            &bank_forks,
+            receiver,
+            client,
+            SendTransactionServiceConfig {
+                retry_rate_ms: 1_000,
+                leader_forward_count: 1,
+                ..SendTransactionServiceConfig::default()
+            },
+            exit.clone(),
         );
 
         let mut bad_transaction = system_transaction::transfer(
@@ -7055,16 +7081,26 @@ pub mod tests {
             Arc::new(PrioritizationFeeCache::default()),
             service_runtime(rpc_threads, rpc_blocking_threads, rpc_niceness_adj),
         );
-        SendTransactionService::new::<NullTpuInfo>(
+
+        let client = ConnectionCacheClient::<NullTpuInfo>::new(
+            connection_cache.clone(),
             tpu_address,
-            &bank_forks,
             None,
-            receiver,
-            &connection_cache,
-            1000,
+            None,
             1,
-            exit,
         );
+        SendTransactionService::new_with_client(
+            &bank_forks,
+            receiver,
+            client,
+            SendTransactionServiceConfig {
+                retry_rate_ms: 1_000,
+                leader_forward_count: 1,
+                ..SendTransactionServiceConfig::default()
+            },
+            exit.clone(),
+        );
+
         assert_eq!(
             request_processor.get_block_commitment(0),
             RpcBlockCommitment {

@@ -1,11 +1,13 @@
 [package]
 name = "solana-send-transaction-service"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana send transaction service"
+documentation = "https://docs.rs/solana-send-transaction-service"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 crossbeam-channel = { workspace = true }

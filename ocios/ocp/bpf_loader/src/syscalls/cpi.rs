@@ -1,8 +1,10 @@
 use {
     super::*,
     crate::serialization::account_data_region_memory_state,
+    agave_feature_set::{
+        enable_bpf_loader_set_authority_checked_ix, enable_extend_program_checked,
+    },
     scopeguard::defer,
-    solana_feature_set::{self as feature_set, enable_bpf_loader_set_authority_checked_ix},
     solana_loader_v3_interface::instruction as bpf_loader_upgradeable,
     solana_measure::measure::Measure,
     solana_program_runtime::invoke_context::SerializedAccountMetadata,
@@ -1067,6 +1069,12 @@ fn check_authorized_program(
                     && bpf_loader_upgradeable::is_set_authority_checked_instruction(
                         instruction_data,
                     ))
+                || (invoke_context
+                    .get_feature_set()
+                    .is_active(&enable_extend_program_checked::id())
+                    && bpf_loader_upgradeable::is_extend_program_checked_instruction(
+                        instruction_data,
+                    ))
                 || bpf_loader_upgradeable::is_close_instruction(instruction_data)))
         || is_precompile(program_id, |feature_id: &Pubkey| {
             invoke_context.get_feature_set().is_active(feature_id)
@@ -1615,10 +1623,10 @@ mod tests {
     use {
         super::*,
         crate::mock_create_vm,
+        agave_feature_set::bpf_account_data_direct_mapping,
         assert_matches::assert_matches,
         solana_account::{Account, AccountSharedData, ReadableAccount},
         solana_clock::Epoch,
-        solana_feature_set::bpf_account_data_direct_mapping,
         solana_instruction::Instruction,
         solana_program_runtime::{
             invoke_context::SerializedAccountMetadata, with_mock_invoke_context,
@@ -2213,7 +2221,8 @@ mod tests {
                 .transaction_context
                 .get_account_at_index(1)
                 .unwrap()
-                .borrow_mut();
+                .try_borrow_mut()
+                .unwrap();
             account.set_data(b"baz".to_vec());
         }
 

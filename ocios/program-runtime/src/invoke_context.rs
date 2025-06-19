@@ -7,19 +7,19 @@ use {
         stable_log,
         sysvar_cache::SysvarCache,
     },
+    agave_feature_set::{
+        lift_cpi_caller_restriction, move_precompile_verification_to_svm,
+        remove_accounts_executable_flag_checks, FeatureSet,
+    },
+    agave_precompiles::Precompile,
     solana_account::{create_account_shared_data_for_test, AccountSharedData},
     solana_clock::Slot,
     solana_compute_budget::compute_budget::ComputeBudget,
     solana_epoch_schedule::EpochSchedule,
-    solana_feature_set::{
-        lift_cpi_caller_restriction, move_precompile_verification_to_svm,
-        remove_accounts_executable_flag_checks, FeatureSet,
-    },
     solana_hash::Hash,
     solana_instruction::{error::InstructionError, AccountMeta},
     solana_log_collector::{ic_msg, LogCollector},
     solana_measure::measure::Measure,
-    solana_precompiles::Precompile,
     solana_pubkey::Pubkey,
     solana_sbpf::{
         ebpf::MM_HEAP_START,
@@ -28,7 +28,9 @@ use {
         program::{BuiltinFunction, SBPFVersion},
         vm::{Config, ContextObject, EbpfVm},
     },
-    solana_sdk_ids::{bpf_loader_deprecated, native_loader, sysvar},
+    solana_sdk_ids::{
+        bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable, loader_v4, native_loader, sysvar,
+    },
     solana_stable_layout::stable_instruction::StableInstruction,
     solana_timings::{ExecuteDetailsTimings, ExecuteTimings},
     solana_transaction_context::{
@@ -523,6 +525,19 @@ impl<'a> InvokeContext<'a> {
             let owner_id = borrowed_root_account.get_owner();
             if native_loader::check_id(owner_id) {
                 *borrowed_root_account.get_key()
+            } else if self
+                .get_feature_set()
+                .is_active(&remove_accounts_executable_flag_checks::id())
+            {
+                if bpf_loader_deprecated::check_id(owner_id)
+                    || bpf_loader::check_id(owner_id)
+                    || bpf_loader_upgradeable::check_id(owner_id)
+                    || loader_v4::check_id(owner_id)
+                {
+                    *owner_id
+                } else {
+                    return Err(InstructionError::UnsupportedProgramId);
+                }
             } else {
                 *owner_id
             }
@@ -716,8 +731,8 @@ macro_rules! with_mock_invoke_context {
         $transaction_accounts:expr $(,)?
     ) => {
         use {
+            agave_feature_set::FeatureSet,
             solana_compute_budget::compute_budget::ComputeBudget,
-            solana_feature_set::FeatureSet,
             solana_log_collector::LogCollector,
             solana_type_overrides::sync::Arc,
             $crate::{
@@ -744,9 +759,9 @@ macro_rules! with_mock_invoke_context {
                 {
                     callback(
                         $transaction_context
-                            .get_account_at_index(index)
+                            .accounts()
+                            .try_borrow(index)
                             .unwrap()
-                            .borrow()
                             .data(),
                     );
                 }

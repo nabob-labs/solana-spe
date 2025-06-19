@@ -58,6 +58,9 @@ use {
         verify_precompiles::verify_precompiles,
     },
     accounts_lt_hash::{CacheValue as AccountsLtHashCacheValue, Stats as AccountsLtHashStats},
+    agave_feature_set::{self as feature_set, reward_full_priority_fee, FeatureSet},
+    agave_precompiles::get_precompiles,
+    agave_reserved_account_keys::ReservedAccountKeys,
     ahash::AHashSet,
     dashmap::{DashMap, DashSet},
     log::*,
@@ -93,8 +96,10 @@ use {
     solana_builtins::{prototype::BuiltinPrototype, BUILTINS, STATELESS_BUILTINS},
     solana_compute_budget::compute_budget::ComputeBudget,
     solana_compute_budget_instruction::instructions_processor::process_compute_budget_instructions,
-    solana_cost_model::{block_cost_limits::simd_0207_block_limits, cost_tracker::CostTracker},
-    solana_feature_set::{self as feature_set, reward_full_priority_fee, FeatureSet},
+    solana_cost_model::{
+        block_cost_limits::{simd_0207_block_limits, simd_0256_block_limits},
+        cost_tracker::CostTracker,
+    },
     solana_fee::FeeFeatures,
     solana_lattice_hash::lt_hash::LtHash,
     solana_measure::{meas_dur, measure::Measure, measure_time, measure_us},
@@ -132,11 +137,9 @@ use {
         native_loader,
         native_token::LAMPORTS_PER_SOL,
         packet::PACKET_DATA_SIZE,
-        precompiles::get_precompiles,
         pubkey::Pubkey,
         rent_collector::{CollectedInfo, RentCollector},
         rent_debits::RentDebits,
-        reserved_account_keys::ReservedAccountKeys,
         reward_info::RewardInfo,
         signature::{Keypair, Signature},
         slot_hashes::SlotHashes,
@@ -149,7 +152,6 @@ use {
             MessageHash, Result, SanitizedTransaction, Transaction, TransactionError,
             TransactionVerificationMode, VersionedTransaction, MAX_TX_ACCOUNT_LOCKS,
         },
-        transaction_context::{TransactionAccount, TransactionReturnData},
     },
     solana_stake_program::points::InflationPointCalculationEvent,
     solana_svm::{
@@ -172,6 +174,7 @@ use {
     },
     solana_svm_transaction::svm_message::SVMMessage,
     solana_timings::{ExecuteTimingType, ExecuteTimings},
+    solana_transaction_context::{TransactionAccount, TransactionReturnData},
     solana_vote::vote_account::{VoteAccount, VoteAccountsHashMap},
     std::{
         collections::{HashMap, HashSet},
@@ -3997,6 +4000,13 @@ impl Bank {
             return;
         }
 
+        if self
+            .feature_set
+            .is_active(&feature_set::disable_partitioned_rent_collection::id())
+        {
+            return;
+        }
+
         let mut measure = Measure::start("collect_rent_eagerly-ms");
         let partitions = self.rent_collection_partitions();
         let count = partitions.len();
@@ -4861,6 +4871,18 @@ impl Bank {
             .is_active(&feature_set::raise_block_limits_to_50m::id())
         {
             let (account_cost_limit, block_cost_limit, vote_cost_limit) = simd_0207_block_limits();
+            self.write_cost_tracker().unwrap().set_limits(
+                account_cost_limit,
+                block_cost_limit,
+                vote_cost_limit,
+            );
+        }
+
+        if self
+            .feature_set
+            .is_active(&feature_set::raise_block_limits_to_60m::id())
+        {
+            let (account_cost_limit, block_cost_limit, vote_cost_limit) = simd_0256_block_limits();
             self.write_cost_tracker().unwrap().set_limits(
                 account_cost_limit,
                 block_cost_limit,
@@ -6381,15 +6403,15 @@ impl Bank {
 
     pub fn deactivate_feature(&mut self, id: &Pubkey) {
         let mut feature_set = Arc::make_mut(&mut self.feature_set).clone();
-        feature_set.active.remove(id);
-        feature_set.inactive.insert(*id);
+        feature_set.active_mut().remove(id);
+        feature_set.inactive_mut().insert(*id);
         self.feature_set = Arc::new(feature_set);
     }
 
     pub fn activate_feature(&mut self, id: &Pubkey) {
         let mut feature_set = Arc::make_mut(&mut self.feature_set).clone();
-        feature_set.inactive.remove(id);
-        feature_set.active.insert(*id, 0);
+        feature_set.inactive_mut().remove(id);
+        feature_set.active_mut().insert(*id, 0);
         self.feature_set = Arc::new(feature_set);
     }
 
@@ -6540,8 +6562,21 @@ impl Bank {
             }
         }
 
-        if new_feature_activations.contains(&feature_set::raise_block_limits_to_50m::id()) {
+        if new_feature_activations.contains(&feature_set::raise_block_limits_to_50m::id())
+            && !self
+                .feature_set
+                .is_active(&feature_set::raise_block_limits_to_60m::id())
+        {
             let (account_cost_limit, block_cost_limit, vote_cost_limit) = simd_0207_block_limits();
+            self.write_cost_tracker().unwrap().set_limits(
+                account_cost_limit,
+                block_cost_limit,
+                vote_cost_limit,
+            );
+        }
+
+        if new_feature_activations.contains(&feature_set::raise_block_limits_to_60m::id()) {
+            let (account_cost_limit, block_cost_limit, vote_cost_limit) = simd_0256_block_limits();
             self.write_cost_tracker().unwrap().set_limits(
                 account_cost_limit,
                 block_cost_limit,
@@ -6575,12 +6610,12 @@ impl Bank {
     /// Compute the active feature set based on the current bank state,
     /// and return it together with the set of newly activated features.
     fn compute_active_feature_set(&self, include_pending: bool) -> (FeatureSet, AHashSet<Pubkey>) {
-        let mut active = self.feature_set.active.clone();
+        let mut active = self.feature_set.active().clone();
         let mut inactive = AHashSet::new();
         let mut pending = AHashSet::new();
         let slot = self.slot();
 
-        for feature_id in &self.feature_set.inactive {
+        for feature_id in self.feature_set.inactive() {
             let mut activated = None;
             if let Some(account) = self.get_account_with_fixed_root(feature_id) {
                 if let Some(feature) = feature::from_account(&account) {
@@ -6605,7 +6640,7 @@ impl Bank {
             }
         }
 
-        (FeatureSet { active, inactive }, pending)
+        (FeatureSet::new(active, inactive), pending)
     }
 
     fn apply_builtin_program_feature_transitions(
@@ -6772,15 +6807,19 @@ impl Bank {
         total_accounts_stats
     }
 
+    /// Must a snapshot of this bank include the EAH?
+    pub fn must_include_epoch_accounts_hash_in_snapshot(&self) -> bool {
+        epoch_accounts_hash_utils::is_enabled_this_epoch(self)
+            && epoch_accounts_hash_utils::is_in_calculation_window(self)
+    }
+
     /// Get the EAH that will be used by snapshots
     ///
     /// Since snapshots are taken on roots, if the bank is in the EAH calculation window then an
     /// EAH *must* be included.  This means if an EAH calculation is currently in-flight we will
     /// wait for it to complete.
     pub fn get_epoch_accounts_hash_to_serialize(&self) -> Option<EpochAccountsHash> {
-        let should_get_epoch_accounts_hash = epoch_accounts_hash_utils::is_enabled_this_epoch(self)
-            && epoch_accounts_hash_utils::is_in_calculation_window(self);
-        if !should_get_epoch_accounts_hash {
+        if !self.must_include_epoch_accounts_hash_in_snapshot() {
             return None;
         }
 

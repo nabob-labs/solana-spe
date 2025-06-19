@@ -1,13 +1,18 @@
 [package]
 name = "solana-runtime"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana runtime"
+documentation = "https://docs.rs/solana-runtime"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
+agave-feature-set = { workspace = true }
+agave-precompiles = { workspace = true }
+agave-reserved-account-keys = { workspace = true }
 ahash = { workspace = true }
 aquamarine = { workspace = true }
 arrayref = { workspace = true }
@@ -53,7 +58,6 @@ solana-compute-budget = { workspace = true }
 solana-compute-budget-instruction = { workspace = true }
 solana-config-program = { workspace = true }
 solana-cost-model = { workspace = true }
-solana-feature-set = { workspace = true }
 solana-fee = { workspace = true }
 solana-frozen-abi = { workspace = true, optional = true, features = [
     "frozen-abi",
@@ -63,6 +67,8 @@ solana-frozen-abi-macro = { workspace = true, optional = true, features = [
 ] }
 solana-inline-spl = { workspace = true }
 solana-lattice-hash = { workspace = true }
+solana-loader-v3-interface = { workspace = true, features = ["bincode"] }
+solana-loader-v4-interface = { workspace = true, features = ["serde"] }
 solana-measure = { workspace = true }
 solana-metrics = { workspace = true }
 solana-nohash-hasher = { workspace = true }
@@ -80,6 +86,7 @@ solana-svm-rent-collector = { workspace = true }
 solana-svm-transaction = { workspace = true }
 solana-system-program = { workspace = true, optional = true }
 solana-timings = { workspace = true }
+solana-transaction-context = { workspace = true }
 solana-transaction-status-client-types = { workspace = true }
 solana-unified-scheduler-logic = { workspace = true }
 solana-version = { workspace = true }
@@ -108,7 +115,6 @@ rand0-7 = { package = "rand", version = "0.7" }
 rand_chacha = { workspace = true }
 solana-accounts-db = { workspace = true, features = ["dev-context-only-utils"] }
 solana-builtins = { workspace = true, features = ["dev-context-only-utils"] }
-solana-loader-v3-interface = { workspace = true }
 solana-logger = { workspace = true }
 # See order-crates-for-publishing.py for using this unusual `path = "."`
 solana-runtime = { path = ".", features = ["dev-context-only-utils"] }
@@ -118,6 +124,7 @@ solana-runtime-transaction = { workspace = true, features = [
 solana-sdk = { workspace = true, features = ["dev-context-only-utils"] }
 solana-sdk-ids = { workspace = true }
 solana-svm = { workspace = true, features = ["dev-context-only-utils"] }
+solana-transaction-context = { workspace = true, features = ["dev-context-only-utils" ] }
 static_assertions = { workspace = true }
 test-case = { workspace = true }
 
@@ -144,6 +151,9 @@ frozen-abi = [
     "solana-vote/frozen-abi",
     "solana-vote-program/frozen-abi",
 ]
+
+[[bench]]
+name = "prioritization_fee_cache"
 
 [lints]
 workspace = true

@@ -1,20 +1,13 @@
 [package]
 name = "solana-vote-interface"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg=docsrs"]
-targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "solana_vote_interface"
-path = "src/lib.rs"
+description = "Solana vote interface."
+documentation = "https://docs.rs/solana-vote-interface"
+version = "2.2.3"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 arbitrary = { workspace = true, features = ["derive"], optional = true }
@@ -57,9 +50,13 @@ bincode = [
     "dep:bincode",
     "dep:solana-serialize-utils",
     "dep:solana-system-interface",
-    "serde",
+    "serde"
 ]
-dev-context-only-utils = ["bincode"]
+dev-context-only-utils = [
+    "bincode",
+    "dep:arbitrary",
+    "solana-pubkey/dev-context-only-utils",
+]
 frozen-abi = [
     "dep:solana-frozen-abi",
     "dep:solana-frozen-abi-macro",
@@ -74,13 +71,13 @@ serde = [
     "dep:solana-serde-varint",
     "dep:solana-short-vec",
     "solana-hash/serde",
-    "solana-pubkey/serde",
+    "solana-pubkey/serde"
 ]
 
-[lints.rust.unexpected_cfgs]
-level = "warn"
-priority = 0
-check-cfg = [
-    'cfg(target_os, values("solana"))',
-    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
-]
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]
+
+[lints]
+workspace = true

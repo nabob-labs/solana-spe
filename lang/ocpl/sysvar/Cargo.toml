@@ -1,20 +1,13 @@
 [package]
 name = "solana-sysvar"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
-
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg=docsrs"]
-targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "solana_sysvar"
-path = "src/lib.rs"
+description = "Solana sysvar account types"
+documentation = "https://docs.rs/solana-sysvar"
+version = "2.2.1"
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 bincode = { workspace = true, optional = true }
@@ -57,31 +50,20 @@ solana-define-syscall = { workspace = true }
 anyhow = { workspace = true }
 serial_test = { workspace = true }
 solana-msg = { workspace = true }
-#solana-program = { path = "../program" }
-#solana-sdk = { path = "../sdk" }
+solana-program = { path = "../program" }
+solana-sdk = { path = "../sdk" }
 solana-sha256-hasher = { workspace = true }
 solana-sysvar = { path = ".", features = ["dev-context-only-utils"] }
 test-case = { workspace = true }
 
 [features]
-bincode = [
-    "dep:bincode",
-    "serde",
-    "solana-stake-interface/bincode",
-]
-bytemuck = [
-    "dep:bytemuck",
-    "dep:bytemuck_derive",
-]
-dev-context-only-utils = [
-    "bincode",
-    "bytemuck",
-    "solana-instructions-sysvar/dev-context-only-utils",
-]
+bincode = ["dep:bincode", "serde", "solana-stake-interface/bincode"]
+bytemuck = ["dep:bytemuck", "dep:bytemuck_derive"]
+dev-context-only-utils = ["bincode", "bytemuck", "solana-instructions-sysvar/dev-context-only-utils"]
 frozen-abi = [
     "dep:solana-frozen-abi",
     "dep:solana-frozen-abi-macro",
-    "solana-stake-interface/frozen-abi",
+    "solana-stake-interface/frozen-abi"
 ]
 serde = [
     "dep:serde",
@@ -97,10 +79,10 @@ serde = [
     "solana-stake-interface/serde",
 ]
 
-[lints.rust.unexpected_cfgs]
-level = "warn"
-priority = 0
-check-cfg = [
-    'cfg(target_os, values("solana"))',
-    'cfg(feature, values("frozen-abi", "no-entrypoint"))',
-]
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+all-features = true
+rustdoc-args = ["--cfg=docsrs"]
+
+[lints]
+workspace = true

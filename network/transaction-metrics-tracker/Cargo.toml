@@ -1,11 +1,13 @@
 [package]
 name = "solana-transaction-metrics-tracker"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana transaction metrics tracker"
+documentation = "https://docs.rs/solana-transaction-metrics-tracker"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
 base64 = { workspace = true }

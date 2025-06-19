@@ -1,15 +1,20 @@
 [package]
 name = "solana-bpf-loader-program"
-version.workspace = true
-authors.workspace = true
-repository.workspace = true
-homepage.workspace = true
-license.workspace = true
-edition.workspace = true
+description = "Solana BPF loader"
+documentation = "https://docs.rs/solana-bpf-loader-program"
+version = { workspace = true }
+authors = { workspace = true }
+repository = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+edition = { workspace = true }
 
 [dependencies]
+agave-feature-set = { workspace = true }
+agave-precompiles = { workspace = true }
 bincode = { workspace = true }
 libsecp256k1 = { workspace = true }
+num-traits = { workspace = true }
 qualifier_attr = { workspace = true }
 scopeguard = { workspace = true }
 solana-account = { workspace = true }
@@ -22,7 +27,6 @@ solana-clock = { workspace = true }
 solana-compute-budget = { workspace = true }
 solana-cpi = { workspace = true }
 solana-curve25519 = { workspace = true }
-solana-feature-set = { workspace = true }
 solana-hash = { workspace = true }
 solana-instruction = { workspace = true }
 solana-keccak-hasher = { workspace = true }
@@ -32,9 +36,7 @@ solana-log-collector = { workspace = true }
 solana-measure = { workspace = true }
 solana-packet = { workspace = true }
 solana-poseidon = { workspace = true }
-solana-precompiles = { workspace = true }
 solana-program-entrypoint = { workspace = true }
-solana-program-memory = { workspace = true }
 solana-program-runtime = { workspace = true }
 solana-pubkey = { workspace = true }
 solana-sbpf = { workspace = true }
@@ -70,6 +72,14 @@ test-case = { workspace = true }
 [lib]
 crate-type = ["lib"]
 name = "solana_bpf_loader_program"
+
+[[bench]]
+name = "serialization"
+harness = false
+
+[[bench]]
+name = "bpf_loader_upgradeable"
+harness = false
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
