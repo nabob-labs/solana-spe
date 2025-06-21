@@ -2,6 +2,11 @@
 inherits = "release"
 debug = true
 split-debuginfo = "packed"
+lto = false                # Preserve the 'thin local LTO' for this build.
+
+[profile.release]
+split-debuginfo = "unpacked"
+lto = "thin"
 
 [workspace]
 members = [
@@ -111,113 +116,25 @@ members = [
     "tool/dos",
     "tool/cargo-registry",
     "tool/tokens",
+    "tool/ledger-tool",
+    "tool/log-analyzer",
+    "tool/net-shaper",
+    "tool/stake-accounts",
+    "tool/transaction-dos",
+    "tool/upload-perf",
+    "tool/notifier",
+    "tool/watchtower",
+    "tool/rbpf-cli",
+    "bench/accounts-bench",
+    "bench/accounts-cluster-bench",
+    "bench/banking-bench",
+    "bench/bench-vote",
+    "bench/bench-streamer",
+    "bench/merkle-root-bench",
+    "bench/poh-bench",
 ]
 
 resolver = "2"
-
-exclude = [
-    "lang/ocpl/logger",
-    "lang/ocpl/frozen-abi-macro",
-    "lang/ocpl/frozen-abi",
-    "lang/ocpl/atomic-u64",
-    "lang/ocpl/decode-error",
-    "lang/ocpl/define-syscall",
-    "lang/ocpl/sanitize",
-    "lang/ocpl/hash",
-    "lang/ocpl/keccak-hasher",
-    "lang/ocpl/sha256-hasher",
-    "lang/ocpl/pubkey",
-    "lang/ocpl/instruction",
-    "lang/ocpl/serialize-utils",
-    "lang/ocpl/msg",
-    "lang/ocpl/program-error",
-    "lang/ocpl/program-memory",
-    "lang/ocpl/account-info",
-    "lang/ocpl/sdk-macro",
-    "lang/ocpl/sdk-ids",
-    "lang/ocpl/sysvar-id",
-    "lang/ocpl/clock",
-    "lang/ocpl/epoch-schedule",
-    "lang/ocpl/fee-calculator",
-    "lang/ocpl/last-restart-slot",
-    "lang/ocpl/program-entrypoint",
-    "lang/ocpl/rent",
-    "lang/ocpl/slot-hashes",
-    "lang/ocpl/slot-history",
-    "lang/ocpl/bincode",
-    "lang/ocpl/stable-layout",
-    "lang/ocpl/cpi",
-    "lang/ocpl/native-token",
-    "lang/ocpl/program-option",
-    "lang/ocpl/program-pack",
-    "lang/ocpl/secp256k1-recover",
-    "lang/ocpl/short-vec",
-    "lang/ocpl/serde-varint",
-    "lang/ocpl/transaction-error",
-    "lang/ocpl/big-mod-exp",
-    "lang/ocpl/blake3-hasher",
-    "lang/ocpl/borsh",
-    "lang/ocpl/epoch-rewards",
-    "lang/ocpl/nonce",
-    "lang/ocpl/instructions-sysvar",
-    "lang/ocpl/system-interface",
-    "lang/ocpl/stake-interface",
-    "lang/ocpl/sysvar",
-    "lang/ocpl/account",
-    "lang/ocpl/feature-gate-interface",
-    "lang/ocpl/address-lookup-table-interface",
-    "lang/ocpl/compute-budget-interface",
-    "lang/ocpl/loader-v2-interface",
-    "lang/ocpl/loader-v3-interface",
-    "lang/ocpl/loader-v4-interface",
-    "lang/ocpl/vote-interface",
-    "lang/ocpl/message",
-    "lang/ocpl/example-mocks",
-    "lang/ocpl/program",
-    "lang/ocpl/derivation-path",
-    "lang/ocpl/signature",
-    "lang/ocpl/bn254",
-    "lang/ocpl/feature-set",
-    "lang/ocpl/packet",
-    "lang/ocpl/precompile-error",
-    "lang/ocpl/inflation",
-    "lang/ocpl/epoch-info",
-    "lang/ocpl/epoch-rewards-hasher",
-    "lang/ocpl/fee-structure",
-    "lang/ocpl/hard-forks",
-    "lang/ocpl/seed-derivable",
-    "lang/ocpl/seed-phrase",
-    "lang/ocpl/signer",
-    "lang/ocpl/keypair",
-    "lang/ocpl/nonce-account",
-    "lang/ocpl/offchain-message",
-    "lang/ocpl/poh-config",
-    "lang/ocpl/presigner",
-    "lang/ocpl/reward-info",
-    "lang/ocpl/reserved-account-keys",
-    "lang/ocpl/commitment-config",
-    "lang/ocpl/cluster-type",
-    "lang/ocpl/serde",
-    "lang/ocpl/time-utils",
-    "lang/ocpl/shred-version",
-    "lang/ocpl/genesis-config",
-    "lang/ocpl/rent-collector",
-    "lang/ocpl/rent-debits",
-    "lang/ocpl/ocp/ed25519-program",
-    "lang/ocpl/ocp/secp256k1-program",
-    "lang/ocpl/ocp/secp256r1-program",
-    "lang/ocpl/precompiles",
-    "lang/ocpl/transaction",
-    "lang/ocpl/client-traits",
-    "lang/ocpl/system-transaction",
-    "lang/ocpl/quic-definitions",
-    "lang/ocpl/validator-exit",
-    #"lang/ocpl/transaction-context",
-    "lang/ocpl/sdk",
-    "lang/ocpl/file-download",
-    "lang/ocpl/package-metadata-macro",
-    "lang/ocpl/package-metadata",
-]
 
 [workspace.package]
 version = "2.2.16"
@@ -236,101 +153,101 @@ check-cfg = [
 
 [workspace.dependencies]
 # On Chain Program Language
-solana-logger = "2.3.1"
-solana-frozen-abi-macro = "2.2.1"
-solana-frozen-abi = "2.2.1"
-solana-atomic-u64 = "2.2.1"
-solana-decode-error = "2.2.1"
-solana-define-syscall = "2.2.1"
-solana-sanitize = "2.2.1"
-solana-hash = "2.2.1"
-solana-keccak-hasher = "2.2.1"
-solana-sha256-hasher = "2.2.1"
-solana-pubkey = { version = "2.2.1", default-features = false }
-solana-instruction = "2.2.1"
-solana-serialize-utils = "2.2.1"
-solana-msg = "2.2.1"
-solana-program-error = "2.2.1"
-solana-program-memory = "2.2.1"
-solana-account-info = "2.2.1"
-solana-sdk-macro = "2.2.1"
-solana-sdk-ids = "2.2.1"
-solana-sysvar-id = "2.2.1"
-solana-clock = "2.2.1"
-solana-epoch-schedule = "2.2.1"
-solana-fee-calculator = "2.2.1"
-solana-last-restart-slot = "2.2.1"
-solana-program-entrypoint = "2.2.1"
-solana-rent = "2.2.1"
-solana-slot-hashes = "2.2.1"
-solana-slot-history = "2.2.1"
-solana-bincode = "2.2.1"
-solana-stable-layout = "2.2.1"
-solana-cpi = "2.2.1"
-solana-native-token = "2.2.1"
-solana-program-option = "2.2.1"
-solana-program-pack = "2.2.1"
-solana-secp256k1-recover = "2.2.1"
-solana-short-vec = "2.2.1"
-solana-serde-varint = "2.2.1"
-solana-transaction-error = "2.2.1"
-solana-big-mod-exp = "2.2.1"
-solana-blake3-hasher = "2.2.1"
-solana-borsh = "2.2.1"
-solana-epoch-rewards = "2.2.1"
-solana-nonce = "2.2.1"
-solana-instructions-sysvar = "2.2.1"
-solana-sysvar = "2.2.1"
-solana-account = "2.2.1"
-solana-feature-gate-interface = "2.2.2"
-solana-address-lookup-table-interface = "2.2.2"
-solana-compute-budget-interface = "2.2.1"
-solana-loader-v2-interface = "2.2.1"
-solana-loader-v3-interface = "5.0.0"
-solana-loader-v4-interface = "2.2.1"
-solana-vote-interface = "2.2.3"
-solana-message = "2.2.1"
-solana-example-mocks = "2.2.1"
-solana-program = { version = "2.2.1", default-features = false }
-solana-derivation-path = "2.2.1"
-solana-signature = { version = "2.2.1", default-features = false }
-solana-bn254 = "2.2.2"
-solana-packet = "2.2.1"
-solana-precompile-error = "2.2.1"
-solana-inflation = "2.2.1"
-solana-epoch-info = "2.2.1"
-solana-epoch-rewards-hasher = "2.2.1"
-solana-fee-structure = "2.2.1"
-solana-hard-forks = "2.2.1"
-solana-seed-derivable = "2.2.1"
-solana-seed-phrase = "2.2.1"
-solana-signer = "2.2.1"
-solana-keypair = "2.2.1"
-solana-nonce-account = "2.2.1"
-solana-offchain-message = "2.2.1"
-solana-poh-config = "2.2.1"
-solana-presigner = "2.2.1"
-solana-reward-info = "2.2.1"
-solana-commitment-config = "2.2.1"
-solana-cluster-type = "2.2.1"
-solana-serde = "2.2.1"
-solana-time-utils = "2.2.1"
-solana-shred-version = "2.2.1"
-solana-genesis-config = "2.2.1"
-solana-rent-collector = "2.2.1"
-solana-rent-debits = "2.2.1"
-solana-ed25519-program = "2.2.2"
-solana-secp256k1-program = "2.2.1"
-solana-secp256r1-program = "2.2.2"
-solana-transaction = "2.2.2"
-solana-client-traits = "2.2.1"
-solana-system-transaction = "2.2.1"
-solana-quic-definitions = "2.2.1"
-solana-validator-exit = "2.2.1"
-solana-sdk = "2.2.2"
-solana-file-download = "2.2.1"
-solana-package-metadata = "2.2.1"
-solana-package-metadata-macro = "2.2.1"
+solana-logger = "=2.3.1"
+solana-frozen-abi-macro = "=2.2.1"
+solana-frozen-abi = "=2.2.1"
+solana-atomic-u64 = "=2.2.1"
+solana-decode-error = "=2.2.1"
+solana-define-syscall = "=2.2.1"
+solana-sanitize = "=2.2.1"
+solana-hash = "=2.2.1"
+solana-keccak-hasher = "=2.2.1"
+solana-sha256-hasher = "=2.2.1"
+solana-pubkey = { version = "=2.2.1", default-features = false }
+solana-instruction = "=2.2.1"
+solana-serialize-utils = "=2.2.1"
+solana-msg = "=2.2.1"
+solana-program-error = "=2.2.1"
+solana-program-memory = "=2.2.1"
+solana-account-info = "=2.2.1"
+solana-sdk-macro = "=2.2.1"
+solana-sdk-ids = "=2.2.1"
+solana-sysvar-id = "=2.2.1"
+solana-clock = "=2.2.1"
+solana-epoch-schedule = "=2.2.1"
+solana-fee-calculator = "=2.2.1"
+solana-last-restart-slot = "=2.2.1"
+solana-program-entrypoint = "=2.2.1"
+solana-rent = "=2.2.1"
+solana-slot-hashes = "=2.2.1"
+solana-slot-history = "=2.2.1"
+solana-bincode = "=2.2.1"
+solana-stable-layout = "=2.2.1"
+solana-cpi = "=2.2.1"
+solana-native-token = "=2.2.1"
+solana-program-option = "=2.2.1"
+solana-program-pack = "=2.2.1"
+solana-secp256k1-recover = "=2.2.1"
+solana-short-vec = "=2.2.1"
+solana-serde-varint = "=2.2.1"
+solana-transaction-error = "=2.2.1"
+solana-big-mod-exp = "=2.2.1"
+solana-blake3-hasher = "=2.2.1"
+solana-borsh = "=2.2.1"
+solana-epoch-rewards = "=2.2.1"
+solana-nonce = "=2.2.1"
+solana-instructions-sysvar = "=2.2.1"
+solana-sysvar = "=2.2.1"
+solana-account = "=2.2.1"
+solana-feature-gate-interface = "=2.2.2"
+solana-address-lookup-table-interface = "=2.2.2"
+solana-compute-budget-interface = "=2.2.1"
+solana-loader-v2-interface = "=2.2.1"
+solana-loader-v3-interface = "=5.0.0"
+solana-loader-v4-interface = "=2.2.1"
+solana-vote-interface = "=2.2.3"
+solana-message = "=2.2.1"
+solana-example-mocks = "=2.2.1"
+solana-program = { version = "=2.2.1", default-features = false }
+solana-derivation-path = "=2.2.1"
+solana-signature = { version = "=2.2.1", default-features = false }
+solana-bn254 = "=2.2.2"
+solana-packet = "=2.2.1"
+solana-precompile-error = "=2.2.1"
+solana-inflation = "=2.2.1"
+solana-epoch-info = "=2.2.1"
+solana-epoch-rewards-hasher = "=2.2.1"
+solana-fee-structure = "=2.2.1"
+solana-hard-forks = "=2.2.1"
+solana-seed-derivable = "=2.2.1"
+solana-seed-phrase = "=2.2.1"
+solana-signer = "=2.2.1"
+solana-keypair = "=2.2.1"
+solana-nonce-account = "=2.2.1"
+solana-offchain-message = "=2.2.1"
+solana-poh-config = "=2.2.1"
+solana-presigner = "=2.2.1"
+solana-reward-info = "=2.2.1"
+solana-commitment-config = "=2.2.1"
+solana-cluster-type = "=2.2.1"
+solana-serde = "=2.2.1"
+solana-time-utils = "=2.2.1"
+solana-shred-version = "=2.2.1"
+solana-genesis-config = "=2.2.1"
+solana-rent-collector = "=2.2.1"
+solana-rent-debits = "=2.2.1"
+solana-ed25519-program = "=2.2.2"
+solana-secp256k1-program = "=2.2.1"
+solana-secp256r1-program = "=2.2.2"
+solana-transaction = "=2.2.2"
+solana-client-traits = "=2.2.1"
+solana-system-transaction = "=2.2.1"
+solana-quic-definitions = "=2.2.1"
+solana-validator-exit = "=2.2.1"
+solana-sdk = "=2.2.2"
+solana-file-download = "=2.2.1"
+solana-package-metadata = "=2.2.1"
+solana-package-metadata-macro = "=2.2.1"
 
 solana-nohash-hasher = "=0.2.1"
 solana-stake-interface = "=1.2.1"
@@ -391,8 +308,8 @@ solana-perf = { path = "ocios/perf", version = "=2.2.16" }
 solana-account-decoder-client-types = { path = "ocios/account-decoder-client-types", version = "=2.2.16" }
 solana-account-decoder = { path = "ocios/account-decoder", version = "=2.2.16" }
 solana-transaction-status-client-types = { path = "ocios/transaction-status-client-types", version = "=2.2.16" }
-solana-transaction-status = { path = "ocios/transaction-status", version = "=2.2.16" }
 agave-reserved-account-keys = { path = "ocios/reserved-account-keys", version = "=2.2.16" }
+solana-transaction-status = { path = "ocios/transaction-status", version = "=2.2.16" }
 solana-svm = { path = "ocios/svm", version = "=2.2.16" }
 solana-vote = { path = "ocios/vote", version = "=2.2.16" }
 solana-builtins = { path = "ocios/builtins", version = "=2.2.16" }
@@ -462,8 +379,26 @@ solana-zk-keygen = { path = "tool/zk-keygen", version = "=2.2.16" }
 solana-local-cluster = { path = "tool/local-cluster", version = "=2.2.16" }
 solana-bench-tps = { path = "tool/bench-tps", version = "=2.2.16" }
 solana-dos = { path = "tool/dos", version = "=2.2.16" }
-solana-cargo-registry = { path = "tool/cargo-registry", version = "=2.2.16" }
+agave-cargo-registry = { path = "tool/cargo-registry", version = "=2.2.16" }
 solana-tokens = { path = "tool/tokens", version = "=2.2.16" }
+agave-ledger-tool = { path = "tool/ledger-tool", version = "=2.2.16" }
+solana-log-analyzer = { path = "tool/log-analyzer", version = "=2.2.16" }
+solana-net-shaper = { path = "tool/net-shaper", version = "=2.2.16" }
+solana-stake-accounts = { path = "tool/stake-accounts", version = "=2.2.16" }
+solana-transaction-dos = { path = "tool/transaction-dos", version = "=2.2.16" }
+solana-upload-perf = { path = "tool/upload-perf", version = "=2.2.16" }
+solana-notifier = { path = "tool/notifier", version = "=2.2.16" }
+solana-watchtower = { path = "tool/watchtower", version = "=2.2.16" }
+solana-rbpf-cli = { path = "tool/rbpf-cli", version = "=2.2.16" }
+
+# Bench
+solana-accounts-bench = { path = "bench/accounts-bench", version = "=2.2.16" }
+solana-accounts-cluster-bench = { path = "bench/accounts-cluster-bench", version = "=2.2.16" }
+solana-banking-bench = { path = "bench/banking-bench", version = "=2.2.16" }
+solana-bench-vote = { path = "bench/bench-vote", version = "2.2.16" }
+solana-bench-streamer = { path = "bench/bench-streamer", version = "=2.2.16" }
+solana-merkle-root-bench = { path = "bench/merkle-root-bench", version = "=2.2.16" }
+solana-poh-bench = { path = "bench/poh-bench", version = "=2.2.16" }
 
 Inflector = "0.11.4"
 axum = "0.7.9"

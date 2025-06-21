@@ -47,7 +47,7 @@ crate-type = ["lib"]
 name = "solana_cost_model"
 
 [dev-dependencies]
-#agave-reserved-account-keys = { workspace = true }
+agave-reserved-account-keys = { workspace = true }
 itertools = { workspace = true }
 rand = "0.8.5"
 # See order-crates-for-publishing.py for using this unusual `path = "."`
