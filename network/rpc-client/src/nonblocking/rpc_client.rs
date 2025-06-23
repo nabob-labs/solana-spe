@@ -1143,26 +1143,6 @@ impl RpcClient {
         }
     }
 
-    pub async fn sanitize_transaction(
-        &self,
-        transaction: &impl SerializableTransaction,
-        config: RcpSanitizeTransactionConfig,
-    ) -> ClientResult<()> {
-        let encoding = config.encoding.unwrap_or(UiTransactionEncoding::Base64);
-        let commitment = config.commitment.unwrap_or_default();
-        let config = RcpSanitizeTransactionConfig {
-            encoding: Some(encoding),
-            commitment: Some(commitment),
-            ..config
-        };
-        let serialized_encoded = serialize_and_encode(transaction, encoding)?;
-        self.send(
-            RpcRequest::SanitizeTransaction,
-            json!([serialized_encoded, config]),
-        )
-        .await
-    }
-
     /// Simulates sending a transaction.
     ///
     /// If the transaction fails, then the [`err`] field of the returned
@@ -4565,27 +4545,6 @@ impl RpcClient {
         Ok(blockhash)
     }
 
-    pub async fn get_latest_blockhash_with_config(
-        &self,
-        config: RpcLatestBlockhashConfig,
-    ) -> ClientResult<(Hash, u64)> {
-        let RpcBlockhash {
-            blockhash,
-            last_valid_block_height,
-        } = self
-            .send::<Response<RpcBlockhash>>(RpcRequest::GetLatestBlockhash, json!([config]))
-            .await?
-            .value;
-        let blockhash = blockhash.parse().map_err(|_| {
-            ClientError::new_with_request(
-                RpcError::ParseError("Hash".to_string()).into(),
-                RpcRequest::GetLatestBlockhash,
-            )
-        })?;
-        Ok((blockhash, last_valid_block_height))
-    }
-
-    #[allow(deprecated)]
     pub async fn get_latest_blockhash_with_commitment(
         &self,
         commitment: CommitmentConfig,

@@ -2359,28 +2359,8 @@ impl JsonRpcRequestProcessor {
         }
     }
 
-    fn get_latest_blockhash(
-        &self,
-        config: RpcLatestBlockhashConfig,
-    ) -> Result<RpcResponse<RpcBlockhash>> {
-        let mut bank = self.get_bank_with_config(config.context)?;
-        if config.rollback > MAX_PROCESSING_AGE {
-            return Err(Error::invalid_params(format!("rollback exceeds ${MAX_PROCESSING_AGE}")));
-        }
-        if config.rollback > 0 {
-            let r_bank_forks = self.bank_forks.read().unwrap();
-            for _ in 0..config.rollback {
-                bank = match r_bank_forks.get(bank.parent_slot()).or_else(|| {
-                    r_bank_forks
-                        .banks_frozen
-                        .get(&bank.parent_slot())
-                        .map(Clone::clone)
-                }) {
-                    Some(bank) => bank,
-                    None => return Err(Error::invalid_params("failed to rollback block")),
-                };
-            }
-        }
+    fn get_latest_blockhash(&self, config: RpcContextConfig) -> Result<RpcResponse<RpcBlockhash>> {
+        let bank = self.get_bank_with_config(config)?;
         let blockhash = bank.last_blockhash();
         let last_valid_block_height = bank
             .get_blockhash_last_valid_block_height(&blockhash)
@@ -2414,18 +2394,10 @@ impl JsonRpcRequestProcessor {
     fn get_recent_prioritization_fees(
         &self,
         pubkeys: Vec<Pubkey>,
-        percentile: Option<u16>,
     ) -> Result<Vec<RpcPrioritizationFee>> {
-        let cache = match percentile {
-            Some(percentile) => self
-                .prioritization_fee_cache
-                .get_prioritization_fees2(&pubkeys, percentile),
-            None => self
-                .prioritization_fee_cache
-                .get_prioritization_fees(&pubkeys),
-        };
-
-        Ok(cache
+        Ok(self
+            .prioritization_fee_cache
+            .get_prioritization_fees(&pubkeys)
             .into_iter()
             .map(|(slot, prioritization_fee)| RpcPrioritizationFee {
                 slot,
@@ -2627,7 +2599,6 @@ fn get_spl_token_owner_filter(program_id: &Pubkey, filters: &[RpcFilterType]) ->
                 }
             }
             RpcFilterType::TokenAccountState => token_account_state_filter = true,
-            RpcFilterType::ValueCmp(_) => {}
         }
     }
     if data_size_filter == Some(account_packed_len as u64)
@@ -2679,7 +2650,6 @@ fn get_spl_token_mint_filter(program_id: &Pubkey, filters: &[RpcFilterType]) -> 
                 }
             }
             RpcFilterType::TokenAccountState => token_account_state_filter = true,
-            RpcFilterType::ValueCmp(_) => {}
         }
     }
     if data_size_filter == Some(account_packed_len as u64)
@@ -3571,14 +3541,6 @@ pub mod rpc_full {
             config: Option<RpcSendTransactionConfig>,
         ) -> Result<String>;
 
-        #[rpc(meta, name = "sanitizeTransaction")]
-        fn sanitize_transaction(
-            &self,
-            meta: Self::Metadata,
-            data: String,
-            config: Option<RcpSanitizeTransactionConfig>,
-        ) -> Result<()>;
-
         #[rpc(meta, name = "simulateTransaction")]
         fn simulate_transaction(
             &self,
@@ -3646,7 +3608,7 @@ pub mod rpc_full {
         fn get_latest_blockhash(
             &self,
             meta: Self::Metadata,
-            config: Option<RpcLatestBlockhashConfig>,
+            config: Option<RpcContextConfig>,
         ) -> Result<RpcResponse<RpcBlockhash>>;
 
         #[rpc(meta, name = "isBlockhashValid")]
@@ -3677,7 +3639,6 @@ pub mod rpc_full {
             &self,
             meta: Self::Metadata,
             pubkey_strs: Option<Vec<String>>,
-            config: Option<RpcRecentPrioritizationFeesConfig>,
         ) -> Result<Vec<RpcPrioritizationFee>>;
     }
 
@@ -3880,7 +3841,6 @@ pub mod rpc_full {
             debug!("send_transaction rpc request received");
             let RpcSendTransactionConfig {
                 skip_preflight,
-                skip_sanitize,
                 preflight_commitment,
                 encoding,
                 max_retries,
@@ -3905,49 +3865,30 @@ pub mod rpc_full {
                 min_context_slot,
             })?;
 
-            let recent_blockhash = *unsanitized_tx.message.recent_blockhash();
-            let (signature, sanitized_tx) = if skip_preflight && skip_sanitize {
-                unsanitized_tx.sanitize().map_err(|_err| {
-                    Error::invalid_params(format!(
-                        "invalid transaction: {}",
-                        TransactionError::SanitizeFailure
-                    ))
-                })?;
-                (unsanitized_tx.signatures[0], None)
-            } else {
-                let tx = sanitize_transaction(
-                    unsanitized_tx,
-                    preflight_bank,
-                    preflight_bank.get_reserved_account_keys(),
-                )?;
-                (*tx.signature(), Some(tx))
-            };
+            let transaction = sanitize_transaction(
+                unsanitized_tx,
+                preflight_bank,
+                preflight_bank.get_reserved_account_keys(),
+            )?;
+            let signature = *transaction.signature();
 
             let mut last_valid_block_height = preflight_bank
-                .get_blockhash_last_valid_block_height(&recent_blockhash)
+                .get_blockhash_last_valid_block_height(transaction.message().recent_blockhash())
                 .unwrap_or(0);
 
-            let mut durable_nonce_info = None;
-            if let Some(sanitized_tx) = &sanitized_tx {
-                durable_nonce_info = sanitized_tx
-                    .get_durable_nonce()
-                    .map(|&pubkey| (pubkey, recent_blockhash));
-                if durable_nonce_info.is_some() || (skip_preflight && last_valid_block_height == 0)
-                {
-                    // While it uses a defined constant, this last_valid_block_height value is chosen arbitrarily.
-                    // It provides a fallback timeout for durable-nonce transaction retries in case of
-                    // malicious packing of the retry queue. Durable-nonce transactions are otherwise
-                    // retried until the nonce is advanced.
-                    last_valid_block_height =
-                        preflight_bank.block_height() + MAX_PROCESSING_AGE as u64;
-                }
+            let durable_nonce_info = transaction
+                .get_durable_nonce()
+                .map(|&pubkey| (pubkey, *transaction.message().recent_blockhash()));
+            if durable_nonce_info.is_some() || (skip_preflight && last_valid_block_height == 0) {
+                // While it uses a defined constant, this last_valid_block_height value is chosen arbitrarily.
+                // It provides a fallback timeout for durable-nonce transaction retries in case of
+                // malicious packing of the retry queue. Durable-nonce transactions are otherwise
+                // retried until the nonce is advanced.
+                last_valid_block_height = preflight_bank.block_height() + MAX_PROCESSING_AGE as u64;
             }
 
             if !skip_preflight {
-                let Some(sanitized_tx) = sanitized_tx else {
-                    return Err(Error::invalid_params("sanitized transaction should exists"));
-                };
-                verify_transaction(&sanitized_tx, &preflight_bank.feature_set)?;
+                verify_transaction(&transaction, &preflight_bank.feature_set)?;
 
                 if !meta.config.skip_preflight_health_check {
                     match meta.health.check() {
@@ -3976,7 +3917,7 @@ pub mod rpc_full {
                     units_consumed,
                     return_data,
                     inner_instructions: _, // Always `None` due to `enable_cpi_recording = false`
-                } = preflight_bank.simulate_transaction(&sanitized_tx, false)
+                } = preflight_bank.simulate_transaction(&transaction, false)
                 {
                     match err {
                         TransactionError::BlockhashNotFound => {
@@ -4010,40 +3951,6 @@ pub mod rpc_full {
                 durable_nonce_info,
                 max_retries,
             )
-        }
-
-        fn sanitize_transaction(
-            &self,
-            meta: Self::Metadata,
-            data: String,
-            config: Option<RcpSanitizeTransactionConfig>,
-        ) -> Result<()> {
-            let RcpSanitizeTransactionConfig {
-                sig_verify,
-                commitment,
-                encoding,
-                min_context_slot,
-            } = config.unwrap_or_default();
-            let tx_encoding = encoding.unwrap_or(UiTransactionEncoding::Base58);
-            let binary_encoding = tx_encoding.into_binary_encoding().ok_or_else(|| {
-                Error::invalid_params(format!(
-                    "unsupported encoding: {tx_encoding}. Supported encodings: base58, base64"
-                ))
-            })?;
-            let (_wire_transaction, unsanitized_tx) =
-                decode_and_deserialize::<VersionedTransaction>(data, binary_encoding)?;
-
-            let bank = &*meta.get_bank_with_config(RpcContextConfig {
-                commitment,
-                min_context_slot,
-            })?;
-            let transaction =
-                sanitize_transaction(unsanitized_tx, bank, bank.get_reserved_account_keys())?;
-            if sig_verify {
-                verify_transaction(&transaction, &bank.feature_set)?;
-            }
-
-            Ok(())
         }
 
         fn simulate_transaction(
@@ -4315,7 +4222,7 @@ pub mod rpc_full {
         fn get_latest_blockhash(
             &self,
             meta: Self::Metadata,
-            config: Option<RpcLatestBlockhashConfig>,
+            config: Option<RpcContextConfig>,
         ) -> Result<RpcResponse<RpcBlockhash>> {
             debug!("get_latest_blockhash rpc request received");
             meta.get_latest_blockhash(config.unwrap_or_default())
@@ -4371,7 +4278,6 @@ pub mod rpc_full {
             &self,
             meta: Self::Metadata,
             pubkey_strs: Option<Vec<String>>,
-            config: Option<RpcRecentPrioritizationFeesConfig>,
         ) -> Result<Vec<RpcPrioritizationFee>> {
             let pubkey_strs = pubkey_strs.unwrap_or_default();
             debug!(
@@ -4387,17 +4293,7 @@ pub mod rpc_full {
                 .into_iter()
                 .map(|pubkey_str| verify_pubkey(&pubkey_str))
                 .collect::<Result<Vec<_>>>()?;
-
-            let RpcRecentPrioritizationFeesConfig { percentile } = config.unwrap_or_default();
-            if let Some(percentile) = percentile {
-                if percentile > 10_000 {
-                    return Err(Error::invalid_params(
-                        "Percentile is too big; max value is 10000".to_owned(),
-                    ));
-                }
-            }
-
-            meta.get_recent_prioritization_fees(pubkeys, percentile)
+            meta.get_recent_prioritization_fees(pubkeys)
         }
     }
 }

@@ -17,21 +17,9 @@ pub struct RpcSignatureStatusConfig {
 pub struct RpcSendTransactionConfig {
     #[serde(default)]
     pub skip_preflight: bool,
-    #[serde(default)]
-    pub skip_sanitize: bool,
     pub preflight_commitment: Option<CommitmentLevel>,
     pub encoding: Option<UiTransactionEncoding>,
     pub max_retries: Option<usize>,
-    pub min_context_slot: Option<Slot>,
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RcpSanitizeTransactionConfig {
-    pub sig_verify: bool,
-    #[serde(flatten)]
-    pub commitment: Option<CommitmentConfig>,
-    pub encoding: Option<UiTransactionEncoding>,
     pub min_context_slot: Option<Slot>,
 }
 
@@ -351,19 +339,4 @@ pub struct RpcContextConfig {
     #[serde(flatten)]
     pub commitment: Option<CommitmentConfig>,
     pub min_context_slot: Option<Slot>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcRecentPrioritizationFeesConfig {
-    pub percentile: Option<u16>,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RpcLatestBlockhashConfig {
-    #[serde(flatten)]
-    pub context: RpcContextConfig,
-    #[serde(default)]
-    pub rollback: usize,
 }
