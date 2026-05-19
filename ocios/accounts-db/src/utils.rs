@@ -1,12 +1,15 @@
 use {
-    lazy_static,
+    crate::accounts_db::AccountsDbConfig,
+    agave_fs::{dirs, metadata::DirectIoSupport},
+    itertools::Itertools as _,
     log::*,
+    solana_account::{AccountSharedData, ReadableAccount},
     solana_measure::measure_time,
     std::{
         collections::HashSet,
         fs, io,
         path::{Path, PathBuf},
-        sync::Mutex,
+        sync::{Arc, Mutex},
         thread,
     },
 };
@@ -50,7 +53,7 @@ pub fn create_accounts_run_and_snapshot_dirs(
         // The run/ content cleanup will be done at a later point.  The snapshot/ content persists
         // across the process boot, and will be purged by the account_background_service.
         if fs::remove_dir_all(&account_dir).is_err() {
-            delete_contents_of_path(&account_dir);
+            dirs::remove_dir_contents(&account_dir);
         }
         fs::create_dir_all(&run_path)?;
         fs::create_dir_all(&snapshot_path)?;
@@ -75,9 +78,8 @@ pub fn move_and_async_delete_path_contents(path: impl AsRef<Path>) {
 /// If there's an in-progress deleting thread for this path, return.
 /// Then spawn a thread to delete the renamed path.
 pub fn move_and_async_delete_path(path: impl AsRef<Path>) {
-    lazy_static! {
-        static ref IN_PROGRESS_DELETES: Mutex<HashSet<PathBuf>> = Mutex::new(HashSet::new());
-    };
+    static IN_PROGRESS_DELETES: std::sync::LazyLock<Mutex<HashSet<PathBuf>>> =
+        std::sync::LazyLock::new(|| Mutex::new(HashSet::new()));
 
     // Grab the mutex so no new async delete threads can be spawned for this path.
     let mut lock = IN_PROGRESS_DELETES.lock().unwrap();
@@ -110,7 +112,7 @@ pub fn move_and_async_delete_path(path: impl AsRef<Path>) {
         lock.insert(path.as_ref().to_path_buf());
         drop(lock); // unlock before doing sync delete
 
-        delete_contents_of_path(&path);
+        dirs::remove_dir_contents(&path);
         IN_PROGRESS_DELETES.lock().unwrap().remove(path.as_ref());
         return;
     }
@@ -121,7 +123,7 @@ pub fn move_and_async_delete_path(path: impl AsRef<Path>) {
         .name("solDeletePath".to_string())
         .spawn(move || {
             trace!("background deleting {}...", path_delete.display());
-            let (result, measure_delete) = measure_time!(fs::remove_dir_all(&path_delete));
+            let (result, measure_delete) = measure_time!(dirs::remove_dir_all(&path_delete));
             if let Err(err) = result {
                 panic!("Failed to async delete '{}': {err}", path_delete.display());
             }
@@ -133,37 +135,6 @@ pub fn move_and_async_delete_path(path: impl AsRef<Path>) {
             IN_PROGRESS_DELETES.lock().unwrap().remove(&path_delete);
         })
         .expect("spawn background delete thread");
-}
-
-/// Delete the files and subdirectories in a directory.
-/// This is useful if the process does not have permission
-/// to delete the top level directory it might be able to
-/// delete the contents of that directory.
-pub fn delete_contents_of_path(path: impl AsRef<Path>) {
-    match fs::read_dir(&path) {
-        Err(err) => {
-            warn!(
-                "Failed to delete contents of '{}': could not read dir: {err}",
-                path.as_ref().display(),
-            )
-        }
-        Ok(dir_entries) => {
-            for entry in dir_entries.flatten() {
-                let sub_path = entry.path();
-                let result = if sub_path.is_dir() {
-                    fs::remove_dir_all(&sub_path)
-                } else {
-                    fs::remove_file(&sub_path)
-                };
-                if let Err(err) = result {
-                    warn!(
-                        "Failed to delete contents of '{}': {err}",
-                        sub_path.display(),
-                    );
-                }
-            }
-        }
-    }
 }
 
 /// Creates `directories` if they do not exist, and canonicalizes their paths
@@ -180,6 +151,54 @@ pub fn create_and_canonicalize_directories(
 pub fn create_and_canonicalize_directory(directory: impl AsRef<Path>) -> io::Result<PathBuf> {
     fs::create_dir_all(&directory)?;
     fs::canonicalize(directory)
+}
+
+/// Creates a new AccountSharedData structure for anything that implements ReadableAccount.
+/// This function implies data copies.
+pub fn create_account_shared_data(account: &impl ReadableAccount) -> AccountSharedData {
+    AccountSharedData::create_from_existing_shared_data(
+        account.lamports(),
+        Arc::new(account.data().to_vec()),
+        *account.owner(),
+        account.executable(),
+        account.rent_epoch(),
+    )
+}
+
+/// Check that given paths conform to requirements defined by `config`.
+///
+/// Return `Err` if paths are impossible to access or do not support required features.
+///
+/// This functions validates that paths reside on filesystem supporting configured operations
+/// like direct-io. This allows providing meaningful error messages to user during startup
+/// instead of generating hard to diagnose errors during runtime.
+pub fn validate_account_paths_for_direct_io(
+    config: &AccountsDbConfig,
+    accounts_paths: &[PathBuf],
+    account_snapshot_paths: &[PathBuf],
+) -> io::Result<()> {
+    if config.snapshots_use_direct_io {
+        let mut unsupported_paths = vec![];
+        for path in accounts_paths.iter().chain(account_snapshot_paths.iter()) {
+            if agave_fs::metadata::check_direct_io_capability(path)? == DirectIoSupport::Unsupported
+            {
+                unsupported_paths.push(path);
+            }
+        }
+        if !unsupported_paths.is_empty() {
+            let paths_str = unsupported_paths.into_iter().map(|p| p.display()).join(",");
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                format!(
+                    "direct-io (O_DIRECT) is not supported for paths `{paths_str}`. Ensure the \
+                     filesystem hosting that path supports direct-io, or disable direct-io with \
+                     --no-accounts-db-snapshots-direct-io flag.",
+                ),
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -204,7 +223,7 @@ mod tests {
 
         // delete a `run/` and `snapshot/` dir, then re-create it
         let account_path_first = account_paths.first().unwrap();
-        delete_contents_of_path(account_path_first);
+        dirs::remove_dir_contents(account_path_first);
         assert!(account_path_first.exists());
         assert!(!account_path_first.join(ACCOUNTS_RUN_DIR).exists());
         assert!(!account_path_first.join(ACCOUNTS_SNAPSHOT_DIR).exists());

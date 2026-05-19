@@ -1,8 +1,9 @@
 #![allow(clippy::arithmetic_side_effects)]
 use {
     bincode::serialized_size,
+    itertools::Itertools,
     log::*,
-    rayon::{prelude::*, ThreadPool, ThreadPoolBuilder},
+    rayon::{ThreadPool, ThreadPoolBuilder, prelude::*},
     serial_test::serial,
     solana_gossip::{
         cluster_info_metrics::GossipStats,
@@ -11,21 +12,22 @@ use {
         crds_data::CrdsData,
         crds_gossip::*,
         crds_gossip_error::CrdsGossipError,
-        crds_gossip_pull::{CrdsTimeouts, ProcessPullStats, CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS},
+        crds_gossip_pull::{
+            CRDS_GOSSIP_PULL_CRDS_TIMEOUT_MS, CrdsTimeouts, ProcessPullStats, PullRequest,
+        },
         crds_gossip_push::CRDS_GOSSIP_PUSH_MSG_TIMEOUT_MS,
         crds_value::{CrdsValue, CrdsValueLabel},
     },
+    solana_keypair::Keypair,
+    solana_net_utils::SocketAddrSpace,
+    solana_pubkey::Pubkey,
     solana_rayon_threadlimit::get_thread_count,
-    solana_sdk::{
-        hash::hash,
-        pubkey::Pubkey,
-        signature::{Keypair, Signer},
-        timing::timestamp,
-    },
-    solana_streamer::socket::SocketAddrSpace,
+    solana_sha256_hasher::hash,
+    solana_signer::Signer,
+    solana_time_utils::timestamp,
     std::{
         collections::{HashMap, HashSet},
-        net::Ipv4Addr,
+        net::{Ipv4Addr, SocketAddr},
         ops::Deref,
         sync::{Arc, Mutex},
         time::{Duration, Instant},
@@ -274,12 +276,7 @@ fn network_simulator_pull_only(thread_pool: &ThreadPool, network: &Network) {
         let _ = crds.insert(entry, timestamp(), GossipRoute::LocalMessage);
     }
     let (converged, bytes_tx) = network_run_pull(thread_pool, network, 0, num * 2, 0.9);
-    trace!(
-        "network_simulator_pull_{}: converged: {} total_bytes: {}",
-        num,
-        converged,
-        bytes_tx
-    );
+    trace!("network_simulator_pull_{num}: converged: {converged} total_bytes: {bytes_tx}");
     assert!(converged >= 0.9);
 }
 
@@ -287,7 +284,7 @@ fn network_simulator(thread_pool: &ThreadPool, network: &mut Network, max_conver
     let num = network.len();
     // run for a small amount of time
     let (converged, bytes_tx) = network_run_pull(thread_pool, network, 0, 10, 1.0);
-    trace!("network_simulator_push_{}: converged: {}", num, converged);
+    trace!("network_simulator_push_{num}: converged: {converged}");
     // make sure there is someone in the active set
     let network_values: Vec<Node> = network.values().cloned().collect();
     network_values.par_iter().for_each(|node| {
@@ -304,7 +301,7 @@ fn network_simulator(thread_pool: &ThreadPool, network: &mut Network, max_conver
     let mut total_bytes = bytes_tx;
     let mut ts = timestamp();
     for _ in 1..num {
-        let start = ((ts + 99) / 100) as usize;
+        let start = ts.div_ceil(100) as usize;
         let end = start + 10;
         let now = (start * 100) as u64;
         ts += 1000;
@@ -327,21 +324,13 @@ fn network_simulator(thread_pool: &ThreadPool, network: &mut Network, max_conver
         // push for a bit
         let (queue_size, bytes_tx) = network_run_push(thread_pool, network, start, end);
         total_bytes += bytes_tx;
-        trace!(
-            "network_simulator_push_{}: queue_size: {} bytes: {}",
-            num,
-            queue_size,
-            bytes_tx
-        );
+        trace!("network_simulator_push_{num}: queue_size: {queue_size} bytes: {bytes_tx}");
         // pull for a bit
         let (converged, bytes_tx) = network_run_pull(thread_pool, network, start, end, 1.0);
         total_bytes += bytes_tx;
         trace!(
-            "network_simulator_push_{}: converged: {} bytes: {} total_bytes: {}",
-            num,
-            converged,
-            bytes_tx,
-            total_bytes
+            "network_simulator_push_{num}: converged: {converged} bytes: {bytes_tx} total_bytes: \
+             {total_bytes}"
         );
         if converged > max_convergance {
             break;
@@ -469,7 +458,7 @@ fn network_run_push(
                 }
             }
         }
-        if now % CRDS_GOSSIP_PUSH_MSG_TIMEOUT_MS == 0 && now > 0 {
+        if now.is_multiple_of(CRDS_GOSSIP_PUSH_MSG_TIMEOUT_MS) && now > 0 {
             network_values.par_iter().for_each(|node| {
                 node.gossip.refresh_push_active_set(
                     &node.keypair,
@@ -487,16 +476,9 @@ fn network_run_push(
             .map(|node| node.gossip.push.num_pending(&node.gossip.crds))
             .sum();
         trace!(
-                "network_run_push_{}: now: {} queue: {} bytes: {} num_msgs: {} prunes: {} stake_pruned: {} delivered: {}",
-                num,
-                now,
-                total,
-                bytes,
-                num_msgs,
-                prunes,
-                stake_pruned,
-                delivered,
-            );
+            "network_run_push_{num}: now: {now} queue: {total} bytes: {bytes} num_msgs: \
+             {num_msgs} prunes: {prunes} stake_pruned: {stake_pruned} delivered: {delivered}"
+        );
     }
 
     network.stake_pruned += stake_pruned;
@@ -529,6 +511,14 @@ fn network_run_pull(
             }
         }
     }
+    let nodes: HashMap<SocketAddr, ContactInfo> = network
+        .nodes
+        .values()
+        .map(|node| {
+            let node = &node.contact_info;
+            (node.gossip().unwrap(), node.clone())
+        })
+        .collect();
     for t in start..end {
         let now = t as u64 * 100;
         let requests: Vec<_> = {
@@ -550,6 +540,15 @@ fn network_run_pull(
                             &mut pings,
                             &SocketAddrSpace::Unspecified,
                         )
+                        .map(|requests| {
+                            requests
+                                .into_group_map()
+                                .into_iter()
+                                .map(|(addr, filters)| {
+                                    (nodes.get(&addr).cloned().unwrap(), filters)
+                                })
+                                .collect::<Vec<_>>()
+                        })
                         .unwrap_or_default();
                     let from_pubkey = from.keypair.pubkey();
                     let label = CrdsValueLabel::ContactInfo(from_pubkey);
@@ -574,9 +573,14 @@ fn network_run_pull(
                     .map(|f| f.filter.bits.len() as usize / 8)
                     .sum::<usize>();
                 bytes += caller_info.bincode_serialized_size();
-                let filters: Vec<_> = filters
+                let requests: Vec<_> = filters
                     .into_iter()
-                    .map(|f| (caller_info.clone(), f))
+                    .map(|filter| PullRequest {
+                        pubkey: from,
+                        addr: SocketAddr::from(([0; 4], 0)),
+                        wallclock: now,
+                        filter,
+                    })
                     .collect();
                 let rsp: Vec<_> = network
                     .get(&to)
@@ -584,10 +588,11 @@ fn network_run_pull(
                         node.gossip
                             .generate_pull_responses(
                                 thread_pool,
-                                &filters,
+                                &requests,
                                 usize::MAX, // output_size_limit
                                 now,
                                 |_| true, // should_retain_crds_value
+                                0,        // network shred version
                                 &GossipStats::default(),
                             )
                             .into_iter()
@@ -639,15 +644,9 @@ fn network_run_pull(
             break;
         }
         trace!(
-                "network_run_pull_{}: now: {} connections: {} convergance: {} bytes: {} msgs: {} overhead: {}",
-                num,
-                now,
-                total,
-                convergance,
-                bytes,
-                msgs,
-                overhead
-            );
+            "network_run_pull_{num}: now: {now} connections: {total} convergance: {convergance} \
+             bytes: {bytes} msgs: {msgs} overhead: {overhead}"
+        );
     }
     (convergance, bytes)
 }
@@ -662,7 +661,7 @@ fn build_gossip_thread_pool() -> ThreadPool {
 
 fn new_ping_cache() -> Mutex<PingCache> {
     let ping_cache = PingCache::new(
-        &mut rand::thread_rng(),
+        &mut rand::rng(),
         Instant::now(),
         Duration::from_secs(20 * 60),      // ttl
         Duration::from_secs(20 * 60) / 64, // rate_limit_delay
@@ -713,7 +712,7 @@ fn test_star_network_push_ring_200() {
 #[ignore]
 #[serial]
 fn test_connected_staked_network() {
-    solana_logger::setup();
+    agave_logger::setup();
     let thread_pool = build_gossip_thread_pool();
     let stakes = [
         [1000; 2].to_vec(),
@@ -742,7 +741,7 @@ fn test_connected_staked_network() {
 #[test]
 #[ignore]
 fn test_star_network_large_pull() {
-    solana_logger::setup();
+    agave_logger::setup();
     let network = star_network_create(2000);
     let thread_pool = build_gossip_thread_pool();
     network_simulator_pull_only(&thread_pool, &network);
@@ -750,7 +749,7 @@ fn test_star_network_large_pull() {
 #[test]
 #[ignore]
 fn test_rstar_network_large_push() {
-    solana_logger::setup();
+    agave_logger::setup();
     let mut network = rstar_network_create(4000);
     let thread_pool = build_gossip_thread_pool();
     network_simulator(&thread_pool, &mut network, 0.9);
@@ -758,7 +757,7 @@ fn test_rstar_network_large_push() {
 #[test]
 #[ignore]
 fn test_ring_network_large_push() {
-    solana_logger::setup();
+    agave_logger::setup();
     let mut network = ring_network_create(4001);
     let thread_pool = build_gossip_thread_pool();
     network_simulator(&thread_pool, &mut network, 0.9);
@@ -766,7 +765,7 @@ fn test_ring_network_large_push() {
 #[test]
 #[ignore]
 fn test_star_network_large_push() {
-    solana_logger::setup();
+    agave_logger::setup();
     let mut network = star_network_create(4002);
     let thread_pool = build_gossip_thread_pool();
     network_simulator(&thread_pool, &mut network, 0.9);

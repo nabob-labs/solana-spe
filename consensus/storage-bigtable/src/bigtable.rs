@@ -2,18 +2,19 @@
 
 use {
     crate::{
+        CredentialType,
         access_token::{AccessToken, Scope},
-        compression::{compress_best, decompress},
-        root_ca_certificate, CredentialType,
+        compression::{compress_zstd_or_none, decompress},
+        root_ca_certificate,
     },
-    backoff::{future::retry, Error as BackoffError, ExponentialBackoff},
+    backoff::{Error as BackoffError, ExponentialBackoff, future::retry},
     log::*,
     std::{
         str::FromStr,
         time::{Duration, Instant},
     },
     thiserror::Error,
-    tonic::{codegen::InterceptedService, transport::ClientTlsConfig, Request, Status},
+    tonic::{Request, Status, codegen::InterceptedService, transport::ClientTlsConfig},
 };
 
 #[allow(clippy::all)]
@@ -78,7 +79,7 @@ pub enum Error {
     ObjectCorrupt(String),
 
     #[error("RPC: {0}")]
-    Rpc(tonic::Status),
+    Rpc(Box<tonic::Status>),
 
     #[error("Timeout")]
     Timeout,
@@ -107,7 +108,7 @@ impl std::convert::From<tonic::transport::Error> for Error {
 
 impl std::convert::From<tonic::Status> for Error {
     fn from(err: tonic::Status) -> Self {
-        Self::Rpc(err)
+        Self::Rpc(Box::new(err))
     }
 }
 
@@ -146,7 +147,7 @@ impl BigTableConnection {
     ) -> Result<Self> {
         match std::env::var("BIGTABLE_EMULATOR_HOST") {
             Ok(endpoint) => {
-                info!("Connecting to bigtable emulator at {}", endpoint);
+                info!("Connecting to bigtable emulator at {endpoint}");
                 Self::new_for_emulator(
                     instance_name,
                     app_profile_id,
@@ -247,7 +248,7 @@ impl BigTableConnection {
     ///
     /// Clients require `&mut self`, due to `Tonic::transport::Channel` limitations, however
     /// creating new clients is cheap and thus can be used as a work around for ease of use.
-    pub fn client(&self) -> BigTable<impl FnMut(Request<()>) -> InterceptedRequestResult> {
+    pub fn client(&self) -> BigTable<impl FnMut(Request<()>) -> InterceptedRequestResult + use<>> {
         let access_token = self.access_token.clone();
         let client = bigtable_client::BigtableClient::with_interceptor(
             self.channel.clone(),
@@ -259,7 +260,7 @@ impl BigTableConnection {
                                 .insert("authorization", authorization_header);
                         }
                         Err(err) => {
-                            warn!("Failed to set authorization header: {}", err);
+                            warn!("Failed to set authorization header: {err}");
                         }
                     }
                 }
@@ -366,7 +367,7 @@ impl<F: FnMut(Request<()>) -> InterceptedRequestResult> BigTable<F> {
             for (i, mut chunk) in res.chunks.into_iter().enumerate() {
                 // The comments for `read_rows_response::CellChunk` provide essential details for
                 // understanding how the below decoding works...
-                trace!("chunk {}: {:?}", i, chunk);
+                trace!("chunk {i}: {chunk:?}");
 
                 // Starting a new row?
                 if !chunk.row_key.is_empty() {
@@ -802,14 +803,15 @@ impl<F: FnMut(Request<()>) -> InterceptedRequestResult> BigTable<F> {
         deserialize_protobuf_or_bincode_cell_data(&row_data, table, key)
     }
 
-    pub async fn get_protobuf_or_bincode_cells<'a, B, P>(
+    pub async fn get_protobuf_or_bincode_cells<'a, B, P, R>(
         &mut self,
         table: &'a str,
-        row_keys: impl IntoIterator<Item = RowKey>,
-    ) -> Result<impl Iterator<Item = (RowKey, CellData<B, P>)> + 'a>
+        row_keys: R,
+    ) -> Result<impl Iterator<Item = (RowKey, CellData<B, P>)> + 'a + use<'a, F, B, P, R>>
     where
         B: serde::de::DeserializeOwned,
         P: prost::Message + Default,
+        R: IntoIterator<Item = RowKey>,
     {
         Ok(self
             .get_multi_row_data(
@@ -838,7 +840,7 @@ impl<F: FnMut(Request<()>) -> InterceptedRequestResult> BigTable<F> {
         let mut bytes_written = 0;
         let mut new_row_data = vec![];
         for (row_key, data) in cells {
-            let data = compress_best(&bincode::serialize(&data).unwrap())?;
+            let data = compress_zstd_or_none(&bincode::serialize(&data).unwrap())?;
             bytes_written += data.len();
             new_row_data.push((row_key, vec![("bin".to_string(), data)]));
         }
@@ -860,7 +862,7 @@ impl<F: FnMut(Request<()>) -> InterceptedRequestResult> BigTable<F> {
         for (row_key, data) in cells {
             let mut buf = Vec::with_capacity(data.encoded_len());
             data.encode(&mut buf).unwrap();
-            let data = compress_best(&buf)?;
+            let data = compress_zstd_or_none(&buf)?;
             bytes_written += data.len();
             new_row_data.push((row_key, vec![("proto".to_string(), data)]));
         }
@@ -934,7 +936,7 @@ where
 
     let data = decompress(value)?;
     T::decode(&data[..]).map_err(|err| {
-        warn!("Failed to deserialize {}/{}: {}", table, key, err);
+        warn!("Failed to deserialize {table}/{key}: {err}");
         Error::ObjectCorrupt(format!("{table}/{key}"))
     })
 }
@@ -955,7 +957,7 @@ where
 
     let data = decompress(value)?;
     bincode::deserialize(&data).map_err(|err| {
-        warn!("Failed to deserialize {}/{}: {}", table, key, err);
+        warn!("Failed to deserialize {table}/{key}: {err}");
         Error::ObjectCorrupt(format!("{table}/{key}"))
     })
 }
@@ -972,7 +974,7 @@ mod tests {
         solana_storage_proto::convert::generated,
         solana_system_transaction as system_transaction,
         solana_transaction::versioned::VersionedTransaction,
-        solana_transaction_context::TransactionReturnData,
+        solana_transaction_context::transaction::TransactionReturnData,
         solana_transaction_status::{
             ConfirmedBlock, TransactionStatusMeta, TransactionWithStatusMeta,
             VersionedTransactionWithStatusMeta,
@@ -1025,6 +1027,7 @@ mod tests {
                 loaded_addresses: LoadedAddresses::default(),
                 return_data: Some(TransactionReturnData::default()),
                 compute_units_consumed: Some(1234),
+                cost_units: Some(5678),
             },
         });
         let expected_block = ConfirmedBlock {
@@ -1037,7 +1040,7 @@ mod tests {
             block_time: Some(1_234_567_890),
             block_height: Some(1),
         };
-        let bincode_block = compress_best(
+        let bincode_block = compress_zstd_or_none(
             &bincode::serialize::<StoredConfirmedBlock>(&expected_block.clone().into()).unwrap(),
         )
         .unwrap();
@@ -1045,7 +1048,7 @@ mod tests {
         let protobuf_block = confirmed_block_into_protobuf(expected_block.clone());
         let mut buf = Vec::with_capacity(protobuf_block.encoded_len());
         protobuf_block.encode(&mut buf).unwrap();
-        let protobuf_block = compress_best(&buf).unwrap();
+        let protobuf_block = compress_zstd_or_none(&buf).unwrap();
 
         let deserialized = deserialize_protobuf_or_bincode_cell_data::<
             StoredConfirmedBlock,
@@ -1085,6 +1088,7 @@ mod tests {
                 meta.rewards = None; // Legacy bincode implementation does not support rewards
                 meta.return_data = None; // Legacy bincode implementation does not support return data
                 meta.compute_units_consumed = None; // Legacy bincode implementation does not support CU consumed
+                meta.cost_units = None; // Legacy bincode implementation does not support CU
             }
             assert_eq!(block, bincode_block.into());
         } else {

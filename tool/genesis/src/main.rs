@@ -2,49 +2,56 @@
 #![allow(clippy::arithmetic_side_effects)]
 
 use {
-    agave_feature_set::FEATURE_NAMES,
-    base64::{prelude::BASE64_STANDARD, Engine},
-    clap::{crate_description, crate_name, value_t, value_t_or_exit, App, Arg, ArgMatches},
+    agave_feature_set::{FEATURE_NAMES, vote_state_v4},
+    base64::{Engine, prelude::BASE64_STANDARD},
+    clap::{App, Arg, ArgMatches, crate_description, crate_name, value_t, value_t_or_exit},
     itertools::Itertools,
-    solana_accounts_db::hardened_unpack::MAX_GENESIS_ARCHIVE_UNPACKED_SIZE,
+    solana_account::{Account, AccountSharedData, ReadableAccount, WritableAccount},
+    solana_bls_signatures::{Pubkey as BLSPubkey, PubkeyCompressed as BLSPubkeyCompressed},
     solana_clap_utils::{
         input_parsers::{
-            cluster_type_of, pubkey_of, pubkeys_of, unix_timestamp_from_rfc3339_datetime,
+            bls_pubkeys_of, cluster_type_of, pubkey_of, pubkeys_of,
+            unix_timestamp_from_rfc3339_datetime,
         },
         input_validators::{
             is_pubkey, is_pubkey_or_keypair, is_rfc3339_datetime, is_slot, is_url_or_moniker,
             is_valid_percentage, normalize_to_url_if_moniker,
         },
     },
+    solana_clock as clock,
+    solana_cluster_type::ClusterType,
+    solana_commitment_config::CommitmentConfig,
     solana_entry::poh::compute_hashes_per_tick,
+    solana_epoch_schedule::EpochSchedule,
+    solana_feature_gate_interface as feature,
+    solana_fee_calculator::FeeRateGovernor,
     solana_genesis::{
-        genesis_accounts::add_genesis_accounts, Base64Account, StakedValidatorAccountInfo,
-        ValidatorAccountsFile,
+        Base64Account, StakedValidatorAccountInfo, ValidatorAccountsFile,
+        genesis_accounts::add_genesis_stake_accounts,
     },
+    solana_genesis_config::GenesisConfig,
+    solana_genesis_utils::MAX_GENESIS_ARCHIVE_UNPACKED_SIZE,
+    solana_inflation::Inflation,
+    solana_keypair::{Keypair, read_keypair_file},
     solana_ledger::{blockstore::create_new_ledger, blockstore_options::LedgerColumnOptions},
+    solana_loader_v3_interface::state::UpgradeableLoaderState,
+    solana_native_token::LAMPORTS_PER_SOL,
+    solana_poh_config::PohConfig,
+    solana_pubkey::Pubkey,
+    solana_rent::Rent,
     solana_rpc_client::rpc_client::RpcClient,
     solana_rpc_client_api::request::MAX_MULTIPLE_ACCOUNTS,
-    solana_sdk::{
-        account::{Account, AccountSharedData, ReadableAccount, WritableAccount},
-        bpf_loader_upgradeable::UpgradeableLoaderState,
-        clock,
-        commitment_config::CommitmentConfig,
-        epoch_schedule::EpochSchedule,
-        feature,
-        fee_calculator::FeeRateGovernor,
-        genesis_config::{ClusterType, GenesisConfig},
-        inflation::Inflation,
-        native_token::sol_to_lamports,
-        poh_config::PohConfig,
-        pubkey::Pubkey,
-        rent::Rent,
-        signature::{Keypair, Signer},
-        signer::keypair::read_keypair_file,
-        stake::state::StakeStateV2,
-        system_program,
+    solana_runtime::{
+        bank::VAT_TO_BURN_PER_EPOCH,
+        genesis_utils::{add_genesis_epoch_rewards_account, add_genesis_stake_config_account},
+        stake_utils,
     },
-    solana_stake_program::stake_state,
-    solana_vote_program::vote_state::{self, VoteState},
+    solana_sdk_ids::system_program,
+    solana_signer::Signer,
+    solana_stake_interface::state::StakeStateV2,
+    solana_vote_program::vote_state::{
+        self, BLS_PUBLIC_KEY_COMPRESSED_SIZE, VoteStateV3, VoteStateV4,
+    },
     std::{
         collections::HashMap,
         error,
@@ -58,6 +65,10 @@ use {
     },
 };
 
+/// In order to satisfy the VAT we need to fund all vote accounts
+/// This corresponds to 100 epochs worth of VAT
+const VAT_MINIMUM_LAMPORTS: u64 = VAT_TO_BURN_PER_EPOCH * 100;
+
 pub enum AccountFileFormat {
     Pubkey,
     Keypair,
@@ -66,10 +77,20 @@ pub enum AccountFileFormat {
 fn pubkey_from_str(key_str: &str) -> Result<Pubkey, Box<dyn error::Error>> {
     Pubkey::from_str(key_str).or_else(|_| {
         let bytes: Vec<u8> = serde_json::from_str(key_str)?;
-        let keypair = Keypair::from_bytes(&bytes)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        let keypair =
+            Keypair::try_from(bytes.as_ref()).map_err(|e| std::io::Error::other(e.to_string()))?;
         Ok(keypair.pubkey())
     })
+}
+
+fn bls_pubkey_from_str(key_str: &str) -> Result<BLSPubkeyCompressed, Box<dyn error::Error>> {
+    match BLSPubkeyCompressed::from_str(key_str) {
+        Ok(bls_pubkey) => Ok(bls_pubkey),
+        Err(_) => {
+            let bls_pubkey = BLSPubkey::from_str(key_str)?;
+            Ok(bls_pubkey.try_into()?)
+        }
+    }
 }
 
 pub fn load_genesis_accounts(file: &str, genesis_config: &mut GenesisConfig) -> io::Result<u64> {
@@ -78,21 +99,17 @@ pub fn load_genesis_accounts(file: &str, genesis_config: &mut GenesisConfig) -> 
 
     let genesis_accounts: HashMap<String, Base64Account> =
         serde_yaml::from_reader(accounts_file)
-            .map_err(|err| io::Error::new(io::ErrorKind::Other, format!("{err:?}")))?;
+            .map_err(|err| io::Error::other(format!("{err:?}")))?;
 
     for (key, account_details) in genesis_accounts {
-        let pubkey = pubkey_from_str(key.as_str()).map_err(|err| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Invalid pubkey/keypair {key}: {err:?}"),
-            )
-        })?;
+        let pubkey = pubkey_from_str(key.as_str())
+            .map_err(|err| io::Error::other(format!("Invalid pubkey/keypair {key}: {err:?}")))?;
 
         let owner_program_id = Pubkey::from_str(account_details.owner.as_str()).map_err(|err| {
-            io::Error::new(
-                io::ErrorKind::Other,
-                format!("Invalid owner: {}: {:?}", account_details.owner, err),
-            )
+            io::Error::other(format!(
+                "Invalid owner: {}: {:?}",
+                account_details.owner, err
+            ))
         })?;
 
         let mut account = AccountSharedData::new(account_details.balance, 0, &owner_program_id);
@@ -101,10 +118,10 @@ pub fn load_genesis_accounts(file: &str, genesis_config: &mut GenesisConfig) -> 
                 &BASE64_STANDARD
                     .decode(account_details.data.as_str())
                     .map_err(|err| {
-                        io::Error::new(
-                            io::ErrorKind::Other,
-                            format!("Invalid account data: {}: {:?}", account_details.data, err),
-                        )
+                        io::Error::other(format!(
+                            "Invalid account data: {}: {:?}",
+                            account_details.data, err
+                        ))
                     })?,
             );
         }
@@ -121,52 +138,56 @@ pub fn load_validator_accounts(
     commission: u8,
     rent: &Rent,
     genesis_config: &mut GenesisConfig,
+    vote_state_v4_enabled: bool,
 ) -> io::Result<()> {
     let accounts_file = File::open(file)?;
     let validator_genesis_accounts: Vec<StakedValidatorAccountInfo> =
         serde_yaml::from_reader::<_, ValidatorAccountsFile>(accounts_file)
-            .map_err(|err| io::Error::new(io::ErrorKind::Other, format!("{err:?}")))?
+            .map_err(|err| io::Error::other(format!("{err:?}")))?
             .validator_accounts;
 
     for account_details in validator_genesis_accounts {
         let pubkeys = [
             pubkey_from_str(account_details.identity_account.as_str()).map_err(|err| {
-                io::Error::new(
-                    io::ErrorKind::Other,
-                    format!(
-                        "Invalid pubkey/keypair {}: {:?}",
-                        account_details.identity_account, err
-                    ),
-                )
+                io::Error::other(format!(
+                    "Invalid pubkey/keypair {}: {:?}",
+                    account_details.identity_account, err
+                ))
             })?,
             pubkey_from_str(account_details.vote_account.as_str()).map_err(|err| {
-                io::Error::new(
-                    io::ErrorKind::Other,
-                    format!(
-                        "Invalid pubkey/keypair {}: {:?}",
-                        account_details.vote_account, err
-                    ),
-                )
+                io::Error::other(format!(
+                    "Invalid pubkey/keypair {}: {:?}",
+                    account_details.vote_account, err
+                ))
             })?,
             pubkey_from_str(account_details.stake_account.as_str()).map_err(|err| {
-                io::Error::new(
-                    io::ErrorKind::Other,
-                    format!(
-                        "Invalid pubkey/keypair {}: {:?}",
-                        account_details.stake_account, err
-                    ),
-                )
+                io::Error::other(format!(
+                    "Invalid pubkey/keypair {}: {:?}",
+                    account_details.stake_account, err
+                ))
             })?,
         ];
+        let bls_pubkeys: Vec<BLSPubkeyCompressed> = account_details
+            .bls_pubkey
+            .as_ref()
+            .map(|key_str| {
+                bls_pubkey_from_str(key_str)
+                    .map_err(|err| io::Error::other(format!("Invalid BLS pubkey: {err}")))
+            })
+            .transpose()?
+            .map(|pk| vec![pk])
+            .unwrap_or_default();
 
         add_validator_accounts(
             genesis_config,
             &mut pubkeys.iter(),
+            &mut bls_pubkeys.iter(),
             account_details.balance_lamports,
             account_details.stake_lamports,
             commission,
             rent,
             None,
+            vote_state_v4_enabled,
         )?;
     }
 
@@ -240,21 +261,20 @@ fn features_to_deactivate_for_cluster(
 fn add_validator_accounts(
     genesis_config: &mut GenesisConfig,
     pubkeys_iter: &mut Iter<Pubkey>,
+    bls_pubkeys_iter: &mut Iter<BLSPubkeyCompressed>,
     lamports: u64,
     stake_lamports: u64,
     commission: u8,
     rent: &Rent,
     authorized_pubkey: Option<&Pubkey>,
+    vote_state_v4_enabled: bool,
 ) -> io::Result<()> {
     rent_exempt_check(
         stake_lamports,
         rent.minimum_balance(StakeStateV2::size_of()),
     )?;
 
-    loop {
-        let Some(identity_pubkey) = pubkeys_iter.next() else {
-            break;
-        };
+    while let Some(identity_pubkey) = pubkeys_iter.next() {
         let vote_pubkey = pubkeys_iter.next().unwrap();
         let stake_pubkey = pubkeys_iter.next().unwrap();
 
@@ -263,17 +283,38 @@ fn add_validator_accounts(
             AccountSharedData::new(lamports, 0, &system_program::id()),
         );
 
-        let vote_account = vote_state::create_account_with_authorized(
-            identity_pubkey,
-            identity_pubkey,
-            identity_pubkey,
-            commission,
-            VoteState::get_rent_exempt_reserve(rent).max(1),
-        );
+        let bls_pubkey_compressed_bytes = bls_pubkeys_iter
+            .next()
+            .map(|bls_pubkey| bls_pubkey.0)
+            .unwrap_or([0u8; BLS_PUBLIC_KEY_COMPRESSED_SIZE]);
+        let vote_account = if vote_state_v4_enabled {
+            // Vote account needs enough lamports for rent exemption plus VAT
+            let vote_account_lamports =
+                rent.minimum_balance(VoteStateV4::size_of()) + VAT_MINIMUM_LAMPORTS;
+            vote_state::create_v4_account_with_authorized(
+                identity_pubkey,
+                identity_pubkey,
+                bls_pubkey_compressed_bytes,
+                identity_pubkey,
+                u16::from(commission) * 100,
+                identity_pubkey,
+                0,
+                identity_pubkey,
+                vote_account_lamports,
+            )
+        } else {
+            vote_state::create_v3_account_with_authorized(
+                identity_pubkey,
+                identity_pubkey,
+                identity_pubkey,
+                commission,
+                rent.minimum_balance(VoteStateV3::size_of()).max(1),
+            )
+        };
 
         genesis_config.add_account(
             *stake_pubkey,
-            stake_state::create_account(
+            stake_utils::create_stake_account(
                 authorized_pubkey.unwrap_or(identity_pubkey),
                 vote_pubkey,
                 &vote_account,
@@ -288,12 +329,10 @@ fn add_validator_accounts(
 
 fn rent_exempt_check(stake_lamports: u64, exempt: u64) -> io::Result<()> {
     if stake_lamports < exempt {
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!(
-                "error: insufficient validator stake lamports: {stake_lamports} for rent exemption, requires {exempt}"
-            ),
-        ))
+        Err(io::Error::other(format!(
+            "error: insufficient validator stake lamports: {stake_lamports} for rent exemption, \
+             requires {exempt}"
+        )))
     } else {
         Ok(())
     }
@@ -329,11 +368,11 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     };
 
     // vote account
-    let default_bootstrap_validator_lamports = &sol_to_lamports(500.0)
-        .max(VoteState::get_rent_exempt_reserve(&rent))
+    let default_bootstrap_validator_lamports = &(500 * LAMPORTS_PER_SOL)
+        .max(rent.minimum_balance(VoteStateV4::size_of()))
         .to_string();
     // stake account
-    let default_bootstrap_validator_stake_lamports = &sol_to_lamports(0.5)
+    let default_bootstrap_validator_stake_lamports = &(LAMPORTS_PER_SOL / 2)
         .max(rent.minimum_balance(StakeStateV2::size_of()))
         .to_string();
 
@@ -351,7 +390,10 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 .value_name("RFC3339 DATE TIME")
                 .validator(is_rfc3339_datetime)
                 .takes_value(true)
-                .help("Time when the bootstrap validator will start the cluster [default: current system time]"),
+                .help(
+                    "Time when the bootstrap validator will start the cluster [default: current \
+                     system time]",
+                ),
         )
         .arg(
             Arg::with_name("bootstrap_validator")
@@ -364,6 +406,15 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 .multiple(true)
                 .required(true)
                 .help("The bootstrap validator's identity, vote and stake pubkeys"),
+        )
+        .arg(
+            Arg::with_name("bootstrap_validator_bls_pubkey")
+                .long("bootstrap-validator-bls-pubkey")
+                .value_name("BLS_PUBKEY")
+                .multiple(true)
+                .takes_value(true)
+                .required(false)
+                .help("The bootstrap validator's bls pubkey"),
         )
         .arg(
             Arg::with_name("ledger_path")
@@ -427,8 +478,8 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 .takes_value(true)
                 .default_value(default_target_lamports_per_signature)
                 .help(
-                    "The cost in lamports that the cluster will charge for signature \
-                     verification when the cluster is operating at target-signatures-per-slot",
+                    "The cost in lamports that the cluster will charge for signature verification \
+                     when the cluster is operating at target-signatures-per-slot",
                 ),
         )
         .arg(
@@ -438,8 +489,8 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 .takes_value(true)
                 .default_value(default_lamports_per_byte_year)
                 .help(
-                    "The cost in lamports that the cluster will charge per byte per year \
-                     for accounts with data",
+                    "The cost in lamports that the cluster will charge per byte per year for \
+                     accounts with data",
                 ),
         )
         .arg(
@@ -449,8 +500,8 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 .takes_value(true)
                 .default_value(default_rent_exemption_threshold)
                 .help(
-                    "amount of time (in years) the balance has to include rent for \
-                     to qualify as rent exempted account",
+                    "amount of time (in years) the balance has to include rent for to qualify as \
+                     rent exempted account",
                 ),
         )
         .arg(
@@ -487,10 +538,10 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 .takes_value(true)
                 .default_value(default_target_signatures_per_slot)
                 .help(
-                    "Used to estimate the desired processing capacity of the cluster. \
-                    When the latest slot processes fewer/greater signatures than this \
-                    value, the lamports-per-signature fee will decrease/increase for \
-                    the next slot. A value of 0 disables signature-based fee adjustments",
+                    "Used to estimate the desired processing capacity of the cluster. When the \
+                     latest slot processes fewer/greater signatures than this value, the \
+                     lamports-per-signature fee will decrease/increase for the next slot. A value \
+                     of 0 disables signature-based fee adjustments",
                 ),
         )
         .arg(
@@ -507,10 +558,10 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 .takes_value(true)
                 .default_value("auto")
                 .help(
-                    "How many PoH hashes to roll before emitting the next tick. \
-                     If \"auto\", determine based on --target-tick-duration \
-                     and the hash rate of this computer. If \"sleep\", for development \
-                     sleep for --target-tick-duration instead of hashing",
+                    "How many PoH hashes to roll before emitting the next tick. If \"auto\", \
+                     determine based on --target-tick-duration and the hash rate of this \
+                     computer. If \"sleep\", for development sleep for --target-tick-duration \
+                     instead of hashing",
                 ),
         )
         .arg(
@@ -533,8 +584,8 @@ fn main() -> Result<(), Box<dyn error::Error>> {
             Arg::with_name("enable_warmup_epochs")
                 .long("enable-warmup-epochs")
                 .help(
-                    "When enabled epochs start short and will grow. \
-                     Useful for warming up stake quickly during development"
+                    "When enabled epochs start short and will grow. Useful for warming up stake \
+                     quickly during development",
                 ),
         )
         .arg(
@@ -551,7 +602,10 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 .value_name("FILENAME")
                 .takes_value(true)
                 .multiple(true)
-                .help("The location of a file containing a list of identity, vote, and stake pubkeys and balances for validator accounts to bake into genesis")
+                .help(
+                    "The location of a file containing a list of identity, vote, and stake \
+                     pubkeys and balances for validator accounts to bake into genesis",
+                ),
         )
         .arg(
             Arg::with_name("cluster_type")
@@ -559,9 +613,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 .possible_values(&ClusterType::STRINGS)
                 .takes_value(true)
                 .default_value(default_cluster_type)
-                .help(
-                    "Selects the features that will be enabled for the cluster"
-                ),
+                .help("Selects the features that will be enabled for the cluster"),
         )
         .arg(
             Arg::with_name("deactivate_feature")
@@ -570,7 +622,10 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 .value_name("FEATURE_PUBKEY")
                 .validator(is_pubkey)
                 .multiple(true)
-                .help("Deactivate this feature in genesis. Compatible with --cluster-type development"),
+                .help(
+                    "Deactivate this feature in genesis. Compatible with --cluster-type \
+                     development",
+                ),
         )
         .arg(
             Arg::with_name("max_genesis_archive_unpacked_size")
@@ -578,9 +633,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 .value_name("NUMBER")
                 .takes_value(true)
                 .default_value(&default_genesis_archive_unpacked_size)
-                .help(
-                    "maximum total uncompressed file size of created genesis archive",
-                ),
+                .help("maximum total uncompressed file size of created genesis archive"),
         )
         .arg(
             Arg::with_name("bpf_program")
@@ -598,7 +651,10 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 .takes_value(true)
                 .number_of_values(4)
                 .multiple(true)
-                .help("Install an upgradeable SBF program at the given address with the given upgrade authority (or \"none\")"),
+                .help(
+                    "Install an upgradeable SBF program at the given address with the given \
+                     upgrade authority (or \"none\")",
+                ),
         )
         .arg(
             Arg::with_name("inflation")
@@ -617,10 +673,14 @@ fn main() -> Result<(), Box<dyn error::Error>> {
                 .global(true)
                 .validator(is_url_or_moniker)
                 .help(
-                    "URL for Solana's JSON RPC or moniker (or their first letter): \
-                    [mainnet-beta, testnet, devnet, localhost]. Used for cloning \
-                    feature sets",
+                    "URL for Solana's JSON RPC or moniker (or their first letter): [mainnet-beta, \
+                     testnet, devnet, localhost]. Used for cloning feature sets",
                 ),
+        )
+        .arg(
+            Arg::with_name("alpenglow")
+                .long("alpenglow")
+                .help("Whether we use Alpenglow consensus."),
         )
         .get_matches();
 
@@ -634,6 +694,16 @@ fn main() -> Result<(), Box<dyn error::Error>> {
 
     let bootstrap_validator_pubkeys = pubkeys_of(&matches, "bootstrap_validator").unwrap();
     assert_eq!(bootstrap_validator_pubkeys.len() % 3, 0);
+
+    let bootstrap_validator_bls_pubkeys =
+        bls_pubkeys_of(&matches, "bootstrap_validator_bls_pubkey");
+    if let Some(bls_pubkeys) = &bootstrap_validator_bls_pubkeys {
+        assert_eq!(
+            bls_pubkeys.len() * 3,
+            bootstrap_validator_pubkeys.len(),
+            "Number of BLS pubkeys must match the number of bootstrap validator identities"
+        );
+    }
 
     // Ensure there are no duplicated pubkeys in the --bootstrap-validator list
     {
@@ -719,7 +789,6 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     );
 
     let mut genesis_config = GenesisConfig {
-        native_instruction_processors: vec![],
         ticks_per_slot,
         poh_config,
         fee_rate_governor,
@@ -742,15 +811,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
     let commission = value_t_or_exit!(matches, "vote_commission_percentage", u8);
     let rent = genesis_config.rent.clone();
 
-    add_validator_accounts(
-        &mut genesis_config,
-        &mut bootstrap_validator_pubkeys.iter(),
-        bootstrap_validator_lamports,
-        bootstrap_validator_stake_lamports,
-        commission,
-        &rent,
-        bootstrap_stake_authorized_pubkey.as_ref(),
-    )?;
+    let is_alpenglow = matches.is_present("alpenglow");
 
     if let Some(creation_time) = unix_timestamp_from_rfc3339_datetime(&matches, "creation_time") {
         genesis_config.creation_time = creation_time;
@@ -763,8 +824,15 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         );
     }
 
-    solana_stake_program::add_genesis_accounts(&mut genesis_config);
-    solana_runtime::genesis_utils::activate_all_features(&mut genesis_config);
+    add_genesis_stake_config_account(&mut genesis_config);
+    add_genesis_epoch_rewards_account(&mut genesis_config);
+
+    if is_alpenglow {
+        solana_runtime::genesis_utils::activate_all_features_alpenglow(&mut genesis_config);
+    } else {
+        solana_runtime::genesis_utils::activate_all_features(&mut genesis_config);
+    }
+
     if !features_to_deactivate.is_empty() {
         solana_runtime::genesis_utils::deactivate_features(
             &mut genesis_config,
@@ -778,9 +846,43 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         }
     }
 
+    // After primordial accounts are read in, check to see if vote state v4
+    // was manually deactivated by providing an inactive Feature account.
+    let vote_state_v4_enabled = {
+        use solana_feature_gate_interface::from_account;
+
+        let is_primordial_inactive_feature = genesis_config
+            .accounts
+            .iter()
+            .find(|(key, _)| key.eq(&&vote_state_v4::id()))
+            .is_some_and(|(_, acct)| from_account(acct).is_none());
+
+        let is_explicitly_deactivated = features_to_deactivate.contains(&vote_state_v4::id());
+
+        !is_primordial_inactive_feature && !is_explicitly_deactivated
+    };
+
+    add_validator_accounts(
+        &mut genesis_config,
+        &mut bootstrap_validator_pubkeys.iter(),
+        &mut bootstrap_validator_bls_pubkeys.unwrap_or_default().iter(),
+        bootstrap_validator_lamports,
+        bootstrap_validator_stake_lamports,
+        commission,
+        &rent,
+        bootstrap_stake_authorized_pubkey.as_ref(),
+        vote_state_v4_enabled,
+    )?;
+
     if let Some(files) = matches.values_of("validator_accounts_file") {
         for file in files {
-            load_validator_accounts(file, commission, &rent, &mut genesis_config)?;
+            load_validator_accounts(
+                file,
+                commission,
+                &rent,
+                &mut genesis_config,
+                vote_state_v4_enabled,
+            )?;
         }
     }
 
@@ -793,7 +895,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         .map(|account| account.lamports)
         .sum::<u64>();
 
-    add_genesis_accounts(&mut genesis_config, issued_lamports - faucet_lamports);
+    add_genesis_stake_accounts(&mut genesis_config, issued_lamports - faucet_lamports);
 
     let parse_address = |address: &str, input_type: &str| {
         address.parse::<Pubkey>().unwrap_or_else(|err| {
@@ -887,7 +989,7 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         }
     }
 
-    solana_logger::setup();
+    agave_logger::setup();
     create_new_ledger(
         &ledger_path,
         &genesis_config,
@@ -903,8 +1005,13 @@ fn main() -> Result<(), Box<dyn error::Error>> {
 mod tests {
     use {
         super::*,
-        solana_sdk::{borsh1, genesis_config::GenesisConfig, stake},
+        solana_bls_signatures::keypair::Keypair as BLSKeypair,
+        solana_borsh::v1 as borsh1,
+        solana_genesis_config::GenesisConfig,
+        solana_stake_interface as stake,
+        solana_vote_program::vote_state::BLS_PUBLIC_KEY_COMPRESSED_SIZE,
         std::{collections::HashMap, fs::remove_file, io::Write, path::Path},
+        test_case::test_case,
     };
 
     #[test]
@@ -916,27 +1023,27 @@ mod tests {
 
         let mut genesis_accounts = HashMap::new();
         genesis_accounts.insert(
-            solana_sdk::pubkey::new_rand().to_string(),
+            solana_pubkey::new_rand().to_string(),
             Base64Account {
-                owner: solana_sdk::pubkey::new_rand().to_string(),
+                owner: solana_pubkey::new_rand().to_string(),
                 balance: 2,
                 executable: false,
                 data: String::from("aGVsbG8="),
             },
         );
         genesis_accounts.insert(
-            solana_sdk::pubkey::new_rand().to_string(),
+            solana_pubkey::new_rand().to_string(),
             Base64Account {
-                owner: solana_sdk::pubkey::new_rand().to_string(),
+                owner: solana_pubkey::new_rand().to_string(),
                 balance: 1,
                 executable: true,
                 data: String::from("aGVsbG8gd29ybGQ="),
             },
         );
         genesis_accounts.insert(
-            solana_sdk::pubkey::new_rand().to_string(),
+            solana_pubkey::new_rand().to_string(),
             Base64Account {
-                owner: solana_sdk::pubkey::new_rand().to_string(),
+                owner: solana_pubkey::new_rand().to_string(),
                 balance: 3,
                 executable: true,
                 data: String::from("bWUgaGVsbG8gdG8gd29ybGQ="),
@@ -990,27 +1097,27 @@ mod tests {
         // Test more accounts can be appended
         let mut genesis_accounts1 = HashMap::new();
         genesis_accounts1.insert(
-            solana_sdk::pubkey::new_rand().to_string(),
+            solana_pubkey::new_rand().to_string(),
             Base64Account {
-                owner: solana_sdk::pubkey::new_rand().to_string(),
+                owner: solana_pubkey::new_rand().to_string(),
                 balance: 6,
                 executable: true,
                 data: String::from("eW91IGFyZQ=="),
             },
         );
         genesis_accounts1.insert(
-            solana_sdk::pubkey::new_rand().to_string(),
+            solana_pubkey::new_rand().to_string(),
             Base64Account {
-                owner: solana_sdk::pubkey::new_rand().to_string(),
+                owner: solana_pubkey::new_rand().to_string(),
                 balance: 5,
                 executable: false,
                 data: String::from("bWV0YSBzdHJpbmc="),
             },
         );
         genesis_accounts1.insert(
-            solana_sdk::pubkey::new_rand().to_string(),
+            solana_pubkey::new_rand().to_string(),
             Base64Account {
-                owner: solana_sdk::pubkey::new_rand().to_string(),
+                owner: solana_pubkey::new_rand().to_string(),
                 balance: 10,
                 executable: false,
                 data: String::from("YmFzZTY0IHN0cmluZw=="),
@@ -1076,7 +1183,7 @@ mod tests {
         genesis_accounts2.insert(
             serde_json::to_string(&account_keypairs[0].to_bytes().to_vec()).unwrap(),
             Base64Account {
-                owner: solana_sdk::pubkey::new_rand().to_string(),
+                owner: solana_pubkey::new_rand().to_string(),
                 balance: 20,
                 executable: true,
                 data: String::from("Y2F0IGRvZw=="),
@@ -1085,7 +1192,7 @@ mod tests {
         genesis_accounts2.insert(
             serde_json::to_string(&account_keypairs[1].to_bytes().to_vec()).unwrap(),
             Base64Account {
-                owner: solana_sdk::pubkey::new_rand().to_string(),
+                owner: solana_pubkey::new_rand().to_string(),
                 balance: 15,
                 executable: false,
                 data: String::from("bW9ua2V5IGVsZXBoYW50"),
@@ -1094,7 +1201,7 @@ mod tests {
         genesis_accounts2.insert(
             serde_json::to_string(&account_keypairs[2].to_bytes().to_vec()).unwrap(),
             Base64Account {
-                owner: solana_sdk::pubkey::new_rand().to_string(),
+                owner: solana_pubkey::new_rand().to_string(),
                 balance: 30,
                 executable: true,
                 data: String::from("Y29tYSBtb2Nh"),
@@ -1182,27 +1289,29 @@ mod tests {
 
     #[test]
     fn test_genesis_account_struct_compatibility() {
-        let yaml_string_pubkey = "---
-98frSc8R8toHoS3tQ1xWSvHCvGEADRM9hAm5qmUKjSDX:
-  balance: 4
-  owner: Gw6S9CPzR8jHku1QQMdiqcmUKjC2dhJ3gzagWduA6PGw
-  data:
-  executable: true
-88frSc8R8toHoS3tQ1xWSvHCvGEADRM9hAm5qmUKjSDX:
-  balance: 3
-  owner: Gw7S9CPzR8jHku1QQMdiqcmUKjC2dhJ3gzagWduA6PGw
-  data: ~
-  executable: true
-6s36rsNPDfRSvzwek7Ly3mQu9jUMwgqBhjePZMV6Acp4:
-  balance: 2
-  owner: DBC5d45LUHTCrq42ZmCdzc8A8ufwTaiYsL9pZY7KU6TR
-  data: aGVsbG8=
-  executable: false
-8Y98svZv5sPHhQiPqZvqA5Z5djQ8hieodscvb61RskMJ:
-  balance: 1
-  owner: DSknYr8cPucRbx2VyssZ7Yx3iiRqNGD38VqVahkUvgV1
-  data: aGVsbG8gd29ybGQ=
-  executable: true";
+        #[rustfmt::skip]
+        let yaml_string_pubkey =
+            "---\
+             \n98frSc8R8toHoS3tQ1xWSvHCvGEADRM9hAm5qmUKjSDX:\
+             \n  balance: 4\
+             \n  owner: Gw6S9CPzR8jHku1QQMdiqcmUKjC2dhJ3gzagWduA6PGw\
+             \n  data:\
+             \n  executable: true\
+             \n88frSc8R8toHoS3tQ1xWSvHCvGEADRM9hAm5qmUKjSDX:\
+             \n  balance: 3\
+             \n  owner: Gw7S9CPzR8jHku1QQMdiqcmUKjC2dhJ3gzagWduA6PGw\
+             \n  data: ~\
+             \n  executable: true\
+             \n6s36rsNPDfRSvzwek7Ly3mQu9jUMwgqBhjePZMV6Acp4:\
+             \n  balance: 2\
+             \n  owner: DBC5d45LUHTCrq42ZmCdzc8A8ufwTaiYsL9pZY7KU6TR\
+             \n  data: aGVsbG8=\
+             \n  executable: false\
+             \n8Y98svZv5sPHhQiPqZvqA5Z5djQ8hieodscvb61RskMJ:\
+             \n  balance: 1\
+             \n  owner: DSknYr8cPucRbx2VyssZ7Yx3iiRqNGD38VqVahkUvgV1\
+             \n  data: aGVsbG8gd29ybGQ=\
+             \n  executable: true";
 
         let tmpfile = tempfile::NamedTempFile::new().unwrap();
         let path = tmpfile.path();
@@ -1215,22 +1324,30 @@ mod tests {
 
         assert_eq!(genesis_config.accounts.len(), 4);
 
-        let yaml_string_keypair = "---
-\"[17,12,234,59,35,246,168,6,64,36,169,164,219,96,253,79,238,202,164,160,195,89,9,96,179,117,255,239,32,64,124,66,233,130,19,107,172,54,86,32,119,148,4,39,199,40,122,230,249,47,150,168,163,159,83,233,97,18,25,238,103,25,253,108]\":
-  balance: 20
-  owner: 9ZfsP6Um1KU8d5gNzTsEbSJxanKYp5EPF36qUu4FJqgp
-  data: Y2F0IGRvZw==
-  executable: true
-\"[36,246,244,43,37,214,110,50,134,148,148,8,205,82,233,67,223,245,122,5,149,232,213,125,244,182,26,29,56,224,70,45,42,163,71,62,222,33,229,54,73,136,53,174,128,103,247,235,222,27,219,129,180,77,225,174,220,74,201,123,97,155,159,234]\":
-  balance: 15
-  owner: F9dmtjJPi8vfLu1EJN4KkyoGdXGmVfSAhxz35Qo9RDCJ
-  data: bW9ua2V5IGVsZXBoYW50
-  executable: false
-\"[103,27,132,107,42,149,72,113,24,138,225,109,209,31,158,6,26,11,8,76,24,128,131,215,156,80,251,114,103,220,111,235,56,22,87,5,209,56,53,12,224,170,10,66,82,42,11,138,51,76,120,27,166,200,237,16,200,31,23,5,57,22,131,221]\":
-  balance: 30
-  owner: AwAR5mAbNPbvQ4CvMeBxwWE8caigQoMC2chkWAbh2b9V
-  data: Y29tYSBtb2Nh
-  executable: true";
+        #[rustfmt::skip]
+        let yaml_string_keypair =
+            "---\
+             \n\"[17,12,234,59,35,246,168,6,64,36,169,164,219,96,253,79,238,202,164,160,195,89,9,\
+             96,179,117,255,239,32,64,124,66,233,130,19,107,172,54,86,32,119,148,4,39,199,40,122,\
+             230,249,47,150,168,163,159,83,233,97,18,25,238,103,25,253,108]\":\
+             \n  balance: 20\
+             \n  owner: 9ZfsP6Um1KU8d5gNzTsEbSJxanKYp5EPF36qUu4FJqgp\
+             \n  data: Y2F0IGRvZw==\
+             \n  executable: true\
+             \n\"[36,246,244,43,37,214,110,50,134,148,148,8,205,82,233,67,223,245,122,5,149,232,\
+             213,125,244,182,26,29,56,224,70,45,42,163,71,62,222,33,229,54,73,136,53,174,128,103,\
+             247,235,222,27,219,129,180,77,225,174,220,74,201,123,97,155,159,234]\":\
+             \n  balance: 15\
+             \n  owner: F9dmtjJPi8vfLu1EJN4KkyoGdXGmVfSAhxz35Qo9RDCJ\
+             \n  data: bW9ua2V5IGVsZXBoYW50\
+             \n  executable: false\
+             \n\"[103,27,132,107,42,149,72,113,24,138,225,109,209,31,158,6,26,11,8,76,24,128,131,\
+             215,156,80,251,114,103,220,111,235,56,22,87,5,209,56,53,12,224,170,10,66,82,42,11,138,\
+             51,76,120,27,166,200,237,16,200,31,23,5,57,22,131,221]\":\
+             \n  balance: 30
+             \n  owner: AwAR5mAbNPbvQ4CvMeBxwWE8caigQoMC2chkWAbh2b9V
+             \n  data: Y29tYSBtb2Nh
+             \n  executable: true";
 
         let tmpfile = tempfile::NamedTempFile::new().unwrap();
         let path = tmpfile.path();
@@ -1244,38 +1361,62 @@ mod tests {
         assert_eq!(genesis_config.accounts.len(), 3);
     }
 
-    #[test]
-    fn test_append_validator_accounts_to_genesis() {
+    #[test_case(true, true; "add bls compressed pubkey")]
+    #[test_case(true, false; "add bls pubkey")]
+    #[test_case(false, false; "no bls pubkey")]
+    fn test_append_validator_accounts_to_genesis(
+        add_bls_pubkey: bool,
+        use_compressed_pubkey: bool,
+    ) {
         // Test invalid file returns error
-        assert!(load_validator_accounts(
-            "unknownfile",
-            100,
-            &Rent::default(),
-            &mut GenesisConfig::default()
-        )
-        .is_err());
+        assert!(
+            load_validator_accounts(
+                "unknownfile",
+                100,
+                &Rent::default(),
+                &mut GenesisConfig::default(),
+                true, // vote_state_v4_enabled
+            )
+            .is_err()
+        );
 
         let mut genesis_config = GenesisConfig::default();
 
+        let generate_bls_pubkey = || {
+            if add_bls_pubkey {
+                let bls_pubkey: BLSPubkey = BLSKeypair::new().public.into();
+                if use_compressed_pubkey {
+                    let bls_pubkey_compressed: BLSPubkeyCompressed = bls_pubkey.try_into().unwrap();
+                    Some(bls_pubkey_compressed.to_string())
+                } else {
+                    Some(bls_pubkey.to_string())
+                }
+            } else {
+                None
+            }
+        };
         let validator_accounts = vec![
             StakedValidatorAccountInfo {
-                identity_account: solana_sdk::pubkey::new_rand().to_string(),
-                vote_account: solana_sdk::pubkey::new_rand().to_string(),
-                stake_account: solana_sdk::pubkey::new_rand().to_string(),
+                identity_account: solana_pubkey::new_rand().to_string(),
+                vote_account: solana_pubkey::new_rand().to_string(),
+                stake_account: solana_pubkey::new_rand().to_string(),
+                bls_pubkey: generate_bls_pubkey(),
                 balance_lamports: 100000000000,
                 stake_lamports: 10000000000,
             },
             StakedValidatorAccountInfo {
-                identity_account: solana_sdk::pubkey::new_rand().to_string(),
-                vote_account: solana_sdk::pubkey::new_rand().to_string(),
-                stake_account: solana_sdk::pubkey::new_rand().to_string(),
+                identity_account: solana_pubkey::new_rand().to_string(),
+                vote_account: solana_pubkey::new_rand().to_string(),
+                stake_account: solana_pubkey::new_rand().to_string(),
+                bls_pubkey: generate_bls_pubkey(),
                 balance_lamports: 200000000000,
                 stake_lamports: 20000000000,
             },
             StakedValidatorAccountInfo {
-                identity_account: solana_sdk::pubkey::new_rand().to_string(),
-                vote_account: solana_sdk::pubkey::new_rand().to_string(),
-                stake_account: solana_sdk::pubkey::new_rand().to_string(),
+                identity_account: solana_pubkey::new_rand().to_string(),
+                vote_account: solana_pubkey::new_rand().to_string(),
+                stake_account: solana_pubkey::new_rand().to_string(),
+                bls_pubkey: generate_bls_pubkey(),
                 balance_lamports: 300000000000,
                 stake_lamports: 30000000000,
             },
@@ -1284,16 +1425,26 @@ mod tests {
         let serialized = serde_yaml::to_string(&validator_accounts).unwrap();
 
         // write accounts to file
-        let path = Path::new("test_append_validator_accounts_to_genesis.yml");
+        let filename = format!(
+            "test_append_validator_accounts_to_genesis_{}_{}_bls.yml",
+            if add_bls_pubkey { "with" } else { "without" },
+            if use_compressed_pubkey {
+                "compressed"
+            } else {
+                "uncompressed"
+            }
+        );
+        let path = Path::new(&filename);
         let mut file = File::create(path).unwrap();
         file.write_all(b"validator_accounts:\n").unwrap();
         file.write_all(serialized.as_bytes()).unwrap();
 
         load_validator_accounts(
-            "test_append_validator_accounts_to_genesis.yml",
+            &filename,
             100,
             &Rent::default(),
             &mut genesis_config,
+            true, // vote_state_v4_enabled
         )
         .expect("Failed to load validator accounts");
 
@@ -1320,11 +1471,37 @@ mod tests {
                 // check vote account
                 let vote_pk = b64_account.vote_account.parse().unwrap();
                 let vote_data = genesis_config.accounts[&vote_pk].data.clone();
-                let vote_state = VoteState::deserialize(&vote_data).unwrap();
+                let vote_state = VoteStateV4::deserialize(&vote_data, &vote_pk).unwrap();
                 assert_eq!(vote_state.node_pubkey, identity_pk);
                 assert_eq!(vote_state.authorized_withdrawer, identity_pk);
-                let authorized_voters = vote_state.authorized_voters();
+                let authorized_voters = &vote_state.authorized_voters;
                 assert_eq!(authorized_voters.first().unwrap().1, &identity_pk);
+                if add_bls_pubkey {
+                    let bls_pubkey_compressed_from_input = if use_compressed_pubkey {
+                        BLSPubkeyCompressed::from_str(b64_account.bls_pubkey.as_ref().unwrap())
+                            .expect("failed to parse BLS pubkey from input")
+                    } else {
+                        BLSPubkey::from_str(b64_account.bls_pubkey.as_ref().unwrap())
+                            .expect("failed to parse BLS pubkey from input")
+                            .try_into()
+                            .expect("failed to convert BLS pubkey to compressed form")
+                    };
+                    let bls_pubkey_compressed_from_account = BLSPubkeyCompressed(
+                        vote_state
+                            .bls_pubkey_compressed
+                            .expect("missing BLS pubkey bytes"),
+                    );
+                    assert_eq!(
+                        bls_pubkey_compressed_from_input,
+                        bls_pubkey_compressed_from_account,
+                    );
+                } else {
+                    assert!(b64_account.bls_pubkey.is_none());
+                    assert_eq!(
+                        vote_state.bls_pubkey_compressed,
+                        Some([0u8; BLS_PUBLIC_KEY_COMPRESSED_SIZE])
+                    );
+                }
 
                 // check stake account
                 let stake_pk = b64_account.stake_account.parse().unwrap();
@@ -1349,7 +1526,7 @@ mod tests {
                     let stake_account = AccountSharedData::new(
                         b64_account.stake_lamports,
                         StakeStateV2::size_of(),
-                        &solana_stake_program::id(),
+                        &stake::program::id(),
                     );
                     let rent_exempt_reserve =
                         &Rent::default().minimum_balance(stake_account.data().len());

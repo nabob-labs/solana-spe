@@ -5,12 +5,15 @@ extern crate test;
 
 use {
     rand::Rng,
-    solana_entry::entry::{create_ticks, Entry},
+    solana_clock::Slot,
+    solana_entry::entry::{Entry, create_ticks},
+    solana_hash::Hash,
     solana_ledger::{
-        blockstore::{entries_to_test_shreds, Blockstore},
+        blockstore::{Blockstore, entries_to_test_shreds},
         get_tmp_ledger_path_auto_delete,
     },
-    solana_sdk::{clock::Slot, hash::Hash, pubkey::Pubkey, signature::Signature},
+    solana_pubkey::Pubkey,
+    solana_signature::Signature,
     solana_transaction_status::TransactionStatusMeta,
     std::path::Path,
     test::Bencher,
@@ -21,7 +24,7 @@ fn bench_write_shreds(bench: &mut Bencher, entries: Vec<Entry>, ledger_path: &Pa
     let blockstore =
         Blockstore::open(ledger_path).expect("Expected to be able to open database ledger");
     bench.iter(move || {
-        let shreds = entries_to_test_shreds(&entries, 0, 0, true, 0, /*merkle_variant:*/ true);
+        let shreds = entries_to_test_shreds(&entries, 0, 0, true, 0);
         blockstore.insert_shreds(shreds, None, false).unwrap();
     });
 }
@@ -47,11 +50,10 @@ fn setup_read_bench(
         slot.saturating_sub(1), // parent_slot
         true,                   // is_full_slot
         0,                      // version
-        true,                   // merkle_variant
     );
     blockstore
         .insert_shreds(shreds, None, false)
-        .expect("Expectd successful insertion of shreds into ledger");
+        .expect("Expected successful insertion of shreds into ledger");
 }
 
 // Write small shreds to the ledger
@@ -89,10 +91,10 @@ fn bench_read_sequential(bench: &mut Bencher) {
     setup_read_bench(&blockstore, num_small_shreds, num_large_shreds, slot);
 
     let num_reads = total_shreds / 15;
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     bench.iter(move || {
         // Generate random starting point in the range [0, total_shreds - 1], read num_reads shreds sequentially
-        let start_index = rng.gen_range(0..num_small_shreds + num_large_shreds);
+        let start_index = rng.random_range(0..num_small_shreds + num_large_shreds);
         for i in start_index..start_index + num_reads {
             let _ = blockstore.get_data_shred(slot, i % total_shreds);
         }
@@ -117,9 +119,9 @@ fn bench_read_random(bench: &mut Bencher) {
 
     // Generate a num_reads sized random sample of indexes in range [0, total_shreds - 1],
     // simulating random reads
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let indexes: Vec<usize> = (0..num_reads)
-        .map(|_| rng.gen_range(0..total_shreds) as usize)
+        .map(|_| rng.random_range(0..total_shreds) as usize)
         .collect();
     bench.iter(move || {
         for i in indexes.iter() {
@@ -137,7 +139,7 @@ fn bench_insert_data_shred_small(bench: &mut Bencher) {
     let num_entries = 32 * 1024;
     let entries = create_ticks(num_entries, 0, Hash::default());
     bench.iter(move || {
-        let shreds = entries_to_test_shreds(&entries, 0, 0, true, 0, /*merkle_variant:*/ true);
+        let shreds = entries_to_test_shreds(&entries, 0, 0, true, 0);
         blockstore.insert_shreds(shreds, None, false).unwrap();
     });
 }
@@ -151,7 +153,7 @@ fn bench_insert_data_shred_big(bench: &mut Bencher) {
     let num_entries = 32 * 1024;
     let entries = create_ticks(num_entries, 0, Hash::default());
     bench.iter(move || {
-        let shreds = entries_to_test_shreds(&entries, 0, 0, true, 0, /*merkle_variant:*/ true);
+        let shreds = entries_to_test_shreds(&entries, 0, 0, true, 0);
         blockstore.insert_shreds(shreds, None, false).unwrap();
     });
 }

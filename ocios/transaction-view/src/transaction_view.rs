@@ -9,7 +9,10 @@ use {
     solana_hash::Hash,
     solana_pubkey::Pubkey,
     solana_signature::Signature,
-    solana_svm_transaction::instruction::SVMInstruction,
+    solana_svm_transaction::{
+        instruction::SVMInstruction, message_address_table_lookup::SVMMessageAddressTableLookup,
+        svm_message::SVMStaticMessage,
+    },
 };
 
 // alias for convenience
@@ -36,8 +39,16 @@ impl<D: TransactionData> TransactionView<false, D> {
     }
 
     /// Sanitizes the transaction view, returning a sanitized view on success.
-    pub fn sanitize(self) -> Result<SanitizedTransactionView<D>> {
-        sanitize(&self)?;
+    pub fn sanitize(
+        self,
+        enable_static_instruction_limit: bool,
+        enable_instruction_accounts_limit: bool,
+    ) -> Result<SanitizedTransactionView<D>> {
+        sanitize(
+            &self,
+            enable_static_instruction_limit,
+            enable_instruction_accounts_limit,
+        )?;
         Ok(SanitizedTransactionView {
             data: self.data,
             frame: self.frame,
@@ -47,9 +58,16 @@ impl<D: TransactionData> TransactionView<false, D> {
 
 impl<D: TransactionData> TransactionView<true, D> {
     /// Creates a new `TransactionView`, running sanitization checks.
-    pub fn try_new_sanitized(data: D) -> Result<Self> {
+    pub fn try_new_sanitized(
+        data: D,
+        enable_static_instruction_limit: bool,
+        enable_instruction_accounts_limit: bool,
+    ) -> Result<Self> {
         let unsanitized_view = TransactionView::try_new_unsanitized(data)?;
-        unsanitized_view.sanitize()
+        unsanitized_view.sanitize(
+            enable_static_instruction_limit,
+            enable_instruction_accounts_limit,
+        )
     }
 }
 
@@ -140,7 +158,7 @@ impl<const SANITIZED: bool, D: TransactionData> TransactionView<SANITIZED, D> {
 
     /// Return an iterator over the instructions in the transaction.
     #[inline]
-    pub fn instructions_iter(&self) -> InstructionsIterator {
+    pub fn instructions_iter(&self) -> InstructionsIterator<'_> {
         let data = self.data();
         // SAFETY: `frame` was created from `data`.
         unsafe { self.frame.instructions_iter(data) }
@@ -148,7 +166,7 @@ impl<const SANITIZED: bool, D: TransactionData> TransactionView<SANITIZED, D> {
 
     /// Return an iterator over the address table lookups in the transaction.
     #[inline]
-    pub fn address_table_lookup_iter(&self) -> AddressTableLookupIterator {
+    pub fn address_table_lookup_iter(&self) -> AddressTableLookupIterator<'_> {
         let data = self.data();
         // SAFETY: `frame` was created from `data`.
         unsafe { self.frame.address_table_lookup_iter(data) }
@@ -166,6 +184,16 @@ impl<const SANITIZED: bool, D: TransactionData> TransactionView<SANITIZED, D> {
     pub fn message_data(&self) -> &[u8] {
         &self.data()[usize::from(self.frame.message_offset())..]
     }
+
+    #[inline]
+    pub fn inner_data(&self) -> &D {
+        &self.data
+    }
+
+    #[inline]
+    pub fn into_inner_data(self) -> D {
+        self.data
+    }
 }
 
 // Implementation that relies on sanitization checks having been run.
@@ -173,7 +201,7 @@ impl<D: TransactionData> TransactionView<true, D> {
     /// Return an iterator over the instructions paired with their program ids.
     pub fn program_instructions_iter(
         &self,
-    ) -> impl Iterator<Item = (&Pubkey, SVMInstruction)> + Clone {
+    ) -> impl Iterator<Item = (&Pubkey, SVMInstruction<'_>)> + Clone {
         self.instructions_iter().map(|ix| {
             let program_id_index = usize::from(ix.program_id_index);
             let program_id = &self.static_account_keys()[program_id_index];
@@ -236,6 +264,98 @@ impl<const SANITIZED: bool, D: TransactionData> Debug for TransactionView<SANITI
             .field("instructions", &self.instructions_iter())
             .field("address_table_lookups", &self.address_table_lookup_iter())
             .finish()
+    }
+}
+
+impl<D: TransactionData> SVMStaticMessage for TransactionView<true, D> {
+    fn num_transaction_signatures(&self) -> u64 {
+        self.num_required_signatures() as u64
+    }
+
+    fn num_write_locks(&self) -> u64 {
+        self.num_requested_write_locks()
+    }
+
+    fn recent_blockhash(&self) -> &Hash {
+        self.recent_blockhash()
+    }
+
+    fn num_instructions(&self) -> usize {
+        self.num_instructions() as usize
+    }
+
+    fn instructions_iter(&self) -> impl Iterator<Item = SVMInstruction<'_>> {
+        self.instructions_iter()
+    }
+
+    fn program_instructions_iter(
+        &self,
+    ) -> impl Iterator<Item = (&Pubkey, SVMInstruction<'_>)> + Clone {
+        self.program_instructions_iter()
+    }
+
+    fn static_account_keys(&self) -> &[Pubkey] {
+        self.static_account_keys()
+    }
+
+    fn fee_payer(&self) -> &Pubkey {
+        &self.static_account_keys()[0]
+    }
+
+    fn num_lookup_tables(&self) -> usize {
+        self.num_address_table_lookups() as usize
+    }
+
+    fn message_address_table_lookups(
+        &self,
+    ) -> impl Iterator<Item = SVMMessageAddressTableLookup<'_>> {
+        self.address_table_lookup_iter()
+    }
+}
+
+impl<D: TransactionData> SVMStaticMessage for &TransactionView<true, D> {
+    fn num_transaction_signatures(&self) -> u64 {
+        <TransactionView<true, D> as SVMStaticMessage>::num_transaction_signatures(self)
+    }
+
+    fn num_write_locks(&self) -> u64 {
+        <TransactionView<true, D> as SVMStaticMessage>::num_write_locks(self)
+    }
+
+    fn recent_blockhash(&self) -> &Hash {
+        <TransactionView<true, D> as SVMStaticMessage>::recent_blockhash(self)
+    }
+
+    fn num_instructions(&self) -> usize {
+        <TransactionView<true, D> as SVMStaticMessage>::num_instructions(self)
+    }
+
+    fn instructions_iter(&self) -> impl Iterator<Item = SVMInstruction<'_>> {
+        <TransactionView<true, D> as SVMStaticMessage>::instructions_iter(self)
+    }
+
+    fn program_instructions_iter(
+        &self,
+    ) -> impl Iterator<Item = (&Pubkey, SVMInstruction<'_>)> + Clone {
+        <TransactionView<true, D> as SVMStaticMessage>::program_instructions_iter(self)
+    }
+
+    fn static_account_keys(&self) -> &[Pubkey] {
+        <TransactionView<true, D> as SVMStaticMessage>::static_account_keys(self)
+    }
+
+    fn fee_payer(&self) -> &Pubkey {
+        <TransactionView<true, D> as SVMStaticMessage>::fee_payer(self)
+    }
+
+    fn num_lookup_tables(&self) -> usize {
+        <TransactionView<true, D> as SVMStaticMessage>::num_lookup_tables(self)
+    }
+
+    fn message_address_table_lookups(
+        &self,
+    ) -> impl Iterator<Item = SVMMessageAddressTableLookup<'_>> {
+        <TransactionView<true, D> as SVMStaticMessage>::message_address_table_lookups(self)
     }
 }
 

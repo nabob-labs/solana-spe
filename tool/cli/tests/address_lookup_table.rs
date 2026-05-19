@@ -4,27 +4,29 @@ use {
             AddressLookupTableCliCommand, DEACTIVATE_LOOKUP_TABLE_WARNING,
             FREEZE_LOOKUP_TABLE_WARNING,
         },
-        cli::{process_command, CliCommand, CliConfig},
+        cli::{CliCommand, CliConfig, process_command},
     },
     solana_cli_output::{CliAddressLookupTable, CliAddressLookupTableCreated, OutputFormat},
-    solana_faucet::faucet::run_local_faucet,
-    solana_sdk::{
-        native_token::LAMPORTS_PER_SOL,
-        pubkey::Pubkey,
-        signature::{Keypair, Signer},
-    },
-    solana_streamer::socket::SocketAddrSpace,
+    solana_faucet::faucet::run_local_faucet_with_unique_port_for_tests,
+    solana_keypair::Keypair,
+    solana_native_token::LAMPORTS_PER_SOL,
+    solana_net_utils::SocketAddrSpace,
+    solana_pubkey::Pubkey,
+    solana_signer::Signer,
     solana_test_validator::TestValidator,
     std::str::FromStr,
 };
 
-#[test]
-fn test_cli_create_extend_and_freeze_address_lookup_table() {
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn test_cli_create_extend_and_freeze_address_lookup_table() {
     let mint_keypair = Keypair::new();
-    let mint_pubkey = mint_keypair.pubkey();
-    let faucet_addr = run_local_faucet(mint_keypair, None);
-    let test_validator =
-        TestValidator::with_no_fees(mint_pubkey, Some(faucet_addr), SocketAddrSpace::Unspecified);
+    let faucet_addr = run_local_faucet_with_unique_port_for_tests(mint_keypair.insecure_clone());
+    let test_validator = TestValidator::async_with_no_fees(
+        &mint_keypair,
+        Some(faucet_addr),
+        SocketAddrSpace::Unspecified,
+    )
+    .await;
 
     let mut config = CliConfig::recent_for_tests();
     let keypair = Keypair::new();
@@ -37,7 +39,7 @@ fn test_cli_create_extend_and_freeze_address_lookup_table() {
         pubkey: None,
         lamports: 10 * LAMPORTS_PER_SOL,
     };
-    process_command(&config).unwrap();
+    process_command(&config).await.unwrap();
 
     // Create lookup table
     config.command =
@@ -46,7 +48,7 @@ fn test_cli_create_extend_and_freeze_address_lookup_table() {
             payer_signer_index: 0,
         });
     let response: CliAddressLookupTableCreated =
-        serde_json::from_str(&process_command(&config).unwrap()).unwrap();
+        serde_json::from_str(&process_command(&config).await.unwrap()).unwrap();
     let lookup_table_pubkey = Pubkey::from_str(&response.lookup_table_address).unwrap();
 
     // Validate created lookup table
@@ -56,7 +58,7 @@ fn test_cli_create_extend_and_freeze_address_lookup_table() {
                 lookup_table_pubkey,
             });
         let response: CliAddressLookupTable =
-            serde_json::from_str(&process_command(&config).unwrap()).unwrap();
+            serde_json::from_str(&process_command(&config).await.unwrap()).unwrap();
         assert_eq!(
             response,
             CliAddressLookupTable {
@@ -78,7 +80,7 @@ fn test_cli_create_extend_and_freeze_address_lookup_table() {
             payer_signer_index: 0,
             new_addresses: new_addresses.clone(),
         });
-    process_command(&config).unwrap();
+    process_command(&config).await.unwrap();
 
     // Validate extended lookup table
     {
@@ -90,7 +92,7 @@ fn test_cli_create_extend_and_freeze_address_lookup_table() {
             addresses,
             last_extended_slot,
             ..
-        } = serde_json::from_str(&process_command(&config).unwrap()).unwrap();
+        } = serde_json::from_str(&process_command(&config).await.unwrap()).unwrap();
         assert_eq!(
             addresses
                 .into_iter()
@@ -108,7 +110,7 @@ fn test_cli_create_extend_and_freeze_address_lookup_table() {
             authority_signer_index: 0,
             bypass_warning: false,
         });
-    let process_err = process_command(&config).unwrap_err();
+    let process_err = process_command(&config).await.unwrap_err();
     assert_eq!(process_err.to_string(), FREEZE_LOOKUP_TABLE_WARNING);
 
     // Freeze lookup table w/ bypass
@@ -118,7 +120,7 @@ fn test_cli_create_extend_and_freeze_address_lookup_table() {
             authority_signer_index: 0,
             bypass_warning: true,
         });
-    process_command(&config).unwrap();
+    process_command(&config).await.unwrap();
 
     // Validate frozen lookup table
     {
@@ -127,18 +129,21 @@ fn test_cli_create_extend_and_freeze_address_lookup_table() {
                 lookup_table_pubkey,
             });
         let CliAddressLookupTable { authority, .. } =
-            serde_json::from_str(&process_command(&config).unwrap()).unwrap();
+            serde_json::from_str(&process_command(&config).await.unwrap()).unwrap();
         assert!(authority.is_none());
     }
 }
 
-#[test]
-fn test_cli_create_and_deactivate_address_lookup_table() {
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn test_cli_create_and_deactivate_address_lookup_table() {
     let mint_keypair = Keypair::new();
-    let mint_pubkey = mint_keypair.pubkey();
-    let faucet_addr = run_local_faucet(mint_keypair, None);
-    let test_validator =
-        TestValidator::with_no_fees(mint_pubkey, Some(faucet_addr), SocketAddrSpace::Unspecified);
+    let faucet_addr = run_local_faucet_with_unique_port_for_tests(mint_keypair.insecure_clone());
+    let test_validator = TestValidator::async_with_no_fees(
+        &mint_keypair,
+        Some(faucet_addr),
+        SocketAddrSpace::Unspecified,
+    )
+    .await;
 
     let mut config = CliConfig::recent_for_tests();
     let keypair = Keypair::new();
@@ -151,7 +156,7 @@ fn test_cli_create_and_deactivate_address_lookup_table() {
         pubkey: None,
         lamports: 10 * LAMPORTS_PER_SOL,
     };
-    process_command(&config).unwrap();
+    process_command(&config).await.unwrap();
 
     // Create lookup table
     config.command =
@@ -160,7 +165,7 @@ fn test_cli_create_and_deactivate_address_lookup_table() {
             payer_signer_index: 0,
         });
     let response: CliAddressLookupTableCreated =
-        serde_json::from_str(&process_command(&config).unwrap()).unwrap();
+        serde_json::from_str(&process_command(&config).await.unwrap()).unwrap();
     let lookup_table_pubkey = Pubkey::from_str(&response.lookup_table_address).unwrap();
 
     // Validate created lookup table
@@ -170,7 +175,7 @@ fn test_cli_create_and_deactivate_address_lookup_table() {
                 lookup_table_pubkey,
             });
         let response: CliAddressLookupTable =
-            serde_json::from_str(&process_command(&config).unwrap()).unwrap();
+            serde_json::from_str(&process_command(&config).await.unwrap()).unwrap();
         assert_eq!(
             response,
             CliAddressLookupTable {
@@ -190,7 +195,7 @@ fn test_cli_create_and_deactivate_address_lookup_table() {
             authority_signer_index: 0,
             bypass_warning: false,
         });
-    let process_err = process_command(&config).unwrap_err();
+    let process_err = process_command(&config).await.unwrap_err();
     assert_eq!(process_err.to_string(), DEACTIVATE_LOOKUP_TABLE_WARNING);
 
     // Deactivate lookup table w/ bypass
@@ -200,7 +205,7 @@ fn test_cli_create_and_deactivate_address_lookup_table() {
             authority_signer_index: 0,
             bypass_warning: true,
         });
-    process_command(&config).unwrap();
+    process_command(&config).await.unwrap();
 
     // Validate deactivated lookup table
     {
@@ -210,7 +215,7 @@ fn test_cli_create_and_deactivate_address_lookup_table() {
             });
         let CliAddressLookupTable {
             deactivation_slot, ..
-        } = serde_json::from_str(&process_command(&config).unwrap()).unwrap();
+        } = serde_json::from_str(&process_command(&config).await.unwrap()).unwrap();
         assert_ne!(deactivation_slot, u64::MAX);
     }
 }

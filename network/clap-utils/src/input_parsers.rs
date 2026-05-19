@@ -1,20 +1,21 @@
 use {
     crate::keypair::{
-        keypair_from_seed_phrase, pubkey_from_path, resolve_signer_from_path, signer_from_path,
-        ASK_KEYWORD, SKIP_SEED_PHRASE_VALIDATION_ARG,
+        ASK_KEYWORD, SKIP_SEED_PHRASE_VALIDATION_ARG, keypair_from_seed_phrase, pubkey_from_path,
+        resolve_signer_from_path, signer_from_path,
     },
     chrono::DateTime,
     clap::ArgMatches,
+    solana_bls_signatures::{Pubkey as BLSPubkey, PubkeyCompressed as BLSPubkeyCompressed},
     solana_clock::UnixTimestamp,
     solana_cluster_type::ClusterType,
     solana_commitment_config::CommitmentConfig,
-    solana_keypair::{read_keypair_file, Keypair},
-    solana_native_token::sol_to_lamports,
+    solana_keypair::{Keypair, read_keypair_file},
+    solana_native_token::LAMPORTS_PER_SOL,
     solana_pubkey::Pubkey,
     solana_remote_wallet::remote_wallet::RemoteWalletManager,
     solana_signature::Signature,
     solana_signer::Signer,
-    std::{rc::Rc, str::FromStr},
+    std::{io, num::ParseIntError, rc::Rc, str::FromStr},
 };
 
 // Sentinel value used to indicate to write to screen instead of file
@@ -104,6 +105,24 @@ pub fn pubkeys_of(matches: &ArgMatches<'_>, name: &str) -> Option<Vec<Pubkey>> {
     })
 }
 
+pub fn bls_pubkeys_of(matches: &ArgMatches<'_>, name: &str) -> Option<Vec<BLSPubkeyCompressed>> {
+    matches.values_of(name).map(|values| {
+        values
+            .map(|value| {
+                // Most of the case it is just a compressed BLS pubkey string
+                // If the conversion fails, we try to read it as uncompressed BLS pubkey string
+                BLSPubkeyCompressed::from_str(value).unwrap_or_else(|_| {
+                    let bls_pubkey = BLSPubkey::from_str(value)
+                        .expect("Failed to parse BLS pubkey or compressed BLS pubkey from string");
+                    bls_pubkey
+                        .try_into()
+                        .expect("Failed to convert to compressed BLS pubkey")
+                })
+            })
+            .collect()
+    })
+}
+
 // Return pubkey/signature pairs for a string of the form pubkey=signature
 pub fn pubkeys_sigs_of(matches: &ArgMatches<'_>, name: &str) -> Option<Vec<(Pubkey, Signature)>> {
     matches.values_of(name).map(|values| {
@@ -180,8 +199,33 @@ pub fn resolve_signer(
     )
 }
 
+/// Convert a SOL amount string to lamports.
+///
+/// Accepts plain or decimal strings ("50", "0.03", ".5", "1.").
+/// Any decimal places beyond 9 are truncated.
 pub fn lamports_of_sol(matches: &ArgMatches<'_>, name: &str) -> Option<u64> {
-    value_of(matches, name).map(sol_to_lamports)
+    matches.value_of(name).and_then(|value| {
+        if value == "." {
+            None
+        } else {
+            let (sol, lamports) = value.split_once('.').unwrap_or((value, ""));
+            let sol = if sol.is_empty() {
+                0
+            } else {
+                sol.parse::<u64>().ok()?
+            };
+            let lamports = if lamports.is_empty() {
+                0
+            } else {
+                format!("{lamports:0<9}")[..9].parse().ok()?
+            };
+            Some(
+                LAMPORTS_PER_SOL
+                    .saturating_mul(sol)
+                    .saturating_add(lamports),
+            )
+        }
+    })
 }
 
 pub fn cluster_type_of(matches: &ArgMatches<'_>, name: &str) -> Option<ClusterType> {
@@ -194,11 +238,41 @@ pub fn commitment_of(matches: &ArgMatches<'_>, name: &str) -> Option<CommitmentC
         .map(|value| CommitmentConfig::from_str(value).unwrap_or_default())
 }
 
+// Parse a cpu range in standard cpuset format, eg:
+//
+// 0-4,9
+// 0-2,7,12-14
+pub fn parse_cpu_ranges(data: &str) -> Result<Vec<usize>, io::Error> {
+    data.split(',')
+        .map(|range| {
+            let mut iter = range
+                .split('-')
+                .map(|s| s.parse::<usize>().map_err(|ParseIntError { .. }| range));
+            let start = iter.next().unwrap()?; // str::split always returns at least one element.
+            let end = match iter.next() {
+                None => start,
+                Some(end) => {
+                    if iter.next().is_some() {
+                        return Err(range);
+                    }
+                    end?
+                }
+            };
+            Ok(start..=end)
+        })
+        .try_fold(Vec::new(), |mut cpus, range| {
+            let range = range.map_err(|range| io::Error::new(io::ErrorKind::InvalidData, range))?;
+            cpus.extend(range);
+            Ok(cpus)
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use {
         super::*,
         clap::{App, Arg},
+        solana_bls_signatures::{Pubkey as BLSPubkey, keypair::Keypair as BLSKeypair},
         solana_keypair::write_keypair_file,
         std::fs,
     };
@@ -330,6 +404,71 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "historical reference; shows float behavior fixed in pull #4988"]
+    fn test_lamports_of_sol_origin() {
+        use solana_native_token::sol_str_to_lamports;
+        pub fn lamports_of_sol(matches: &ArgMatches<'_>, name: &str) -> Option<u64> {
+            matches.value_of(name).and_then(sol_str_to_lamports)
+        }
+
+        let matches = app().get_matches_from(vec!["test", "--single", "50"]);
+        assert_eq!(lamports_of_sol(&matches, "single"), Some(50_000_000_000));
+        assert_eq!(lamports_of_sol(&matches, "multiple"), None);
+        let matches = app().get_matches_from(vec!["test", "--single", "1.5"]);
+        assert_eq!(lamports_of_sol(&matches, "single"), Some(1_500_000_000));
+        assert_eq!(lamports_of_sol(&matches, "multiple"), None);
+        let matches = app().get_matches_from(vec!["test", "--single", "0.03"]);
+        assert_eq!(lamports_of_sol(&matches, "single"), Some(30_000_000));
+        let matches = app().get_matches_from(vec!["test", "--single", ".03"]);
+        assert_eq!(lamports_of_sol(&matches, "single"), Some(30_000_000));
+        let matches = app().get_matches_from(vec!["test", "--single", "1."]);
+        assert_eq!(lamports_of_sol(&matches, "single"), Some(1_000_000_000));
+        let matches = app().get_matches_from(vec!["test", "--single", ".0"]);
+        assert_eq!(lamports_of_sol(&matches, "single"), Some(0));
+        let matches = app().get_matches_from(vec!["test", "--single", "."]);
+        assert_eq!(lamports_of_sol(&matches, "single"), None);
+        // NOT EQ
+        let matches = app().get_matches_from(vec!["test", "--single", "1.000000015"]);
+        assert_ne!(lamports_of_sol(&matches, "single"), Some(1_000_000_015));
+        let matches = app().get_matches_from(vec!["test", "--single", "0.0157"]);
+        assert_ne!(lamports_of_sol(&matches, "single"), Some(15_700_000));
+        let matches = app().get_matches_from(vec!["test", "--single", "0.5025"]);
+        assert_ne!(lamports_of_sol(&matches, "single"), Some(502_500_000));
+    }
+
+    #[test]
+    fn test_bls_pubkeys_of() {
+        let bls_pubkey1: BLSPubkey = BLSKeypair::new().public.into();
+        let bls_pubkey2: BLSPubkey = BLSKeypair::new().public.into();
+        let bls_pubkey1_compressed: BLSPubkeyCompressed = bls_pubkey1.try_into().unwrap();
+        let bls_pubkey2_compressed: BLSPubkeyCompressed = bls_pubkey2.try_into().unwrap();
+        let matches = app().get_matches_from(vec![
+            "test",
+            "--multiple",
+            &bls_pubkey1.to_string(),
+            "--multiple",
+            &bls_pubkey2.to_string(),
+        ]);
+        assert_eq!(
+            bls_pubkeys_of(&matches, "multiple"),
+            Some(vec![bls_pubkey1_compressed, bls_pubkey2_compressed])
+        );
+
+        // Test that compressed BLS pubkey strings also work
+        let matches = app().get_matches_from(vec![
+            "test",
+            "--multiple",
+            &bls_pubkey1_compressed.to_string(),
+            "--multiple",
+            &bls_pubkey2_compressed.to_string(),
+        ]);
+        assert_eq!(
+            bls_pubkeys_of(&matches, "multiple"),
+            Some(vec![bls_pubkey1_compressed, bls_pubkey2_compressed])
+        );
+    }
+
+    #[test]
     fn test_lamports_of_sol() {
         let matches = app().get_matches_from(vec!["test", "--single", "50"]);
         assert_eq!(lamports_of_sol(&matches, "single"), Some(50_000_000_000));
@@ -339,5 +478,31 @@ mod tests {
         assert_eq!(lamports_of_sol(&matches, "multiple"), None);
         let matches = app().get_matches_from(vec!["test", "--single", "0.03"]);
         assert_eq!(lamports_of_sol(&matches, "single"), Some(30_000_000));
+        let matches = app().get_matches_from(vec!["test", "--single", ".03"]);
+        assert_eq!(lamports_of_sol(&matches, "single"), Some(30_000_000));
+        let matches = app().get_matches_from(vec!["test", "--single", "1."]);
+        assert_eq!(lamports_of_sol(&matches, "single"), Some(1_000_000_000));
+        let matches = app().get_matches_from(vec!["test", "--single", ".0"]);
+        assert_eq!(lamports_of_sol(&matches, "single"), Some(0));
+        let matches = app().get_matches_from(vec!["test", "--single", "."]);
+        assert_eq!(lamports_of_sol(&matches, "single"), None);
+        // EQ
+        let matches = app().get_matches_from(vec!["test", "--single", "1.000000015"]);
+        assert_eq!(lamports_of_sol(&matches, "single"), Some(1_000_000_015));
+        let matches = app().get_matches_from(vec!["test", "--single", "0.0157"]);
+        assert_eq!(lamports_of_sol(&matches, "single"), Some(15_700_000));
+        let matches = app().get_matches_from(vec!["test", "--single", "0.5025"]);
+        assert_eq!(lamports_of_sol(&matches, "single"), Some(502_500_000));
+        // Truncation of extra decimal places
+        let matches = app().get_matches_from(vec!["test", "--single", "0.1234567891"]);
+        assert_eq!(lamports_of_sol(&matches, "single"), Some(123_456_789));
+        let matches = app().get_matches_from(vec!["test", "--single", "0.1234567899"]);
+        assert_eq!(lamports_of_sol(&matches, "single"), Some(123_456_789));
+        let matches = app().get_matches_from(vec!["test", "--single", "1.000.4567899"]);
+        assert_eq!(lamports_of_sol(&matches, "single"), None);
+        let matches = app().get_matches_from(vec!["test", "--single", "6,998"]);
+        assert_eq!(lamports_of_sol(&matches, "single"), None);
+        let matches = app().get_matches_from(vec!["test", "--single", "6,998.00"]);
+        assert_eq!(lamports_of_sol(&matches, "single"), None);
     }
 }

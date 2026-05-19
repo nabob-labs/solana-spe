@@ -1,10 +1,11 @@
 #[allow(deprecated)]
-use solana_sdk::sysvar::recent_blockhashes;
+use solana_sysvar::recent_blockhashes;
 use {
     serde::{Deserialize, Serialize},
-    solana_sdk::{
-        clock::MAX_RECENT_BLOCKHASHES, fee_calculator::FeeCalculator, hash::Hash, timing::timestamp,
-    },
+    solana_clock::MAX_RECENT_BLOCKHASHES,
+    solana_fee_calculator::FeeCalculator,
+    solana_hash::Hash,
+    solana_time_utils::timestamp,
     std::collections::HashMap,
 };
 
@@ -25,8 +26,11 @@ impl HashInfo {
 /// Low memory overhead, so can be cloned for every checkpoint
 #[cfg_attr(
     feature = "frozen-abi",
-    derive(AbiExample),
-    frozen_abi(digest = "DZVVXt4saSgH1CWGrzBcX2sq5yswCuRqGx1Y1ZehtWT6")
+    derive(AbiExample, StableAbi),
+    frozen_abi(
+        api_digest = "DZVVXt4saSgH1CWGrzBcX2sq5yswCuRqGx1Y1ZehtWT6",
+        abi_digest = "CGD97vsYSQpPbYkzYnHmrwRZc4BbHqTEvP5vz4jg8jzU"
+    )
 )]
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockhashQueue {
@@ -66,12 +70,6 @@ impl BlockhashQueue {
         self.hashes
             .get(hash)
             .map(|hash_age| hash_age.fee_calculator.lamports_per_signature)
-    }
-
-    /// Check if the age of the hash is within the queue's max age
-    #[deprecated(since = "2.0.0", note = "Please use `is_hash_valid_for_age` instead")]
-    pub fn is_hash_valid(&self, hash: &Hash) -> bool {
-        self.hashes.contains_key(hash)
     }
 
     /// Check if the age of the hash is within the specified age
@@ -135,7 +133,7 @@ impl BlockhashQueue {
         note = "Please do not use, will no longer be available in the future"
     )]
     #[allow(deprecated)]
-    pub fn get_recent_blockhashes(&self) -> impl Iterator<Item = recent_blockhashes::IterItem> {
+    pub fn get_recent_blockhashes(&self) -> impl Iterator<Item = recent_blockhashes::IterItem<'_>> {
         (self.hashes).iter().map(|(k, v)| {
             recent_blockhashes::IterItem(v.hash_index, k, v.fee_calculator.lamports_per_signature)
         })
@@ -143,20 +141,52 @@ impl BlockhashQueue {
 
     #[deprecated(
         since = "2.0.0",
-        note = "Please use `solana_program::clock::MAX_PROCESSING_AGE`"
+        note = "Please use `solana_clock::MAX_PROCESSING_AGE`"
     )]
     pub fn get_max_age(&self) -> usize {
+        #[allow(deprecated)]
         self.max_age
+    }
+}
+
+#[cfg(feature = "frozen-abi")]
+impl solana_frozen_abi::rand::prelude::Distribution<BlockhashQueue>
+    for solana_frozen_abi::rand::distr::StandardUniform
+{
+    fn sample<R: solana_frozen_abi::rand::Rng + ?Sized>(&self, rng: &mut R) -> BlockhashQueue {
+        let seed1: u64 = rng.random();
+        let seed2: u64 = rng.random();
+        let seed3: u64 = rng.random();
+        let seed4: u64 = rng.random();
+
+        let mut hashes =
+            HashMap::with_hasher(ahash::RandomState::with_seeds(seed1, seed2, seed3, seed4));
+        hashes.insert(
+            Hash::new_from_array(rng.random()),
+            HashInfo {
+                fee_calculator: FeeCalculator {
+                    lamports_per_signature: rng.random(),
+                },
+                hash_index: rng.random(),
+                timestamp: rng.random(),
+            },
+        );
+
+        BlockhashQueue {
+            last_hash_index: rng.random(),
+            last_hash: Some(Hash::new_from_array(rng.random())),
+            hashes,
+            max_age: rng.random_range(0..MAX_RECENT_BLOCKHASHES),
+        }
     }
 }
 #[cfg(test)]
 mod tests {
     #[allow(deprecated)]
-    use solana_sdk::sysvar::recent_blockhashes::IterItem;
+    use solana_sysvar::recent_blockhashes::IterItem;
     use {
-        super::*,
-        bincode::serialize,
-        solana_sdk::{clock::MAX_RECENT_BLOCKHASHES, hash::hash},
+        super::*, bincode::serialize, solana_clock::MAX_RECENT_BLOCKHASHES,
+        solana_sha256_hasher::hash,
     };
 
     #[test]
@@ -326,8 +356,10 @@ mod tests {
             hash_queue.get_hash_info_if_valid(most_recent_hash, 0),
             Some(hash_queue.hashes.get(most_recent_hash).unwrap())
         );
-        assert!(hash_queue
-            .get_hash_info_if_valid(&hash_list[MAX_AGE - 1], 0)
-            .is_none());
+        assert!(
+            hash_queue
+                .get_hash_info_if_valid(&hash_list[MAX_AGE - 1], 0)
+                .is_none()
+        );
     }
 }

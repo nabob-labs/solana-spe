@@ -1,499 +1,497 @@
-[profile.release-with-debug]
-inherits = "release"
-debug = true
-split-debuginfo = "packed"
-
 [workspace]
 members = [
-    "ocios/zk-sdk",
-    "ocios/curve25519",
-    "ocios/zk-token-sdk",
-    "ocios/compute-budget",
-    "ocios/timings",
-    "ocios/type-overrides",
-    "ocios/log-collector",
     "ocios/measure",
     "ocios/metrics",
     "ocios/transaction-context",
-    "ocios/feature-set",
-    "ocios/precompiles",
+    "ocios/svm-type-overrides",
+    "ocios/svm-transaction",
+    "ocios/svm-timings",
+    "ocios/svm-measure",
+    "ocios/svm-log-collector",
+    "ocios/svm-feature-set",
+    "ocios/svm-callback",
     "ocios/program-runtime",
-    "ocios/poseidon",
+    "ocios/compute-budget",
+    "ocios/logger",
+    "ocios/feature-set",
+    "ocios/bls12-381",
+    "ocios/syscalls",
+    "ocios/ocp/system",
     "ocios/ocp/vote",
     "ocios/ocp/zk-elgamal-proof",
     "ocios/ocp/zk-token-proof",
-    "ocios/ocp/address-lookup-table",
     "ocios/ocp/bpf_loader",
-    "ocios/ocp/compute-budget",
-    "ocios/ocp/config",
     "ocios/ocp/loader-v4",
-    "ocios/ocp/stake",
-    "ocios/ocp/system",
-    "ocios/version",
-    "ocios/rayon-threadlimit",
-    "ocios/inline-spl",
+    "ocios/ocp/compute-budget",
+    "ocios/program-binaries",
+    "ocios/svm",
     "ocios/lattice-hash",
     "ocios/bucket_map",
-    "ocios/svm-transaction",
-    "ocios/accounts-db",
-    "ocios/builtins-default-costs",
-    "ocios/transaction-view",
-    "ocios/compute-budget-instruction",
-    "ocios/runtime-transaction",
-    "ocios/svm-rent-collector",
-    "ocios/fee",
-    "ocios/svm-conformance",
-    "ocios/cost-model",
-    "ocios/perf",
-    "ocios/account-decoder-client-types",
-    "ocios/account-decoder",
-    "ocios/transaction-status-client-types",
+    "ocios/io-uring",
+    "ocios/fs",
+    "ocios/rayon-threadlimit",
     "ocios/reserved-account-keys",
-    "ocios/transaction-status",
-    "ocios/svm",
-    "ocios/vote",
+    "ocios/accounts-db",
     "ocios/builtins",
+    "ocios/builtins-default-costs",
+    "ocios/compute-budget-instruction",
+    "ocios/transaction-view",
+    "ocios/runtime-transaction",
+    "ocios/vote",
+    "ocios/cost-model",
+    "ocios/votor-messages",
+    "ocios/merkle-tree",
+    "ocios/random",
+    "ocios/perf",
+    "ocios/entry",
+    "ocios/leader-schedule",
+    "ocios/account-decoder-client-types",
+    "ocios/transaction-status-client-types",
     "ocios/unified-scheduler-logic",
+    "ocios/version",
+    "ocios/bls-cert-verify",
+    "ocios/precompiles",
+    "ocios/snapshots",
+    "ocios/fee",
     "ocios/runtime",
-    "consensus/merkle-tree",
-    "consensus/entry",
+    "consensus/account-decoder",
+    "consensus/transaction-status",
     "consensus/storage-proto",
     "consensus/storage-bigtable",
+    "consensus/net-utils",
+    "consensus/tls-utils",
+    "consensus/transaction-metrics-tracker",
+    "consensus/streamer",
+    "consensus/rpc-client-types",
+    "consensus/rpc-client-api",
+    "consensus/rpc-client",
+    "consensus/download-utils",
+    "consensus/genesis-utils",
     "consensus/ledger",
     "consensus/poh",
-    "network/net-utils",
     "network/connection-cache",
-    "network/rpc-client-api",
-    "network/rpc-client",
     "network/remote-wallet",
     "network/clap-utils",
-    "network/rpc-client-nonce-utils",
     "network/pubsub-client",
-    "network/tls-utils",
-    "network/streamer",
-    "network/transaction-metrics-tracker",
     "network/quic-client",
-    "network/thin-client",
+    "network/rpc-client-nonce-utils",
     "network/tpu-client",
     "network/udp-client",
     "network/client",
     "network/bloom",
     "network/gossip",
-    "access/send-transaction-service",
-    "access/cli-config",
-    "access/faucet",
-    "access/rpc",
-    "access/geyser-plugin-interface",
-    "access/geyser-plugin-manager",
-    "access/turbine",
-    "access/chain/banking-stage-ingress-types",
-    "access/chain/unified-scheduler-pool",
-    "access/chain/wen-restart",
-    "access/chain/thread-manager",
-    "access/chain/core",
+    "chain/cli-config",
+    "chain/cli-output",
+    "chain/faucet",
+    "chain/tpu-client-next",
+    "chain/send-transaction-service",
+    "chain/rpc",
+    "chain/votor",
+    "chain/xdp-ebpf",
+    "chain/xdp",
+    "chain/turbine",
+    "chain/geyser-plugin-interface",
+    "chain/geyser-plugin-manager",
+    "chain/banking-stage-ingress-types",
+    "chain/unified-scheduler-pool",
+    "chain/scheduler-bindings",
+    "chain/scheduling-utils",
+    "chain/core",
     "node/banks-interface",
     "node/banks-server",
     "node/banks-client",
     "node/program-test",
-    "node/cli-output",
     "node/test-validator",
-    "node/download-utils",
-    "node/genesis-utils",
     "node/validator",
     "tool/tps-client",
     "tool/cli",
     "tool/genesis",
     "tool/clap-v3-utils",
     "tool/keygen",
-    "tool/zk-keygen",
     "tool/local-cluster",
-    "tool/bench-tps",
-    "tool/dos",
-    "tool/cargo-registry",
     "tool/tokens",
-    "tool/ledger-tool",
-    "tool/log-analyzer",
-    "tool/net-shaper",
+    # "tool/ledger-tool",
     "tool/stake-accounts",
-    "tool/transaction-dos",
-    "tool/upload-perf",
     "tool/notifier",
     "tool/watchtower",
     "tool/rbpf-cli",
-    "bench/accounts-bench",
     "bench/accounts-cluster-bench",
-    "bench/banking-bench",
-    "bench/bench-vote",
     "bench/bench-streamer",
-    "bench/merkle-root-bench",
+    # "bench/bench-tps",
     "bench/poh-bench",
+]
+
+exclude = [
+    "ci/xtask",
+    "dev-bins",
+    "platform-tools-sdk",
+    "ocios/ocp/sbf",
+    "ocios/svm/tests/example-programs",
 ]
 
 resolver = "2"
 
 [workspace.package]
-version = "2.2.18"
+version = "4.0.0"
 authors = ["Bovey Maintainers <maintainers@solana.xyz>"]
+description = "Blockchain, Rebuilt for Scale"
 repository = "https://github.com/nabob-labs/solana-spe"
-homepage = "https://solana.xyz/"
+homepage = "https://github.com/nabob-labs/solana-spe"
 license = "Apache-2.0"
 edition = "2021"
+
+[workspace.lints.rust]
+# List of rust-2024-compatibility lints that are already satisfied
+# See https://doc.rust-lang.org/rustc/lints/groups.html
+boxed_slice_into_iter = "deny"
+dependency_on_unit_never_type_fallback = "deny"
+deprecated_safe_2024 = "deny"
+impl_trait_overcaptures = "deny"
+missing_unsafe_on_extern = "deny"
+never_type_fallback_flowing_into_unsafe = "deny"
+rust_2024_guarded_string_incompatible_syntax = "deny"
+rust_2024_incompatible_pat = "deny"
+rust_2024_prelude_collisions = "deny"
+static_mut_refs = "deny"
+unsafe_attr_outside_unsafe = "deny"
+unsafe_op_in_unsafe_fn = "deny"
 
 [workspace.lints.rust.unexpected_cfgs]
 level = "warn"
 check-cfg = [
     'cfg(target_os, values("solana"))',
     'cfg(feature, values("frozen-abi", "no-entrypoint"))',
+    'cfg(target_arch, values("sbf"))',
 ]
 
+# Clippy lint configuration that can not be applied in clippy.toml
+[workspace.lints.clippy]
+arithmetic_side_effects = "deny"
+default_trait_access = "deny"
+manual_let_else = "deny"
+used_underscore_binding = "deny"
+
 [workspace.dependencies]
-# On Chain Program Language
-solana-account = "2.2.1"
-solana-account-info = "2.2.1"
-solana-address-lookup-table-interface = "2.2.2"
-solana-atomic-u64 = "2.2.1"
-solana-big-mod-exp = "2.2.1"
-solana-bincode = "2.2.1"
-solana-blake3-hasher = "2.2.1"
-solana-bn254 = "2.2.2"
-solana-borsh = "2.2.1"
-solana-client-traits = "2.2.1"
-solana-clock = "2.2.1"
-solana-cluster-type = "2.2.1"
-solana-commitment-config = "2.2.1"
-solana-compute-budget-interface = "2.2.1"
-solana-cpi = "2.2.1"
-solana-decode-error = "2.2.1"
-solana-define-syscall = "2.2.1"
-solana-derivation-path = "2.2.1"
-solana-ed25519-program = "2.2.2"
-solana-epoch-info = "2.2.1"
-solana-epoch-rewards = "2.2.1"
-solana-epoch-rewards-hasher = "2.2.1"
-solana-epoch-schedule = "2.2.1"
-solana-example-mocks = "2.2.1"
-solana-feature-gate-client = "0.0.2"
-solana-feature-gate-interface = "2.2.2"
-solana-fee-calculator = "2.2.1"
-solana-fee-structure = "2.2.1"
-solana-file-download = "2.2.1"
-solana-frozen-abi = "2.2.1"
-solana-frozen-abi-macro = "2.2.1"
-solana-genesis-config = "2.2.1"
-solana-hard-forks = "2.2.1"
-solana-hash = "2.2.1"
-solana-inflation = "2.2.1"
-solana-instruction = "2.2.1"
-solana-instructions-sysvar = "2.2.1"
-solana-keccak-hasher = "2.2.1"
-solana-keypair = "2.2.1"
-solana-last-restart-slot = "2.2.1"
-solana-loader-v2-interface = "2.2.1"
-solana-loader-v3-interface = "5.0.0"
-solana-loader-v4-interface = "2.2.1"
-solana-logger = "2.3.1"
-solana-message = "2.2.1"
-solana-msg = "2.2.1"
-solana-native-token = "2.2.1"
+solana-measure = { path = "ocios/measure", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-metrics = { path = "ocios/metrics", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-transaction-context = { path = "ocios/transaction-context", version = "=4.0.0", features = ["agave-unstable-api", "bincode"] }
+solana-svm-type-overrides = { path = "ocios/svm-type-overrides", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-svm-transaction = { path = "ocios/svm-transaction", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-svm-timings = { path = "ocios/svm-timings", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-svm-measure = { path = "ocios/svm-measure", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-svm-log-collector = { path = "ocios/svm-log-collector", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-svm-feature-set = { path = "ocios/svm-feature-set", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-svm-callback = { path = "ocios/svm-callback", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-program-runtime = { path = "ocios/program-runtime", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-compute-budget = { path = "ocios/compute-budget", version = "=4.0.0", features = ["agave-unstable-api"] }
+agave-logger = { path = "ocios/logger", version = "=4.0.0", features = ["agave-unstable-api"] }
+agave-feature-set = { path = "ocios/feature-set", version = "=4.0.0", features = ["agave-unstable-api"] }
+agave-bls12-381 = { path = "ocios/bls12-381", version = "=4.0.0", features = ["agave-unstable-api"] }
+agave-syscalls = { path = "ocios/syscalls", version = "=4.0.0", default-features = false, features = ["agave-unstable-api"] }
+solana-system-program = { path = "ocios/ocp/system", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-vote-program = { path = "ocios/ocp/vote", version = "=4.0.0", default-features = false, features = ["agave-unstable-api"] }
+solana-zk-elgamal-proof-program = { path = "ocios/ocp/zk-elgamal-proof", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-zk-token-proof-program = { path = "ocios/ocp/zk-token-proof", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-bpf-loader-program = { path = "ocios/ocp/bpf_loader", version = "=4.0.0", default-features = false, features = ["agave-unstable-api"] }
+solana-loader-v4-program = { path = "ocios/ocp/loader-v4", version = "=4.0.0", default-features = false, features = ["agave-unstable-api"] }
+solana-compute-budget-program = { path = "ocios/ocp/compute-budget", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-program-binaries = { path = "ocios/program-binaries", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-svm = { path = "ocios/svm", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-lattice-hash = { path = "ocios/lattice-hash", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-bucket-map = { path = "ocios/bucket_map", version = "=4.0.0", features = ["agave-unstable-api"] }
+agave-io-uring = { path = "ocios/io-uring", version = "=4.0.0", features = ["agave-unstable-api"] }
+agave-fs = { path = "ocios/fs", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-rayon-threadlimit = { path = "ocios/rayon-threadlimit", version = "=4.0.0", features = ["agave-unstable-api"] }
+agave-reserved-account-keys = { path = "ocios/reserved-account-keys", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-accounts-db = { path = "ocios/accounts-db", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-builtins = { path = "ocios/builtins", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-builtins-default-costs = { path = "ocios/builtins-default-costs", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-compute-budget-instruction = { path = "ocios/compute-budget-instruction", version = "=4.0.0", features = ["agave-unstable-api"] }
+agave-transaction-view = { path = "ocios/transaction-view", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-runtime-transaction = { path = "ocios/runtime-transaction", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-vote = { path = "ocios/vote", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-cost-model = { path = "ocios/cost-model", version = "=4.0.0", features = ["agave-unstable-api"] }
+agave-votor-messages = { path = "ocios/votor-messages", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-merkle-tree = { path = "ocios/merkle-tree", version = "=4.0.0", features = ["agave-unstable-api"] }
+agave-random = { path = "ocios/random", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-perf = { path = "ocios/perf", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-entry = { path = "ocios/entry", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-leader-schedule = { path = "ocios/leader-schedule", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-account-decoder-client-types = { path = "ocios/account-decoder-client-types", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-transaction-status-client-types = { path = "ocios/transaction-status-client-types", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-unified-scheduler-logic = { path = "ocios/unified-scheduler-logic", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-version = { path = "ocios/version", version = "=4.0.0", features = ["agave-unstable-api"] }
+agave-bls-cert-verify = { path = "ocios/bls-cert-verify", version = "=4.0.0", features = ["agave-unstable-api"] }
+agave-precompiles = { path = "ocios/precompiles", version = "=4.0.0", features = ["agave-unstable-api"] }
+agave-snapshots = { path = "ocios/snapshots", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-fee = { path = "ocios/fee", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-runtime = { path = "ocios/runtime", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-account-decoder = { path = "consensus/account-decoder", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-transaction-status = { path = "consensus/transaction-status", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-storage-proto = { path = "consensus/storage-proto", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-storage-bigtable = { path = "consensus/storage-bigtable", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-net-utils = { path = "consensus/net-utils", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-tls-utils = { path = "consensus/tls-utils", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-transaction-metrics-tracker = { path = "consensus/transaction-metrics-tracker", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-streamer = { path = "consensus/streamer", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-rpc-client-types = { path = "consensus/rpc-client-types", version = "=4.0.0" }
+solana-rpc-client-api = { path = "consensus/rpc-client-api", version = "=4.0.0" }
+solana-rpc-client = { path = "consensus/rpc-client", version = "=4.0.0", default-features = false }
+solana-download-utils = { path = "consensus/download-utils", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-genesis-utils = { path = "consensus/genesis-utils", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-ledger = { path = "consensus/ledger", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-poh = { path = "consensus/poh", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-connection-cache = { path = "network/connection-cache", version = "=4.0.0", default-features = false, features = ["agave-unstable-api"] }
+solana-remote-wallet = { path = "network/remote-wallet", version = "=4.0.0", default-features = false, features = ["agave-unstable-api"] }
+solana-clap-utils = { path = "network/clap-utils", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-pubsub-client = { path = "network/pubsub-client", version = "=4.0.0" }
+solana-quic-client = { path = "network/quic-client", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-rpc-client-nonce-utils = { path = "network/rpc-client-nonce-utils", version = "=4.0.0" }
+solana-tpu-client = { path = "network/tpu-client", version = "=4.0.0", default-features = false, features = ["agave-unstable-api"] }
+solana-udp-client = { path = "network/udp-client", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-client = { path = "network/client", version = "=4.0.0" }
+solana-bloom = { path = "network/bloom", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-gossip = { path = "network/gossip", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-cli-config = { path = "chain/cli-config", version = "=4.0.0" }
+solana-cli-output = { path = "chain/cli-output", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-faucet = { path = "chain/faucet", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-tpu-client-next = { path = "chain/tpu-client-next", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-send-transaction-service = { path = "chain/send-transaction-service", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-rpc = { path = "chain/rpc", version = "=4.0.0", features = ["agave-unstable-api"] }
+agave-votor = { path = "chain/votor", version = "=4.0.0", features = ["agave-unstable-api"] }
+agave-xdp-ebpf = { path = "chain/xdp-ebpf", version = "=4.0.0", features = ["agave-unstable-api"] }
+agave-xdp = { path = "chain/xdp", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-turbine = { path = "chain/turbine", version = "=4.0.0", features = ["agave-unstable-api"] }
+agave-geyser-plugin-interface = { path = "chain/geyser-plugin-interface", version = "=4.0.0" }
+solana-geyser-plugin-manager = { path = "chain/geyser-plugin-manager", version = "=4.0.0", features = ["agave-unstable-api"] }
+agave-banking-stage-ingress-types = { path = "chain/banking-stage-ingress-types", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-unified-scheduler-pool = { path = "chain/unified-scheduler-pool", version = "=4.0.0", features = ["agave-unstable-api"] }
+agave-scheduler-bindings = { path = "chain/scheduler-bindings", version = "=4.0.0", features = ["agave-unstable-api"] }
+agave-scheduling-utils = { path = "chain/scheduling-utils", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-core = { path = "chain/core", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-banks-interface = { path = "node/banks-interface", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-banks-server = { path = "node/banks-server", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-banks-client = { path = "node/banks-client", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-program-test = { path = "node/program-test", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-test-validator = { path = "node/test-validator", version = "=4.0.0" }
+solana-tps-client = { path = "tool/tps-client", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-cli = { path = "tool/cli", version = "=4.0.0", default-features = false }
+solana-genesis = { path = "tool/genesis", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-clap-v3-utils = { path = "tool/clap-v3-utils", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-local-cluster = { path = "tool/local-cluster", version = "=4.0.0", features = ["agave-unstable-api"] }
+solana-notifier = { path = "tool/notifier", version = "=4.0.0", features = ["agave-unstable-api"] }
+
+# solana-svm-test-harness = { path = "svm-test-harness", version = "=4.0.0" }
+# solana-svm-test-harness-fixture = { path = "svm-test-harness/fixture", version = "=4.0.0" }
+# solana-svm-test-harness-instr = { path = "svm-test-harness/instr", version = "=4.0.0" }
+
+solana-account = "3.4.0"
+solana-account-info = "3.1.0"
+solana-address = ">=2.1.0,<2.6.0"
+solana-address-lookup-table-interface = "~3.0.1"
+solana-atomic-u64 = "3.0.0"
+solana-big-mod-exp = "3.0.0"
+solana-bincode = "3.1.0"
+solana-blake3-hasher = "3.1.0"
+solana-bls-signatures = { version = ">=3.0.0,<3.3.0", features = ["serde"] }
+solana-bn254 = "3.2.1"
+solana-borsh = "3.0.1"
+solana-client-traits = "3.0.0"
+solana-clock = "3.0.1"
+solana-cluster-type = "3.0.0"
+solana-commitment-config = "3.1.1"
+solana-compute-budget-interface = "3.0.0"
+solana-config-interface = "2.0.0"
+solana-cpi = "3.1.0"
+solana-curve25519 = "4.0.0"
+solana-define-syscall = "5.0.0"
+solana-derivation-path = "3.0.0"
+solana-ed25519-program = "3.0.0"
+solana-epoch-info = "3.1.0"
+solana-epoch-rewards = "3.0.0"
+solana-epoch-rewards-hasher = "3.1.0"
+solana-epoch-schedule = "~3.0.0"
+solana-example-mocks = "3.0.0"
+solana-feature-gate-interface = "3.1.0"
+solana-fee-calculator = ">=3.1.0,<3.3.0"
+solana-fee-structure = "3.0.0"
+solana-file-download = "3.1.0"
+solana-frozen-abi = ">=3.1.2,<3.3.0"
+solana-frozen-abi-macro = "3.2.1"
+solana-genesis-config = "3.0.0"
+solana-hard-forks = "~3.0.0"
+solana-hash = "~4.2.0"
+solana-inflation = "~3.0.0"
+solana-instruction = ">=3.2.0,<3.4.0"
+solana-instruction-error = ">=2.1.0,<2.3.0"
+solana-instructions-sysvar = "3.0.0"
+solana-keccak-hasher = "3.1.0"
+solana-keypair = "3.1.0"
+solana-last-restart-slot = "3.0.0"
+solana-loader-v2-interface = "3.0.0"
+solana-loader-v3-interface = "6.1.0"
+solana-loader-v4-interface = "3.1.0"
+solana-message = "3.1.0"
+solana-msg = "3.0.0"
+solana-native-token = "3.0.0"
 solana-nohash-hasher = "0.2.1"
-solana-nonce = "2.2.1"
-solana-nonce-account = "2.2.1"
-solana-offchain-message = "2.2.1"
-solana-package-metadata = "2.2.1"
-solana-package-metadata-macro = "2.2.1"
-solana-packet = "2.2.1"
-solana-poh-config = "2.2.1"
-solana-precompile-error = "2.2.1"
-solana-presigner = "2.2.1"
-solana-program = { version = "2.2.1", default-features = false }
-solana-program-entrypoint = "2.2.1"
-solana-program-error = "2.2.1"
-solana-program-memory = "2.2.1"
-solana-program-option = "2.2.1"
-solana-program-pack = "2.2.1"
-solana-pubkey = { version = "2.2.1", default-features = false }
-solana-quic-definitions = "2.2.1"
-solana-rent = "2.2.1"
-solana-rent-collector = "2.2.1"
-solana-rent-debits = "2.2.1"
-solana-reward-info = "2.2.1"
-solana-sanitize = "2.2.1"
-solana-sbpf = "=0.10.1"
-solana-sdk = "2.2.2"
-solana-sdk-ids = "2.2.1"
-solana-sdk-macro = "2.2.1"
-solana-secp256k1-program = "2.2.1"
-solana-secp256k1-recover = "2.2.1"
-solana-secp256r1-program = "2.2.2"
-solana-seed-derivable = "2.2.1"
-solana-seed-phrase = "2.2.1"
-solana-serde = "2.2.1"
-solana-serde-varint = "2.2.1"
-solana-serialize-utils = "2.2.1"
-solana-sha256-hasher = "2.2.1"
-solana-short-vec = "2.2.1"
-solana-shred-version = "2.2.1"
-solana-signature = { version = "2.2.1", default-features = false }
-solana-signer = "2.2.1"
-solana-slot-hashes = "2.2.1"
-solana-slot-history = "2.2.1"
-solana-stable-layout = "2.2.1"
-solana-stake-interface = { version = "1.2.1" }
-solana-system-interface = "1.0"
-solana-system-transaction = "2.2.1"
-solana-sysvar = "2.2.1"
-solana-sysvar-id = "2.2.1"
-solana-time-utils = "2.2.1"
-solana-transaction = "2.2.2"
-solana-transaction-error = "2.2.1"
-solana-validator-exit = "2.2.1"
-solana-vote-interface = "2.2.3"
-spl-associated-token-account = "6.0.0"
-spl-instruction-padding = "0.3"
-spl-memo = "6.0.0"
-spl-pod = "0.5.0"
-spl-token = "7.0.0"
-spl-token-2022 = "7.0.0"
-spl-token-confidential-transfer-proof-extraction = "0.2.1"
-spl-token-group-interface = "0.5.0"
-spl-token-metadata-interface = "0.6.0"
+solana-nonce = ">=3.0.0,<3.2.0"
+solana-nonce-account = "3.0.0"
+solana-offchain-message = "3.0.0"
+solana-packet = "4.0.0"
+solana-poh-config = "3.0.0"
+solana-poseidon = "4.0.0"
+solana-precompile-error = "3.0.0"
+solana-presigner = "3.0.0"
+solana-program = { version = "3.0.0", default-features = false }
+solana-program-entrypoint = "3.1.1"
+solana-program-error = "3.0.0"
+solana-program-memory = "3.1.0"
+solana-program-option = "3.0.0"
+solana-program-pack = "3.1.0"
+solana-pubkey = { version = "~4.1.0", default-features = false }
+solana-rent = "3.0.0"
+solana-reward-info = "5.0.0"
+solana-sanitize = "3.0.1"
+solana-sbpf = { version = "=0.14.4", default-features = false }
+solana-sdk-ids = "3.1.0"
+solana-secp256k1-program = "3.0.1"
+solana-secp256k1-recover = "3.1.1"
+solana-secp256r1-program = "3.0.0"
+solana-seed-derivable = "3.0.0"
+solana-seed-phrase = "3.0.0"
+solana-serde = "3.0.0"
+solana-serde-varint = "3.0.1"
+solana-serialize-utils = "3.1.0"
+solana-sha256-hasher = "3.1.0"
+solana-short-vec = "3.2.0"
+solana-shred-version = "3.0.0"
+solana-signature = { version = "~3.3.0", default-features = false }
+solana-signer = "3.0.0"
+solana-signer-store = "0.1.0"
+solana-slot-hashes = "3.0.1"
+solana-slot-history = "3.0.0"
+solana-stable-layout = "3.0.0"
+solana-stake-interface = "2.0.2"
+solana-system-transaction = "3.0.0"
+solana-system-interface = { version = ">=3.0.0,<3.2.0", features = ["alloc","bincode","serde"] }
+solana-sysvar = "3.1.1"
+solana-sysvar-id = "3.1.0"
+solana-time-utils = "3.0.0"
+solana-transaction = "3.1.0"
+solana-transaction-error = ">=3.0.0,<3.2.0"
+solana-validator-exit = "3.0.0"
+solana-vote-interface = "5.0.0"
+solana-zk-sdk = "5.0.1"
+spl-associated-token-account-interface = "2.0.0"
+spl-generic-token = "2.0.0"
+spl-memo-interface = "2.0.0"
+spl-pod = "0.7.0"
+spl-token-2022-interface = "2.1.0"
+spl-token-confidential-transfer-proof-extraction = "0.5.1"
+spl-token-group-interface = "0.7.0"
+spl-token-interface = "2.0.0"
+spl-token-metadata-interface = "0.8.0"
 
-# On Chain instruction OS
-solana-zk-sdk = { path = "ocios/zk-sdk", version = "=2.2.18" }
-solana-curve25519 = { path = "ocios/curve25519", version = "=2.2.18" }
-solana-zk-token-sdk = { path = "ocios/zk-token-sdk", version = "=2.2.18" }
-solana-compute-budget = { path = "ocios/compute-budget", version = "=2.2.18" }
-solana-timings = { path = "ocios/timings", version = "=2.2.18" }
-solana-type-overrides = { path = "ocios/type-overrides", version = "=2.2.18" }
-solana-log-collector = { path = "ocios/log-collector", version = "=2.2.18" }
-solana-measure = { path = "ocios/measure", version = "=2.2.18" }
-solana-metrics = { path = "ocios/metrics", version = "=2.2.18" }
-solana-transaction-context = { path = "ocios/transaction-context", features = [ "bincode" ], version = "=2.2.18" }
-agave-feature-set = { path = "ocios/feature-set", version = "=2.2.18" }
-agave-precompiles = { path = "ocios/precompiles", version = "=2.2.18" }
-solana-program-runtime = { path = "ocios/program-runtime", version = "=2.2.18" }
-solana-poseidon = { path = "ocios/poseidon", version = "=2.2.18" }
-solana-vote-program = { path = "ocios/ocp/vote", default-features = false, version = "=2.2.18" }
-solana-zk-elgamal-proof-program = { path = "ocios/ocp/zk-elgamal-proof", version = "=2.2.18" }
-solana-zk-token-proof-program = { path = "ocios/ocp/zk-token-proof", version = "=2.2.18" }
-solana-address-lookup-table-program = { path = "ocios/ocp/address-lookup-table", version = "=2.2.18" }
-solana-bpf-loader-program = { path = "ocios/ocp/bpf_loader", version = "=2.2.18" }
-solana-compute-budget-program = { path = "ocios/ocp/compute-budget", version = "=2.2.18" }
-solana-config-program = { path = "ocios/ocp/config", version = "=2.2.18" }
-solana-loader-v4-program = { path = "ocios/ocp/loader-v4", version = "=2.2.18" }
-solana-stake-program = { path = "ocios/ocp/stake", version = "=2.2.18" }
-solana-system-program = { path = "ocios/ocp/system", version = "=2.2.18" }
-solana-version = { path = "ocios/version", version = "=2.2.18" }
-solana-rayon-threadlimit = { path = "ocios/rayon-threadlimit", version = "=2.2.18" }
-solana-inline-spl = { path = "ocios/inline-spl", version = "=2.2.18" }
-solana-lattice-hash = { path = "ocios/lattice-hash", version = "=2.2.18" }
-solana-bucket-map = { path = "ocios/bucket_map", version = "=2.2.18" }
-solana-svm-transaction = { path = "ocios/svm-transaction", version = "=2.2.18" }
-solana-accounts-db = { path = "ocios/accounts-db", version = "=2.2.18" }
-solana-builtins-default-costs = { path = "ocios/builtins-default-costs", version = "=2.2.18" }
-agave-transaction-view = { path = "ocios/transaction-view", version = "=2.2.18" }
-solana-compute-budget-instruction = { path = "ocios/compute-budget-instruction", version = "=2.2.18" }
-solana-runtime-transaction = { path = "ocios/runtime-transaction", version = "=2.2.18" }
-solana-svm-rent-collector = { path = "ocios/svm-rent-collector", version = "=2.2.18" }
-solana-fee = { path = "ocios/fee", version = "=2.2.18" }
-solana-svm-conformance = { path = "ocios/svm-conformance", version = "=2.2.18" }
-solana-cost-model = { path = "ocios/cost-model", version = "=2.2.18" }
-solana-perf = { path = "ocios/perf", version = "=2.2.18" }
-solana-account-decoder-client-types = { path = "ocios/account-decoder-client-types", version = "=2.2.18" }
-solana-account-decoder = { path = "ocios/account-decoder", version = "=2.2.18" }
-solana-transaction-status-client-types = { path = "ocios/transaction-status-client-types", version = "=2.2.18" }
-solana-transaction-status = { path = "ocios/transaction-status", version = "=2.2.18" }
-agave-reserved-account-keys = { path = "ocios/reserved-account-keys", version = "=2.2.18" }
-solana-svm = { path = "ocios/svm", version = "=2.2.18" }
-solana-vote = { path = "ocios/vote", version = "=2.2.18" }
-solana-builtins = { path = "ocios/builtins", version = "=2.2.18" }
-solana-unified-scheduler-logic = { path = "ocios/unified-scheduler-logic", version = "=2.2.18" }
-solana-runtime = { path = "ocios/runtime", version = "=2.2.18" }
-
-# Consensus
-solana-merkle-tree = { path = "consensus/merkle-tree", version = "=2.2.18" }
-solana-entry = { path = "consensus/entry", version = "=2.2.18" }
-solana-storage-proto = { path = "consensus/storage-proto", version = "=2.2.18" }
-solana-storage-bigtable = { path = "consensus/storage-bigtable", version = "=2.2.18" }
-solana-ledger = { path = "consensus/ledger", version = "=2.2.18" }
-solana-poh = { path = "consensus/poh", version = "=2.2.18" }
-
-# Network
-solana-net-utils = { path = "network/net-utils", version = "=2.2.18" }
-solana-connection-cache = { path = "network/connection-cache", default-features = false, version = "=2.2.18" }
-solana-rpc-client-api = { path = "network/rpc-client-api", version = "=2.2.18" }
-solana-rpc-client = { path = "network/rpc-client", default-features = false, version = "=2.2.18" }
-solana-remote-wallet = { path = "network/remote-wallet", default-features = false, version = "=2.2.18" }
-solana-clap-utils = { path = "network/clap-utils", version = "=2.2.18" }
-solana-rpc-client-nonce-utils = { path = "network/rpc-client-nonce-utils", version = "=2.2.18" }
-solana-pubsub-client = { path = "network/pubsub-client", version = "=2.2.18" }
-solana-tls-utils = { path = "network/tls-utils", version = "=2.2.18" }
-solana-streamer = { path = "network/streamer", version = "=2.2.18" }
-solana-transaction-metrics-tracker = { path = "network/transaction-metrics-tracker", version = "=2.2.18" }
-solana-quic-client = { path = "network/quic-client", version = "=2.2.18" }
-solana-thin-client = { path = "network/thin-client", version = "=2.2.18" }
-solana-tpu-client = { path = "network/tpu-client", default-features = false, version = "=2.2.18" }
-solana-udp-client = { path = "network/udp-client", version = "=2.2.18" }
-solana-client = { path = "network/client", version = "=2.2.18" }
-solana-bloom = { path = "network/bloom", version = "=2.2.18" }
-solana-gossip = { path = "network/gossip", version = "=2.2.18" }
-
-# Access
-solana-send-transaction-service = { path = "access/send-transaction-service", version = "=2.2.18" }
-solana-cli-config = { path = "access/cli-config", version = "=2.2.18" }
-solana-faucet = { path = "access/faucet", version = "=2.2.18" }
-solana-rpc = { path = "access/rpc", version = "=2.2.18" }
-agave-geyser-plugin-interface = { path = "access/geyser-plugin-interface", version = "=2.2.18" }
-solana-geyser-plugin-manager = { path = "access/geyser-plugin-manager", version = "=2.2.18" }
-solana-turbine = { path = "access/turbine", version = "=2.2.18" }
-agave-banking-stage-ingress-types = { path = "access/chain/banking-stage-ingress-types", version = "=2.2.18" }
-solana-unified-scheduler-pool = { path = "access/chain/unified-scheduler-pool", version = "=2.2.18" }
-solana-wen-restart = { path = "access/chain/wen-restart", version = "=2.2.18" }
-agave-thread-manager = { path = "access/chain/thread-manager", version = "=2.2.18" }
-solana-core = { path = "access/chain/core", version = "=2.2.18" }
-
-# Node
-solana-banks-interface = { path = "node/banks-interface", version = "=2.2.18" }
-solana-banks-server = { path = "node/banks-server", version = "=2.2.18" }
-solana-banks-client = { path = "node/banks-client", version = "=2.2.18" }
-solana-program-test = { path = "node/program-test", version = "=2.2.18" }
-solana-cli-output = { path = "node/cli-output", version = "=2.2.18" }
-solana-test-validator = { path = "node/test-validator", version = "=2.2.18" }
-solana-download-utils = { path = "node/download-utils", version = "=2.2.18" }
-solana-genesis-utils = { path = "node/genesis-utils", version = "=2.2.18" }
-solana-validator = { path = "node/validator", version = "=2.2.18" }
-
-# Tool
-solana-tps-client = { path = "tool/tps-client", version = "=2.2.18" }
-solana-cli = { path = "tool/cli", version = "=2.2.18" }
-solana-genesis = { path = "tool/genesis", version = "=2.2.18" }
-solana-clap-v3-utils = { path = "tool/clap-v3-utils", version = "=2.2.18" }
-solana-keygen = { path = "tool/keygen", version = "=2.2.18" }
-solana-zk-keygen = { path = "tool/zk-keygen", version = "=2.2.18" }
-solana-local-cluster = { path = "tool/local-cluster", version = "=2.2.18" }
-solana-bench-tps = { path = "tool/bench-tps", version = "=2.2.18" }
-solana-dos = { path = "tool/dos", version = "=2.2.18" }
-agave-cargo-registry = { path = "tool/cargo-registry", version = "=2.2.18" }
-solana-tokens = { path = "tool/tokens", version = "=2.2.18" }
-agave-ledger-tool = { path = "tool/ledger-tool", version = "=2.2.18" }
-solana-log-analyzer = { path = "tool/log-analyzer", version = "=2.2.18" }
-solana-net-shaper = { path = "tool/net-shaper", version = "=2.2.18" }
-solana-stake-accounts = { path = "tool/stake-accounts", version = "=2.2.18" }
-solana-transaction-dos = { path = "tool/transaction-dos", version = "=2.2.18" }
-solana-upload-perf = { path = "tool/upload-perf", version = "=2.2.18" }
-solana-notifier = { path = "tool/notifier", version = "=2.2.18" }
-solana-watchtower = { path = "tool/watchtower", version = "=2.2.18" }
-solana-rbpf-cli = { path = "tool/rbpf-cli", version = "=2.2.18" }
-
-# Bench
-solana-accounts-bench = { path = "bench/accounts-bench", version = "=2.2.18" }
-solana-accounts-cluster-bench = { path = "bench/accounts-cluster-bench", version = "=2.2.18" }
-solana-banking-bench = { path = "bench/banking-bench", version = "=2.2.18" }
-solana-bench-vote = { path = "bench/bench-vote", version = "2.2.17" }
-solana-bench-streamer = { path = "bench/bench-streamer", version = "=2.2.18" }
-solana-merkle-root-bench = { path = "bench/merkle-root-bench", version = "=2.2.18" }
-solana-poh-bench = { path = "bench/poh-bench", version = "=2.2.18" }
 
 Inflector = "0.11.4"
-aes-gcm-siv = "0.11.1"
-ahash = "0.8.11"
-anyhow = "1.0.95"
+ahash = "0.8.12"
+anyhow = "1.0.102"
 aquamarine = "0.6.0"
-arbitrary = "1.4.1"
-ark-bn254 = "0.4.0"
-ark-ec = "0.4.0"
-ark-ff = "0.4.0"
-ark-serialize = "0.4.0"
+arbitrary = "1.4.2"
+arc-swap = "1.8.2"
 array-bytes = "=1.4.1"
 arrayref = "0.3.9"
 arrayvec = "0.7.6"
 assert_cmd = "2.0"
 assert_matches = "1.5.0"
-async-channel = "1.9.0"
-async-lock = "3.4.0"
-async-trait = "0.1.86"
+async-lock = "3.4.2"
+async-trait = "0.1.89"
 atty = "0.2.11"
-axum = "0.7.9"
+axum = "0.8.8"
+aya = "0.13"
+aya-ebpf = "0.1.1"
 backoff = "0.4.0"
 base64 = "0.22.1"
+bencher = "0.1.5"
 bincode = "1.3.3"
-bitflags = { version = "2.8.0" }
-blake3 = "1.5.5"
-borsh = { version = "1.5.5", features = ["derive", "unstable__schema"] }
-borsh0-10 = { package = "borsh", version = "0.10.3" }
+bitflags = { version = "2.11.0" }
+bitvec = { version = "1.0.1", features = ["serde"] }
+blake3 = "1.8.3"
+blst = "0.3.16"
+blstrs = "0.7.1"
+borsh = { version = "1.6.0", features = ["derive", "unstable__schema"] }
 bs58 = { version = "0.5.1", default-features = false }
 bv = "0.11.1"
 byte-unit = "4.0.19"
-bytecount = "0.6.8"
-bytemuck = "1.21.0"
-bytemuck_derive = "1.8.1"
-bytes = "1.10"
-bzip2 = "0.4.4"
-caps = "0.5.5"
-cargo_metadata = "0.15.4"
-cfg-if = "1.0.0"
+bytemuck = "1.25.0"
+bytemuck_derive = "1.10.2"
+bytes = "1.11.1"
+bzip2 = "0.6.1"
+caps = "0.5.6"
+cfg-if = "1.0.4"
 cfg_eval = "0.1.2"
-chrono = { version = "0.4.39", default-features = false }
+chrono = { version = "0.4.43", default-features = false }
 chrono-humanize = "0.2.3"
 clap = "2.33.1"
-console = "0.15.10"
+console = "0.16.2"
 console_error_panic_hook = "0.1.7"
 console_log = "0.2.2"
-const_format = "0.2.34"
-core_affinity = "0.5.10"
-criterion = "0.5.1"
+const_format = "0.2.35"
+core_affinity = "0.8.3"
+criterion = "0.8.2"
 criterion-stats = "0.3.0"
 crossbeam-channel = "0.5.15"
-csv = "1.3.1"
-ctrlc = "3.4.5"
+csv = "1.4.0"
+ctrlc = "3.5.2"
 curve25519-dalek = { version = "4.1.3", features = ["digest", "rand_core"] }
 dashmap = "5.5.3"
 derivation-path = { version = "0.2.0", default-features = false }
-derive-where = "1.2.7"
-derive_more = { version = "1.0.0", features = ["full"] }
-dialoguer = "0.10.4"
+derive-where = "1.6.0"
+derive_more = { version = "2.1.1", features = ["full"] }
+dialoguer = "0.12.0"
 digest = "0.10.7"
 dir-diff = "0.3.3"
 dirs-next = "2.0.0"
-dlopen2 = "0.5.0"
-dyn-clone = "1.0.18"
+dlopen2 = "0.8.2"
+dyn-clone = "1.0.20"
 eager = "0.1.0"
 ed25519-dalek = "=1.0.1"
-ed25519-dalek-bip32 = "0.2.0"
-enum-iterator = "1.5.0"
-env_logger = "0.9.3"
-etcd-client = "0.11.1"
+enum-iterator = "2.3.0"
+env_logger = "0.11.9"
 fast-math = "0.1"
-fd-lock = "3.0.13"
-five8_const = "0.1.3"
-flate2 = "1.0.31"
+fd-lock = "4.0.4"
+five8 = "1.0.0"
+flate2 = "1.1.9"
 fnv = "1.0.7"
 fs_extra = "1.3.0"
-futures = "0.3.31"
+futures = "0.3.32"
 futures-util = "0.3.29"
 gag = "1.0.0"
-gethostname = "0.2.3"
-getrandom = "0.2.10"
+gethostname = "1.1.0"
+getrandom = "0.3.4"
 goauth = "0.13.1"
 governor = "0.6.3"
+group = "0.13.0"
 hex = "0.4.3"
-hidapi = { version = "2.6.3", default-features = false }
+hex-literal = "1.1.0"
+hidapi = { version = "2.6.4", default-features = false }
 histogram = "0.6.9"
 hmac = "0.12.1"
 http = "0.2.12"
-humantime = "2.0.1"
+humantime = "2.3.0"
 hyper = "0.14.32"
 hyper-proxy = "0.9.1"
 im = "15.1.0"
-index_list = "0.2.15"
-indexmap = "2.7.1"
-indicatif = "0.17.11"
-itertools = "0.12.1"
+indexmap = "2.13.0"
+indicatif = "0.18.4"
+io-uring = { version = "0.7.11", features = ["io_safety"] }
+itertools = "0.14.0"
 jemallocator = { package = "tikv-jemallocator", version = "0.6.0", features = [
     "unprefixed_malloc_on_supported_platforms",
 ] }
-js-sys = "0.3.77"
-json5 = "0.4.1"
+js-sys = "0.3.85"
+json5 = "1.3.1"
 jsonrpc-core = "18.0.0"
 jsonrpc-core-client = "18.0.0"
 jsonrpc-derive = "18.0.0"
@@ -501,122 +499,124 @@ jsonrpc-http-server = "18.0.0"
 jsonrpc-ipc-server = "18.0.0"
 jsonrpc-pubsub = "18.0.0"
 lazy-lru = "0.1.3"
-lazy_static = "1.5.0"
-libc = "0.2.170"
-libloading = "0.7.4"
+libc = "0.2.180"
+libloading = "0.9.0"
 libsecp256k1 = { version = "0.6.0", default-features = false, features = [
     "std",
     "static-context",
 ] }
-light-poseidon = "0.2.0"
-log = "0.4.25"
+log = "0.4.29"
 lru = "0.7.7"
 lz4 = "1.28.1"
-memmap2 = "0.5.10"
-memoffset = "0.9"
-merlin = { version = "3", default-features = false }
+memmap2 = "0.9.10"
+memoffset = "0.9.1"
 min-max-heap = "1.3.0"
-mockall = "0.11.4"
-modular-bitfield = "0.11.2"
-nix = "0.29.0"
+mockall = "0.14.0"
+modular-bitfield = "0.13.1"
+nix = "0.31.1"
 num-bigint = "0.4.6"
 num-derive = "0.4"
 num-traits = "0.2"
-num_cpus = "1.16.0"
-num_enum = "0.7.3"
+num_cpus = "1.17.0"
+num_enum = "0.7.4"
 openssl = "0.10"
+pairing = "0.23.0"
 parking_lot = "0.12"
-pbkdf2 = { version = "0.11.0", default-features = false }
 pem = "1.1.1"
 percentage = "0.1.0"
 pickledb = { version = "0.5.1", default-features = false }
-predicates = "2.1"
-pretty-hex = "0.3.0"
+predicates = "3.1"
+pretty-hex = "0.4.1"
+pretty_assertions = "1.4.1"
 prio-graph = "0.3.0"
-proc-macro2 = "1.0.93"
-proptest = "1.6"
+proc-macro2 = "1.0.106"
+proptest = "1.10"
 prost = "0.11.9"
 prost-build = "0.11.9"
 prost-types = "0.11.9"
 protobuf-src = "1.1.0"
+protosol = "2.0.0"
 qstring = "0.7.2"
 qualifier_attr = { version = "0.2.2", default-features = false }
-quinn = "0.11.6"
-quinn-proto = "0.11.9"
+quinn = "0.11.9"
+quinn-proto = "0.11.14"
 quote = "1.0"
-rand = "0.8.5"
+rand = "0.9.2"
 rand0-7 = { package = "rand", version = "0.7" }
-rand_chacha = "0.3.1"
-rand_chacha0-2 = { package = "rand_chacha", version = "0.2.2" }
-rayon = "1.10.0"
+rand_chacha = "0.9.0"
+rayon = "1.11.0"
 reed-solomon-erasure = "6.0.0"
-regex = "1.11.1"
-reqwest = { version = "0.11.27", default-features = false }
-reqwest-middleware = "0.2.5"
+regex = "1.12.3"
+reqwest = { version = "0.12.28", default-features = false }
+reqwest-middleware = "0.4.2"
 rolling-file = "0.2.0"
-rpassword = "7.3"
-rustls = { version = "0.23.22", features = ["std"], default-features = false }
+rpassword = "7.4"
+rts-alloc = { version = "2.0.0" }
+rustls = { version = "0.23.36", features = ["std"], default-features = false }
 scopeguard = "1.2.0"
-semver = "1.0.25"
+semver = "1.0.27"
 seqlock = "0.2.0"
-serde = "1.0.217" # must match the serde_derive version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
+serde = { version = "1.0.228", features = ["derive"] }
 serde-big-array = "0.5.1"
-serde_bytes = "0.11.15"
-serde_derive = "1.0.217" # must match the serde version, see https://github.com/serde-rs/serde/issues/2584#issuecomment-1685252251
-serde_json = "1.0.139"
-serde_with = { version = "3.12.0", default-features = false }
+serde_bytes = "0.11.19"
+serde_json = "1.0.149"
+serde_with = { version = "3.17.0", default-features = false }
 serde_yaml = "0.9.34"
-serial_test = "2.0.0"
-sha2 = "0.10.8"
+serial_test = "3.4.0"
+sha2 = "0.10.9"
 sha3 = "0.10.8"
+shaq = { version = "1.0.2" }
 shuttle = "0.7.1"
-signal-hook = "0.3.17"
-siphasher = "0.3.11"
-slab = "0.4.9"
-smallvec = "1.13.2"
+signal-hook = "0.4.3"
+siphasher = "1.0.2"
+slab = "0.4.12"
+smallvec = { version = "1.15.1", default-features = false, features = ["union"] }
 smpl_jwt = "0.7.1"
-socket2 = "0.5.8"
-soketto = "0.7"
+socket2 = "0.6.2"
+soketto = "0.8"
 static_assertions = "1.1.0"
 stream-cancel = "0.8.2"
-strum = "0.24"
-strum_macros = "0.24"
-subtle = "2.6.1"
+strum = "0.27.2"
+strum_macros = "0.27.2"
 symlink = "0.1.0"
 syn = "2.0"
 sys-info = "0.9.1"
-sysctl = "0.4.6"
-systemstat = "0.2.4"
-tar = "0.4.43"
+sysctl = "0.7.1"
+systemstat = "0.2.5"
+tar = "0.4.45"
 tarpc = "0.29.0"
-tempfile = "3.16.0"
+tempfile = "3.24.0"
 test-case = "3.3.1"
-thiserror = "2.0.11"
-thread-priority = "1.2.0"
-tiny-bip39 = "0.8.2"
-# Update solana-tokio patch below when updating this version
-tokio = "1.43.0"
+thiserror = "2.0.18"
+thread-priority = "3.0.0"
+tiny-bip39 = "2.0.0"
+tokio = "1.49.0"
 tokio-serde = "0.8"
-tokio-stream = "0.1.17"
-tokio-tungstenite = "0.20.1"
-tokio-util = "0.7.13"
-toml = "0.8.12"
+tokio-stream = "0.1.18"
+tokio-tungstenite = "0.28.0"
+tokio-util = "0.7.18"
+toml = "0.9.11"
 tonic = "0.9.2"
 tonic-build = "0.9.2"
 tower = "0.5.2"
+tracing = "0.1"
 trait-set = "0.3.0"
 trees = "0.4.2"
-tungstenite = "0.20.1"
+trezor-client = { version = "0.1.5", default-features = false, features = ["solana"] }
+tungstenite = "0.28.0"
+unwrap_none = "0.1.2"
 uriparse = "0.6.4"
-url = "2.5.4"
+url = "2.5.8"
 vec_extract_if_polyfill = "0.1.0"
 wasm-bindgen = "0.2"
 winapi = "0.3.8"
-winreg = "0.50"
-x509-parser = "0.14.0"
-# See "zeroize versioning issues" below if you are updating this version.
-zeroize = { version = "1.7", default-features = false }
-zstd = "0.13.2"
+wincode = { version = "0.4.4", features = ["derive", "solana-short-vec"] }
+winreg = "0.55"
+x509-parser = "0.18.1"
+zstd = "0.13.3"
+
+[profile.dev]
+debug = "line-tables-only"
 
 # curve25519-dalek uses the simd backend by default in v4 if possible,
 # which has very slow performance on some platforms with opt-level 0,
@@ -629,41 +629,27 @@ zstd = "0.13.2"
 [profile.dev.package.curve25519-dalek]
 opt-level = 3
 
+[profile.full-dev]
+inherits = "dev"
+debug = "full"
+
+[profile.release-with-debug]
+inherits = "release"
+debug = true
+strip = false
+split-debuginfo = "off"
+
+[profile.release]
+split-debuginfo = "unpacked"
+lto = "thin"
+
+[profile.release-with-lto]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+
 [patch.crates-io]
 # for details, see https://github.com/anza-xyz/crossbeam/commit/fd279d707025f0e60951e429bf778b4813d1b6bf
 crossbeam-epoch = { git = "https://github.com/anza-xyz/crossbeam", rev = "fd279d707025f0e60951e429bf778b4813d1b6bf" }
-
-# We include the following crates as our dependencies above from crates.io:
-#
-#  * spl-associated-token-account
-#  * spl-instruction-padding
-#  * spl-memo
-#  * spl-pod
-#  * spl-token
-#  * spl-token-2022
-#  * spl-token-metadata-interface
-#
-# They, in turn, depend on a number of crates that we also include directly
-# using `path` specifications.  For example, `spl-token` depends on
-# `solana-program`.  And we explicitly specify `solana-program` above as a local
-# path dependency:
-#
-#     solana-program = { path = "../../sdk/program", version = "=1.16.0" }
-#
-# Unfortunately, Cargo will try to resolve the `spl-token` `solana-program`
-# dependency only using what is available on crates.io.  Crates.io normally
-# contains a previous version of these crates, and we end up with two versions
-# of `solana-program` and `solana-zk-token-sdk` and all of their dependencies in
-# our build tree.
-#
-# If you are developing downstream using non-crates-io solana-program (local or
-# forked repo, or from github rev, eg), duplicate the following patch statements
-# in your Cargo.toml. If you still hit duplicate-type errors with the patch
-# statements in place, run `cargo update -p solana-program` and/or `cargo update
-# -p solana-zk-token-sdk` to remove extraneous versions from your Cargo.lock
-# file.
-#
-# There is a similar override in `programs/sbf/Cargo.toml`.  Please keep both
-# comments and the overrides in sync.
-solana-curve25519 = { path = "ocios/curve25519" }
-solana-zk-sdk = { path = "ocios/zk-sdk" }
+rustls-webpki = { git = "https://github.com/anza-xyz/rustls-webpki", tag = "anza-0.103.10-2" }
+rustls-webpki2 = { git = "https://github.com/anza-xyz/rustls-webpki", package = "rustls-webpki", tag = "anza-0.101.7-2" }

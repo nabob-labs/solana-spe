@@ -1,7 +1,7 @@
 //! The error that can be produced from Blockstore operations.
 
 use {
-    log::*, solana_accounts_db::hardened_unpack::UnpackError, solana_sdk::clock::Slot,
+    super::PurgeType, agave_snapshots::hardened_unpack::UnpackError, solana_clock::Slot,
     thiserror::Error,
 };
 
@@ -27,8 +27,6 @@ pub enum BlockstoreError {
     SlotCleanedUp,
     #[error("unpack error: {0}")]
     UnpackError(#[from] UnpackError),
-    #[error("unable to set open file descriptor limit")]
-    UnableToSetOpenFileDescriptorLimit,
     #[error("transaction status slot mismatch")]
     TransactionStatusSlotMismatch,
     #[error("empty epoch stakes")]
@@ -59,5 +57,33 @@ pub enum BlockstoreError {
     LegacyShred(Slot, u64),
     #[error("unable to read merkle root slot {0}, index {1}")]
     MissingMerkleRoot(Slot, u64),
+    #[error("unable to purge slots in range [{from_slot}, {to_slot}] {purge_type:?}: {inner:?}")]
+    PurgeFailed {
+        from_slot: Slot,
+        to_slot: Slot,
+        purge_type: PurgeType,
+        #[source]
+        inner: Box<BlockstoreError>,
+    },
+    #[error(transparent)]
+    ManualPurge(#[from] BlockstoreManualPurgeError),
 }
 pub type Result<T> = std::result::Result<T, BlockstoreError>;
+
+#[derive(Error, Debug)]
+pub enum BlockstoreManualPurgeError {
+    #[error("purge request sender is unavailable")]
+    SenderUnavailable,
+
+    #[error("purge request for slot {request_slot} is newer than the latest root {max_root}")]
+    SlotNewerThanRoot { request_slot: Slot, max_root: Slot },
+
+    #[error("purge request try send error")]
+    TrySend,
+}
+
+impl<T> std::convert::From<crossbeam_channel::TrySendError<T>> for BlockstoreManualPurgeError {
+    fn from(_e: crossbeam_channel::TrySendError<T>) -> BlockstoreManualPurgeError {
+        BlockstoreManualPurgeError::TrySend
+    }
+}

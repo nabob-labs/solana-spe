@@ -1,12 +1,12 @@
 use {
     solana_core::validator::ValidatorConfig,
-    solana_sdk::exit::Exit,
-    std::sync::{Arc, RwLock},
+    solana_validator_exit::Exit,
+    std::sync::{Arc, RwLock, atomic::AtomicBool},
 };
 
 pub fn safe_clone_config(config: &ValidatorConfig) -> ValidatorConfig {
     ValidatorConfig {
-        halt_at_slot: config.halt_at_slot,
+        log_config: config.log_config.clone(),
         expected_genesis_hash: config.expected_genesis_hash,
         expected_bank_hash: config.expected_bank_hash,
         expected_shred_version: config.expected_shred_version,
@@ -30,11 +30,11 @@ pub fn safe_clone_config(config: &ValidatorConfig) -> ValidatorConfig {
         repair_validators: config.repair_validators.clone(),
         repair_whitelist: config.repair_whitelist.clone(),
         gossip_validators: config.gossip_validators.clone(),
-        accounts_hash_interval_slots: config.accounts_hash_interval_slots,
         max_genesis_archive_unpacked_size: config.max_genesis_archive_unpacked_size,
         run_verification: config.run_verification,
         require_tower: config.require_tower,
         tower_storage: config.tower_storage.clone(),
+        vote_history_storage: config.vote_history_storage.clone(),
         debug_keys: config.debug_keys.clone(),
         contact_debug_interval: config.contact_debug_interval,
         contact_save_interval: config.contact_save_interval,
@@ -44,14 +44,18 @@ pub fn safe_clone_config(config: &ValidatorConfig) -> ValidatorConfig {
         no_os_network_stats_reporting: config.no_os_network_stats_reporting,
         no_os_cpu_stats_reporting: config.no_os_cpu_stats_reporting,
         no_os_disk_stats_reporting: config.no_os_disk_stats_reporting,
+        enforce_ulimit_nofile: config.enforce_ulimit_nofile,
         poh_pinned_cpu_core: config.poh_pinned_cpu_core,
         warp_slot: config.warp_slot,
-        accounts_db_test_hash_calculation: config.accounts_db_test_hash_calculation,
         accounts_db_skip_shrink: config.accounts_db_skip_shrink,
         accounts_db_force_initial_clean: config.accounts_db_force_initial_clean,
-        tpu_coalesce: config.tpu_coalesce,
         staked_nodes_overrides: config.staked_nodes_overrides.clone(),
         validator_exit: Arc::new(RwLock::new(Exit::default())),
+        validator_exit_backpressure: config
+            .validator_exit_backpressure
+            .keys()
+            .map(|name| (name.clone(), Arc::new(AtomicBool::new(false))))
+            .collect(),
         poh_hashes_per_batch: config.poh_hashes_per_batch,
         process_ledger_before_services: config.process_ledger_before_services,
         no_wait_for_vote_to_start_leader: config.no_wait_for_vote_to_start_leader,
@@ -61,12 +65,12 @@ pub fn safe_clone_config(config: &ValidatorConfig) -> ValidatorConfig {
         banking_trace_dir_byte_limit: config.banking_trace_dir_byte_limit,
         block_verification_method: config.block_verification_method.clone(),
         block_production_method: config.block_production_method.clone(),
-        transaction_struct: config.transaction_struct.clone(),
+        block_production_num_workers: config.block_production_num_workers,
+        block_production_scheduler_config: config.block_production_scheduler_config.clone(),
         enable_block_production_forwarding: config.enable_block_production_forwarding,
+        enable_scheduler_bindings: config.enable_scheduler_bindings,
         generator_config: config.generator_config.clone(),
         use_snapshot_archives_at_startup: config.use_snapshot_archives_at_startup,
-        wen_restart_proto_path: config.wen_restart_proto_path.clone(),
-        wen_restart_coordinator: config.wen_restart_coordinator,
         unified_scheduler_handler_threads: config.unified_scheduler_handler_threads,
         ip_echo_server_threads: config.ip_echo_server_threads,
         rayon_global_threads: config.rayon_global_threads,
@@ -74,6 +78,9 @@ pub fn safe_clone_config(config: &ValidatorConfig) -> ValidatorConfig {
         replay_transactions_threads: config.replay_transactions_threads,
         tvu_shred_sigverify_threads: config.tvu_shred_sigverify_threads,
         delay_leader_block_for_pending_fork: config.delay_leader_block_for_pending_fork,
+        voting_service_test_override: config.voting_service_test_override.clone(),
+        repair_handler_type: config.repair_handler_type.clone(),
+        snapshot_packager_niceness_adj: config.snapshot_packager_niceness_adj,
     }
 }
 

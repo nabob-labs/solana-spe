@@ -1,9 +1,6 @@
-use {
-    enum_iterator::{all, Sequence},
-    std::io::{self, BufReader, Read, Write},
-};
+use std::io::{self, BufReader, Read, Write};
 
-#[derive(Debug, Serialize, Deserialize, Sequence)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum CompressionMethod {
     NoCompression,
     Bzip2,
@@ -28,17 +25,13 @@ fn decompress_reader<'a, R: Read + 'a>(
 pub fn decompress(data: &[u8]) -> Result<Vec<u8>, io::Error> {
     let method_size = bincode::serialized_size(&CompressionMethod::NoCompression).unwrap();
     if (data.len() as u64) < method_size {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("data len too small: {}", data.len()),
-        ));
+        return Err(io::Error::other(format!(
+            "data len too small: {}",
+            data.len()
+        )));
     }
-    let method = bincode::deserialize(&data[..method_size as usize]).map_err(|err| {
-        io::Error::new(
-            io::ErrorKind::Other,
-            format!("method deserialize failed: {err}"),
-        )
-    })?;
+    let method = bincode::deserialize(&data[..method_size as usize])
+        .map_err(|err| io::Error::other(format!("method deserialize failed: {err}")))?;
 
     let mut reader = decompress_reader(method, &data[method_size as usize..])?;
     let mut uncompressed_data = vec![];
@@ -70,16 +63,10 @@ pub fn compress(method: CompressionMethod, data: &[u8]) -> Result<Vec<u8>, io::E
     Ok(compressed_data)
 }
 
-pub fn compress_best(data: &[u8]) -> Result<Vec<u8>, io::Error> {
-    let mut candidates = vec![];
-    for method in all::<CompressionMethod>() {
-        candidates.push(compress(method, data)?);
-    }
-
-    Ok(candidates
-        .into_iter()
-        .min_by(|a, b| a.len().cmp(&b.len()))
-        .unwrap())
+pub fn compress_zstd_or_none(data: &[u8]) -> Result<Vec<u8>, io::Error> {
+    let zstd = compress(CompressionMethod::Zstd, data)?;
+    let none = compress(CompressionMethod::NoCompression, data)?;
+    Ok(if zstd.len() < none.len() { zstd } else { none })
 }
 
 #[cfg(test)]
@@ -90,7 +77,8 @@ mod test {
     fn test_compress_uncompress() {
         let data = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
         assert_eq!(
-            decompress(&compress_best(&data).expect("compress_best")).expect("decompress"),
+            decompress(&compress_zstd_or_none(&data).expect("compress_zstd_or_none"))
+                .expect("decompress"),
             data
         );
     }
@@ -98,6 +86,11 @@ mod test {
     #[test]
     fn test_compress() {
         let data = vec![0; 256];
-        assert!(compress_best(&data).expect("compress_best").len() < data.len());
+        assert!(
+            compress_zstd_or_none(&data)
+                .expect("compress_zstd_or_none")
+                .len()
+                < data.len()
+        );
     }
 }

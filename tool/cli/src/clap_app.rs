@@ -44,8 +44,8 @@ pub fn get_clap_app<'ab, 'v>(name: &str, about: &'ab str, version: &'v str) -> A
                 .global(true)
                 .validator(is_url_or_moniker)
                 .help(
-                    "URL for Solana's JSON RPC or moniker (or their first letter): \
-                    [mainnet-beta, testnet, devnet, localhost]",
+                    "URL for Solana's JSON RPC or moniker (or their first letter): [mainnet-beta, \
+                     testnet, devnet, localhost]",
                 ),
         )
         .arg(
@@ -84,8 +84,8 @@ pub fn get_clap_app<'ab, 'v>(name: &str, about: &'ab str, version: &'v str) -> A
                 .hide_possible_values(true)
                 .global(true)
                 .help(
-                    "Return information at the selected commitment level \
-                    [possible values: processed, confirmed, finalized]",
+                    "Return information at the selected commitment level [possible values: \
+                     processed, confirmed, finalized]",
                 ),
         )
         .arg(
@@ -94,19 +94,6 @@ pub fn get_clap_app<'ab, 'v>(name: &str, about: &'ab str, version: &'v str) -> A
                 .short("v")
                 .global(true)
                 .help("Show additional information"),
-        )
-        .arg(
-            Arg::with_name("use_quic")
-                .long("use-quic")
-                .global(true)
-                .help("Use QUIC when sending transactions."),
-        )
-        .arg(
-            Arg::with_name("use_udp")
-                .long("use-udp")
-                .global(true)
-                .conflicts_with("use_quic")
-                .help("Use UDP when sending transactions."),
         )
         .arg(
             Arg::with_name("use_tpu_client")

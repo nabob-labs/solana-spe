@@ -1,19 +1,19 @@
 use {
     crate::{
         client_connection::ClientConnection as BlockingClientConnection,
-        connection_cache_stats::{ConnectionCacheStats, CONNECTION_STAT_SUBMISSION_INTERVAL},
+        connection_cache_stats::{CONNECTION_STAT_SUBMISSION_INTERVAL, ConnectionCacheStats},
         nonblocking::client_connection::ClientConnection as NonblockingClientConnection,
     },
     crossbeam_channel::{Receiver, RecvError, Sender},
     indexmap::map::IndexMap,
     log::*,
-    rand::{thread_rng, Rng},
+    rand::{Rng, rng},
     solana_keypair::Keypair,
     solana_measure::measure::Measure,
     solana_time_utils::AtomicInterval,
     std::{
         net::SocketAddr,
-        sync::{atomic::Ordering, Arc, RwLock},
+        sync::{Arc, RwLock, atomic::Ordering},
         thread::{Builder, JoinHandle},
     },
     thiserror::Error,
@@ -115,22 +115,24 @@ where
     ) -> JoinHandle<()> {
         Builder::new()
             .name("solQAsynCon".to_string())
-            .spawn(move || loop {
-                let recv_result = receiver.recv();
-                match recv_result {
-                    Err(RecvError) => {
-                        break;
-                    }
-                    Ok((idx, addr)) => {
-                        let map = map.read().unwrap();
-                        let pool = map.get(&addr);
-                        if let Some(pool) = pool {
-                            let conn = pool.get(idx);
-                            if let Ok(conn) = conn {
-                                drop(map);
-                                let conn = conn.new_blocking_connection(addr, stats.clone());
-                                let result = conn.send_data(&[]);
-                                debug!("Create async connection result {result:?} for {addr}");
+            .spawn(move || {
+                loop {
+                    let recv_result = receiver.recv();
+                    match recv_result {
+                        Err(RecvError) => {
+                            break;
+                        }
+                        Ok((idx, addr)) => {
+                            let map = map.read().unwrap();
+                            let pool = map.get(&addr);
+                            if let Some(pool) = pool {
+                                let conn = pool.get(idx);
+                                if let Ok(conn) = conn {
+                                    drop(map);
+                                    let conn = conn.new_blocking_connection(addr, stats.clone());
+                                    let result = conn.send_data(&[]);
+                                    debug!("Create async connection result {result:?} for {addr}");
+                                }
                             }
                         }
                     }
@@ -217,8 +219,8 @@ where
             Measure::start("get_connection_cache_eviction_measure");
         let existing_index = map.get_index_of(addr);
         while map.len() >= MAX_CONNECTIONS {
-            let mut rng = thread_rng();
-            let n = rng.gen_range(0..MAX_CONNECTIONS);
+            let mut rng = rng();
+            let n = rng.random_range(0..MAX_CONNECTIONS);
             if let Some(index) = existing_index {
                 if n == index {
                     continue;
@@ -443,8 +445,8 @@ pub trait ConnectionPool: Send + Sync + 'static {
     /// Get a connection from the pool. It must have at least one connection in the pool.
     /// This randomly picks a connection in the pool.
     fn borrow_connection(&self) -> Arc<Self::BaseClientConnection> {
-        let mut rng = thread_rng();
-        let n = rng.gen_range(0..self.num_connections());
+        let mut rng = rng();
+        let n = rng.random_range(0..self.num_connections());
         self.get(n).expect("index is within num_connections")
     }
 
@@ -514,7 +516,7 @@ mod tests {
         async_trait::async_trait,
         rand::{Rng, SeedableRng},
         rand_chacha::ChaChaRng,
-        solana_net_utils::SocketConfig,
+        solana_net_utils::sockets::bind_to_localhost_unique,
         solana_transaction_error::TransportResult,
         std::{
             net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
@@ -571,13 +573,7 @@ mod tests {
     impl Default for MockUdpConfig {
         fn default() -> Self {
             Self {
-                udp_socket: Arc::new(
-                    solana_net_utils::bind_with_any_port_with_config(
-                        IpAddr::V4(Ipv4Addr::UNSPECIFIED),
-                        SocketConfig::default(),
-                    )
-                    .expect("Unable to bind to UDP socket"),
-                ),
+                udp_socket: Arc::new(bind_to_localhost_unique().unwrap()),
             }
         }
     }
@@ -586,11 +582,7 @@ mod tests {
         fn new() -> Result<Self, ClientError> {
             Ok(Self {
                 udp_socket: Arc::new(
-                    solana_net_utils::bind_with_any_port_with_config(
-                        IpAddr::V4(Ipv4Addr::UNSPECIFIED),
-                        SocketConfig::default(),
-                    )
-                    .map_err(Into::<ClientError>::into)?,
+                    bind_to_localhost_unique().map_err(Into::<ClientError>::into)?,
                 ),
             })
         }
@@ -660,7 +652,7 @@ mod tests {
         fn send_data(&self, _buffer: &[u8]) -> TransportResult<()> {
             unimplemented!()
         }
-        fn send_data_async(&self, _data: Vec<u8>) -> TransportResult<()> {
+        fn send_data_async(&self, _data: Arc<Vec<u8>>) -> TransportResult<()> {
             unimplemented!()
         }
         fn send_data_batch(&self, _buffers: &[Vec<u8>]) -> TransportResult<()> {
@@ -685,10 +677,10 @@ mod tests {
     }
 
     fn get_addr(rng: &mut ChaChaRng) -> SocketAddr {
-        let a = rng.gen_range(1..255);
-        let b = rng.gen_range(1..255);
-        let c = rng.gen_range(1..255);
-        let d = rng.gen_range(1..255);
+        let a = rng.random_range(1..255);
+        let b = rng.random_range(1..255);
+        let c = rng.random_range(1..255);
+        let d = rng.random_range(1..255);
 
         let addr_str = format!("{a}.{b}.{c}.{d}:80");
 
@@ -697,7 +689,7 @@ mod tests {
 
     #[test]
     fn test_connection_cache() {
-        solana_logger::setup();
+        agave_logger::setup();
         // Allow the test to run deterministically
         // with the same pseudorandom sequence between runs
         // and on different platforms - the cryptographic security

@@ -1,6 +1,6 @@
 use {
     solana_builtins_default_costs::{
-        get_builtin_migration_feature_index, BuiltinMigrationFeatureIndex, MAYBE_BUILTIN_KEY,
+        BuiltinMigrationFeatureIndex, MAYBE_BUILTIN_KEY, get_builtin_migration_feature_index,
     },
     solana_packet::PACKET_DATA_SIZE,
     solana_pubkey::Pubkey,
@@ -64,8 +64,10 @@ impl BuiltinProgramsFilter {
 #[cfg(test)]
 mod test {
     use {
-        super::*, agave_feature_set as feature_set,
-        solana_builtins_default_costs::get_migration_feature_position,
+        super::*,
+        solana_builtins_default_costs::{
+            BuiltinCost, MIGRATING_BUILTINS_COSTS, MigratingBuiltinCost, get_migration_feature_id,
+        },
     };
 
     const DUMMY_PROGRAM_ID: &str = "dummmy1111111111111111111111111111111111111";
@@ -110,27 +112,26 @@ mod test {
         );
 
         // migrating builtins
-        for (migrating_builtin_pubkey, migration_feature_id) in [
-            (
-                solana_sdk_ids::stake::id(),
-                feature_set::migrate_stake_program_to_core_bpf::id(),
-            ),
-            (
-                solana_sdk_ids::config::id(),
-                feature_set::migrate_config_program_to_core_bpf::id(),
-            ),
-            (
-                solana_sdk_ids::address_lookup_table::id(),
-                feature_set::migrate_address_lookup_table_program_to_core_bpf::id(),
-            ),
-        ] {
+        for (program_id, migrating_builtin) in MIGRATING_BUILTINS_COSTS {
             index += 1;
+
+            let BuiltinCost::Migrating(MigratingBuiltinCost {
+                core_bpf_migration_feature,
+                position,
+            }) = migrating_builtin
+            else {
+                panic!("MIGRATING_BUILTINS_COSTS must only contain BuiltinCost::Migrating");
+            };
+
             assert_eq!(
-                test_store.get_program_kind(index, &migrating_builtin_pubkey),
+                get_migration_feature_id(*position),
+                core_bpf_migration_feature
+            );
+
+            assert_eq!(
+                test_store.get_program_kind(index, program_id),
                 ProgramKind::MigratingBuiltin {
-                    core_bpf_migration_feature_index: get_migration_feature_position(
-                        &migration_feature_id
-                    ),
+                    core_bpf_migration_feature_index: *position,
                 }
             );
         }

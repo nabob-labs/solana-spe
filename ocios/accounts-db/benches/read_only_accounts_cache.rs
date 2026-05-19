@@ -1,20 +1,24 @@
 use {
-    criterion::{criterion_group, criterion_main, BenchmarkId, Criterion},
-    rand::{rngs::SmallRng, seq::SliceRandom, SeedableRng},
+    criterion::{BenchmarkId, Criterion, criterion_group, criterion_main},
+    rand::{SeedableRng, rngs::SmallRng, seq::IndexedRandom as _},
     solana_accounts_db::{
         accounts_db::AccountsDb, read_only_accounts_cache::ReadOnlyAccountsCache,
     },
     std::{
         hint::black_box,
         sync::{
-            atomic::{AtomicBool, Ordering},
             Arc,
+            atomic::{AtomicBool, Ordering},
         },
         thread::Builder,
         time::{Duration, Instant},
     },
 };
 mod utils;
+
+#[cfg(not(any(target_env = "msvc", target_os = "freebsd")))]
+#[global_allocator]
+static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
 /// Sizes of accounts.
 ///
@@ -160,7 +164,7 @@ fn bench_read_only_accounts_cache_eviction(
     max_data_size_hi: usize,
 ) {
     // Prepare initial accounts, two times the high limit of the cache, to make
-    // sure that the backgroud threads sometimes try to store something which
+    // sure that the background threads sometimes try to store something which
     // is not in the cache.
     let accounts: Vec<_> = utils::accounts_with_size_limit(
         255,

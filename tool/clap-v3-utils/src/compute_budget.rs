@@ -1,12 +1,13 @@
 use {
     crate::ArgConstant,
-    clap::{value_parser, Arg},
+    clap::{Arg, value_parser},
 };
 
 pub const COMPUTE_UNIT_PRICE_ARG: ArgConstant<'static> = ArgConstant {
     name: "compute_unit_price",
     long: "--with-compute-unit-price",
-    help: "Set compute unit price for transaction, in increments of 0.000001 lamports per compute unit.",
+    help: "Set compute unit price for transaction, in increments of 0.000001 lamports per compute \
+           unit.",
 };
 
 pub const COMPUTE_UNIT_LIMIT_ARG: ArgConstant<'static> = ArgConstant {

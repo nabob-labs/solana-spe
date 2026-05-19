@@ -1,19 +1,17 @@
+#![cfg(feature = "agave-unstable-api")]
 #![cfg_attr(feature = "frozen-abi", feature(min_specialization))]
-pub mod cuda_runtime;
 pub mod data_budget;
 pub mod deduper;
 pub mod discard;
 pub mod packet;
 pub mod perf_libs;
+pub mod recycled_vec;
 pub mod recycler;
 pub mod recycler_cache;
 pub mod sigverify;
 #[cfg(feature = "dev-context-only-utils")]
 pub mod test_tx;
 pub mod thread;
-
-#[macro_use]
-extern crate lazy_static;
 
 #[macro_use]
 extern crate log;
@@ -49,15 +47,6 @@ fn is_rosetta_emulated() -> bool {
 }
 
 pub fn report_target_features() {
-    warn!(
-        "CUDA is {}abled",
-        if crate::perf_libs::api().is_some() {
-            "en"
-        } else {
-            "dis"
-        }
-    );
-
     // Validator binaries built on a machine with AVX support will generate invalid opcodes
     // when run on machines without AVX causing a non-obvious process abort.  Instead detect
     // the mismatch and error cleanly.
@@ -71,8 +60,9 @@ pub fn report_target_features() {
                 info!("AVX detected");
             } else {
                 error!(
-                "Incompatible CPU detected: missing AVX support. Please build from source on the target"
-            );
+                    "Incompatible CPU detected: missing AVX support. Please build from source on \
+                     the target"
+                );
                 std::process::abort();
             }
         }
@@ -86,7 +76,8 @@ pub fn report_target_features() {
                 info!("AVX2 detected");
             } else {
                 error!(
-                    "Incompatible CPU detected: missing AVX2 support. Please build from source on the target"
+                    "Incompatible CPU detected: missing AVX2 support. Please build from source on \
+                     the target"
                 );
                 std::process::abort();
             }

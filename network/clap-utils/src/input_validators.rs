@@ -1,10 +1,13 @@
 use {
-    crate::keypair::{parse_signer_source, SignerSourceKind, ASK_KEYWORD},
+    crate::{
+        input_parsers::parse_cpu_ranges,
+        keypair::{ASK_KEYWORD, SignerSourceKind, parse_signer_source},
+    },
     chrono::DateTime,
     solana_clock::{Epoch, Slot},
     solana_hash::Hash,
     solana_keypair::read_keypair_file,
-    solana_pubkey::{Pubkey, MAX_SEED_LEN},
+    solana_pubkey::{MAX_SEED_LEN, Pubkey},
     solana_signature::Signature,
     std::{fmt::Display, ops::RangeBounds, str::FromStr},
 };
@@ -273,6 +276,27 @@ where
         })
 }
 
+pub fn is_valid_basis_points<T>(basis_points: T) -> Result<(), String>
+where
+    T: AsRef<str> + Display,
+{
+    basis_points
+        .as_ref()
+        .parse::<u16>()
+        .map_err(|e| {
+            format!("Unable to parse input basis points, provided: {basis_points}, err: {e}")
+        })
+        .and_then(|v| {
+            if v > 10000 {
+                Err(format!(
+                    "Basis points must be in range of 0 to 10000, provided: {v}"
+                ))
+            } else {
+                Ok(())
+            }
+        })
+}
+
 pub fn is_amount<T>(amount: T) -> Result<(), String>
 where
     T: AsRef<str> + Display,
@@ -293,6 +317,23 @@ where
     if amount.as_ref().parse::<u64>().is_ok()
         || amount.as_ref().parse::<f64>().is_ok()
         || amount.as_ref() == "ALL"
+    {
+        Ok(())
+    } else {
+        Err(format!(
+            "Unable to parse input amount as integer or float, provided: {amount}"
+        ))
+    }
+}
+
+pub fn is_amount_or_all_or_available<T>(amount: T) -> Result<(), String>
+where
+    T: AsRef<str> + Display,
+{
+    if amount.as_ref().parse::<u64>().is_ok()
+        || amount.as_ref().parse::<f64>().is_ok()
+        || amount.as_ref() == "ALL"
+        || amount.as_ref() == "AVAILABLE"
     {
         Ok(())
     } else {
@@ -420,6 +461,24 @@ where
     }
 }
 
+pub fn validate_cpu_ranges<T>(value: T, err_prefix: &str) -> Result<(), String>
+where
+    T: AsRef<str> + Display,
+{
+    parse_cpu_ranges(value.as_ref())
+        .map(|_| ())
+        .map_err(|e| format!("{err_prefix} {e}"))
+}
+
+pub fn is_non_zero(value: impl AsRef<str>) -> Result<(), String> {
+    let value = value.as_ref();
+    if value.eq("0") {
+        Err(String::from("cannot be zero"))
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -435,5 +494,17 @@ mod tests {
         assert!(is_derivation("4294967296").is_err());
         assert!(is_derivation("a/b").is_err());
         assert!(is_derivation("0/4294967296").is_err());
+    }
+
+    #[test]
+    fn test_is_valid_basis_points() {
+        assert!(is_valid_basis_points("0").is_ok());
+        assert!(is_valid_basis_points("100").is_ok());
+        assert!(is_valid_basis_points("5000").is_ok());
+        assert!(is_valid_basis_points("10000").is_ok());
+        assert!(is_valid_basis_points("10001").is_err());
+        assert!(is_valid_basis_points("65536").is_err());
+        assert!(is_valid_basis_points("-1").is_err());
+        assert!(is_valid_basis_points("abc").is_err());
     }
 }

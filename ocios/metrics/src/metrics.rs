@@ -2,9 +2,8 @@
 
 use {
     crate::{counter::CounterPoint, datapoint::DataPoint},
-    crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender},
+    crossbeam_channel::{Receiver, Sender, TryRecvError, unbounded},
     gethostname::gethostname,
-    lazy_static::lazy_static,
     log::*,
     solana_cluster_type::ClusterType,
     solana_sha256_hasher::hash,
@@ -66,7 +65,7 @@ pub struct MetricsAgent {
 pub trait MetricsWriter {
     // Write the points and empty the vector.  Called on the internal
     // MetricsAgent worker thread.
-    fn write(&self, points: Vec<DataPoint>);
+    fn write(&self, client: &reqwest::blocking::Client, points: Vec<DataPoint>);
 }
 
 struct InfluxDbMetricsWriter {
@@ -82,7 +81,7 @@ impl InfluxDbMetricsWriter {
 
     fn build_write_url() -> Result<String, MetricsError> {
         let config = get_metrics_config().map_err(|err| {
-            info!("metrics disabled: {}", err);
+            info!("metrics disabled: {err}");
             err
         })?;
 
@@ -123,10 +122,12 @@ pub fn serialize_points(points: &Vec<DataPoint>, host_id: &str) -> String {
             let _ = write!(line, ",{name}={value}");
         }
 
-        let mut first = true;
-        for (name, value) in point.fields.iter() {
-            let _ = write!(line, "{}{}={}", if first { ' ' } else { ',' }, name, value);
-            first = false;
+        let mut fields = point.fields.iter();
+        if let Some((name, value)) = fields.next() {
+            let _ = write!(line, " {name}={value}");
+            for (name, value) in fields {
+                let _ = write!(line, ",{name}={value}");
+            }
         }
         let timestamp = point.timestamp.duration_since(UNIX_EPOCH);
         let nanos = timestamp.unwrap().as_nanos();
@@ -136,24 +137,13 @@ pub fn serialize_points(points: &Vec<DataPoint>, host_id: &str) -> String {
 }
 
 impl MetricsWriter for InfluxDbMetricsWriter {
-    fn write(&self, points: Vec<DataPoint>) {
+    fn write(&self, client: &reqwest::blocking::Client, points: Vec<DataPoint>) {
         if let Some(ref write_url) = self.write_url {
             debug!("submitting {} points", points.len());
 
             let host_id = HOST_ID.read().unwrap();
 
             let line = serialize_points(&points, &host_id);
-
-            let client = reqwest::blocking::Client::builder()
-                .timeout(Duration::from_secs(5))
-                .build();
-            let client = match client {
-                Ok(client) => client,
-                Err(err) => {
-                    warn!("client instantiation failed: {}", err);
-                    return;
-                }
-            };
 
             let response = client.post(write_url.as_str()).body(line).send();
             if let Ok(resp) = response {
@@ -162,7 +152,7 @@ impl MetricsWriter for InfluxDbMetricsWriter {
                     let text = resp
                         .text()
                         .unwrap_or_else(|_| "[text body empty]".to_string());
-                    warn!("submit response unsuccessful: {} {}", status, text,);
+                    warn!("submit response unsuccessful: {status} {text}",);
                 }
             } else {
                 warn!("submit error: {}", response.unwrap_err());
@@ -227,13 +217,12 @@ impl MetricsAgent {
         let fit_counters = max_points.saturating_sub(points.len());
         let points_written = cmp::min(num_points, max_points);
 
-        debug!("run: attempting to write {} points", num_points);
+        debug!("run: attempting to write {num_points} points");
 
         if num_points > max_points {
             warn!(
-                "Max submission rate of {} datapoints per second exceeded.  Only the \
-                 first {} of {} points will be submitted.",
-                max_points_per_sec, max_points, num_points
+                "Max submission rate of {max_points_per_sec} datapoints per second exceeded. Only \
+                 the first {max_points} of {num_points} points will be submitted."
             );
         }
 
@@ -261,6 +250,7 @@ impl MetricsAgent {
     // Returns an updated value for `last_write_time`.  Which is equal to `Instant::now()`, just
     // before `write` in updated.
     fn write(
+        client: &reqwest::blocking::Client,
         writer: &Arc<dyn MetricsWriter + Send + Sync>,
         max_points: usize,
         max_points_per_sec: usize,
@@ -272,14 +262,17 @@ impl MetricsAgent {
         let now = Instant::now();
         let secs_since_last_write = now.duration_since(last_write_time).as_secs();
 
-        writer.write(Self::combine_points(
-            max_points,
-            max_points_per_sec,
-            secs_since_last_write,
-            points_buffered,
-            points,
-            counters,
-        ));
+        writer.write(
+            client,
+            Self::combine_points(
+                max_points,
+                max_points_per_sec,
+                secs_since_last_write,
+                points_buffered,
+                points,
+                counters,
+            ),
+        );
 
         now
     }
@@ -298,11 +291,13 @@ impl MetricsAgent {
         let max_points = write_frequency.as_secs() as usize * max_points_per_sec;
 
         // Bind common arguments in the `Self::write()` call.
-        let write = |last_write_time: Instant,
+        let write = |client: &reqwest::blocking::Client,
+                     last_write_time: Instant,
                      points: &mut Vec<DataPoint>,
                      counters: &mut CounterMap|
          -> Instant {
             Self::write(
+                client,
                 writer,
                 max_points,
                 max_points_per_sec,
@@ -313,20 +308,26 @@ impl MetricsAgent {
             )
         };
 
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .expect("metrics http client successfully instantiated");
+
         loop {
-            match receiver.recv_timeout(write_frequency / 2) {
+            match receiver.try_recv() {
                 Ok(cmd) => match cmd {
                     MetricsCommand::Flush(barrier) => {
                         debug!("metrics_thread: flush");
-                        last_write_time = write(last_write_time, &mut points, &mut counters);
+                        last_write_time =
+                            write(&client, last_write_time, &mut points, &mut counters);
                         barrier.wait();
                     }
                     MetricsCommand::Submit(point, level) => {
-                        log!(level, "{}", point);
+                        log!(level, "{point}");
                         points.push(point);
                     }
                     MetricsCommand::SubmitCounter(counter, _level, bucket) => {
-                        debug!("{:?}", counter);
+                        debug!("{counter:?}");
                         let key = (counter.name, bucket);
                         if let Some(value) = counters.get_mut(&key) {
                             value.count += counter.count;
@@ -335,26 +336,26 @@ impl MetricsAgent {
                         }
                     }
                 },
-                Err(RecvTimeoutError::Timeout) => (),
-                Err(RecvTimeoutError::Disconnected) => {
+                Err(TryRecvError::Empty) => {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(TryRecvError::Disconnected) => {
                     debug!("run: sender disconnected");
                     break;
                 }
-            }
+            };
 
             let now = Instant::now();
             if now.duration_since(last_write_time) >= write_frequency {
-                last_write_time = write(last_write_time, &mut points, &mut counters);
+                last_write_time = write(&client, last_write_time, &mut points, &mut counters);
             }
         }
 
         debug_assert!(
             points.is_empty() && counters.is_empty(),
-            "Controlling `MetricsAgent` is expected to call `flush()` from the `Drop` \n\
-             implementation, before exiting.  So both `points` and `counters` must be empty at \n\
-             this point.\n\
-             `points`: {points:?}\n\
-             `counters`: {counters:?}",
+            "Controlling `MetricsAgent` is expected to call `flush()` from the `Drop` \
+             implementation, before exiting. So both `points` and `counters` must be empty at \
+             this point. `points`: {points:?}, `counters`: {counters:?}",
         );
 
         trace!("run: exit");
@@ -390,27 +391,27 @@ impl Drop for MetricsAgent {
 }
 
 fn get_singleton_agent() -> &'static MetricsAgent {
-    lazy_static! {
-        static ref AGENT: MetricsAgent = MetricsAgent::default();
-    };
-
+    static AGENT: std::sync::LazyLock<MetricsAgent> =
+        std::sync::LazyLock::new(MetricsAgent::default);
     &AGENT
 }
 
-lazy_static! {
-    static ref HOST_ID: Arc<RwLock<String>> = {
-        Arc::new(RwLock::new({
-            let hostname: String = gethostname()
-                .into_string()
-                .unwrap_or_else(|_| "".to_string());
-            format!("{}", hash(hostname.as_bytes()))
-        }))
-    };
-}
+static HOST_ID: std::sync::LazyLock<RwLock<String>> = std::sync::LazyLock::new(|| {
+    RwLock::new({
+        let hostname: String = gethostname()
+            .into_string()
+            .unwrap_or_else(|_| "".to_string());
+        format!("{}", hash(hostname.as_bytes()))
+    })
+});
 
 pub fn set_host_id(host_id: String) {
-    info!("host id: {}", host_id);
+    info!("host id: {host_id}");
     *HOST_ID.write().unwrap() = host_id;
+}
+
+pub fn get_host_id() -> String {
+    HOST_ID.read().unwrap().clone()
 }
 
 /// Submits a new point from any thread.  Note that points are internally queued
@@ -567,7 +568,7 @@ pub mod test_mocks {
     }
 
     impl MetricsWriter for MockMetricsWriter {
-        fn write(&self, points: Vec<DataPoint>) {
+        fn write(&self, _client: &reqwest::blocking::Client, points: Vec<DataPoint>) {
             assert!(!points.is_empty());
 
             let new_points = points.len();
@@ -683,14 +684,11 @@ mod test {
             );
         }
 
-        thread::sleep(Duration::from_secs(2));
-
         agent.flush();
 
-        // We are expecting `max_points_per_sec - 1` data points from `submit()` and two more metric
-        // stats data points.  One from the timeout when all the `submit()`ed values are sent when 1
-        // second is elapsed, and then one more from the explicit `flush()`.
-        assert_eq!(writer.points_written(), max_points_per_sec + 1);
+        // We are expecting `max_points_per_sec - 1` data points from `submit()` and one more metric
+        // stats data points.
+        assert_eq!(writer.points_written(), max_points_per_sec);
     }
 
     #[test]
@@ -747,5 +745,12 @@ mod test {
             .add_field_i64("random_int", rand::random::<u8>() as i64)
             .to_owned();
         agent.submit(point, Level::Info);
+    }
+
+    #[test]
+    fn test_host_id() {
+        let test_host_id = "test_host_123".to_string();
+        set_host_id(test_host_id.clone());
+        assert_eq!(get_host_id(), test_host_id);
     }
 }

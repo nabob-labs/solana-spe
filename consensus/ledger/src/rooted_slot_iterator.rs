@@ -1,7 +1,7 @@
 use {
     crate::{blockstore::*, blockstore_meta::SlotMeta},
     log::*,
-    solana_sdk::clock::Slot,
+    solana_clock::Slot,
 };
 
 pub struct RootedSlotIterator<'a> {
@@ -78,8 +78,7 @@ impl Iterator for RootedSlotIterator<'_> {
 #[cfg(test)]
 mod tests {
     use {
-        super::*, crate::blockstore_processor::fill_blockstore_slot_with_ticks,
-        solana_sdk::hash::Hash,
+        super::*, crate::blockstore_processor::fill_blockstore_slot_with_ticks, solana_hash::Hash,
     };
 
     #[test]
@@ -108,13 +107,7 @@ mod tests {
         let fork_point = 1;
         let mut fork_hash = Hash::default();
         for slot in 0..=3 {
-            let parent = {
-                if slot == 0 {
-                    0
-                } else {
-                    slot - 1
-                }
-            };
+            let parent = { if slot == 0 { 0 } else { slot - 1 } };
             let last_entry_hash = fill_blockstore_slot_with_ticks(
                 &blockstore,
                 ticks_per_slot,
@@ -178,13 +171,7 @@ mod tests {
 
         // Create pre-skip slots
         for slot in 0..=3 {
-            let parent = {
-                if slot == 0 {
-                    0
-                } else {
-                    slot - 1
-                }
-            };
+            let parent = { if slot == 0 { 0 } else { slot - 1 } };
             fill_blockstore_slot_with_ticks(
                 &blockstore,
                 ticks_per_slot,

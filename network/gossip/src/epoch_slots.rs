@@ -6,9 +6,11 @@ use {
     bincode::serialized_size,
     bv::BitVec,
     flate2::{Compress, Compression, Decompress, FlushCompress, FlushDecompress},
+    serde::{Deserialize, Serialize},
+    solana_clock::Slot,
+    solana_pubkey::Pubkey,
     solana_sanitize::{Sanitize, SanitizeError},
-    solana_sdk::{clock::Slot, pubkey::Pubkey},
-    std::{borrow::Cow, ops::Range, sync::Arc},
+    std::{borrow::Cow, cell::RefCell, sync::Arc},
 };
 
 pub const MAX_SLOTS_PER_ENTRY: usize = 2048 * 8;
@@ -28,7 +30,7 @@ impl Sanitize for Uncompressed {
         if self.num >= MAX_SLOTS_PER_ENTRY {
             return Err(SanitizeError::ValueOutOfBounds);
         }
-        if self.slots.len() % 8 != 0 {
+        if !self.slots.len().is_multiple_of(8) {
             // Uncompressed::new() ensures the length is always a multiple of 8
             return Err(SanitizeError::ValueOutOfBounds);
         }
@@ -106,31 +108,48 @@ impl std::convert::From<flate2::DecompressError> for Error {
 }
 
 impl Flate2 {
-    fn deflate(mut unc: Uncompressed) -> Result<Self> {
+    fn deflate(unc: Uncompressed) -> Result<Self> {
         let mut compressed = Vec::with_capacity(unc.slots.block_capacity());
         let mut compressor = Compress::new(Compression::best(), false);
         let first_slot = unc.first_slot;
         let num = unc.num;
-        Arc::make_mut(&mut unc.slots).shrink_to_fit();
+        let block_len = unc.slots.block_len();
         let bits = Arc::unwrap_or_clone(unc.slots).into_boxed_slice();
-        compressor.compress_vec(&bits, &mut compressed, FlushCompress::Finish)?;
+        let status =
+            compressor.compress_vec(&bits[0..block_len], &mut compressed, FlushCompress::Finish)?;
+        if status != flate2::Status::StreamEnd {
+            return Err(Error::CompressError);
+        }
         let rv = Self {
             first_slot,
             num,
             compressed: Arc::new(compressed),
         };
-        let _ = rv.inflate()?;
+        let new_uncompressed = rv.inflate()?;
+        if new_uncompressed.slots.block_len() != block_len {
+            return Err(Error::CompressError);
+        }
         Ok(rv)
     }
+
+    thread_local! {
+        // Thread-local buffer to prevent reallocation on every incoming packet
+        static DECOMPRESS_BUF: RefCell<Vec<u8>> = RefCell::new(vec![0; MAX_SLOTS_PER_ENTRY/8]);
+    }
+
     pub fn inflate(&self) -> Result<Uncompressed> {
         //add some head room for the decompressor which might spill more bits
-        let mut uncompressed = Vec::with_capacity(32 + (self.num + 4) / 8);
         let mut decompress = Decompress::new(false);
-        decompress.decompress_vec(&self.compressed, &mut uncompressed, FlushDecompress::Finish)?;
-        Ok(Uncompressed {
-            first_slot: self.first_slot,
-            num: self.num,
-            slots: Arc::new(BitVec::from_bits(&uncompressed)),
+        Self::DECOMPRESS_BUF.with_borrow_mut(|v| {
+            v.clear();
+            // Perform the actual decompression and check that the result fits into provided buffer
+            let _ = decompress.decompress_vec(&self.compressed, v, FlushDecompress::Finish)?;
+
+            Ok(Uncompressed {
+                first_slot: self.first_slot,
+                num: self.num,
+                slots: Arc::new(BitVec::from_bits(v)),
+            })
         })
     }
 }
@@ -146,7 +165,7 @@ impl Uncompressed {
     }
     #[cfg(test)]
     fn to_slots(&self, min_slot: Slot) -> Vec<Slot> {
-        SlotsIter::new(Cow::Borrowed(self), min_slot).collect()
+        Self::get_slots(Cow::Borrowed(self), min_slot).collect()
     }
     pub fn add(&mut self, slots: &[Slot]) -> usize {
         for (i, s) in slots.iter().enumerate() {
@@ -166,6 +185,15 @@ impl Uncompressed {
             self.num = std::cmp::max(self.num, 1 + (*s - self.first_slot) as usize);
         }
         slots.len()
+    }
+
+    fn get_slots(this: Cow<'_, Self>, min_slot: Slot) -> impl Iterator<Item = Slot> + '_ {
+        let first_slot = this.first_slot;
+        let start = min_slot.saturating_sub(first_slot);
+        let end = this.slots.len().min(this.num as u64);
+        (start..end)
+            .filter(move |&k| this.slots.get(k))
+            .map(move |k| first_slot + k)
     }
 }
 
@@ -216,12 +244,12 @@ impl CompressedSlots {
             CompressedSlots::Flate2(_) => 0,
         }
     }
-    fn to_slots(&self, min_slot: Slot) -> Result<SlotsIter<'_>> {
+    fn to_slots(&self, min_slot: Slot) -> Result<impl Iterator<Item = Slot> + '_> {
         let slots = match self {
             Self::Uncompressed(slots) => Cow::Borrowed(slots),
             Self::Flate2(slots) => Cow::Owned(slots.inflate()?),
         };
-        Ok(SlotsIter::new(slots, min_slot))
+        Ok(Uncompressed::get_slots(slots, min_slot))
     }
     pub fn deflate(&mut self) -> Result<()> {
         match self {
@@ -258,11 +286,7 @@ use std::fmt;
 impl fmt::Debug for EpochSlots {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let num_slots: usize = self.slots.iter().map(|s| s.num_slots()).sum();
-        let lowest_slot = self
-            .slots
-            .iter()
-            .map(|s| s.first_slot())
-            .fold(0, std::cmp::min);
+        let lowest_slot = self.first_slot().unwrap_or(0);
         write!(
             f,
             "EpochSlots {{ from: {} num_slots: {} lowest_slot: {} wallclock: {} }}",
@@ -338,39 +362,12 @@ impl EpochSlots {
         let now = crds_data::new_rand_timestamp(rng);
         let pubkey = pubkey.unwrap_or_else(solana_pubkey::new_rand);
         let mut epoch_slots = Self::new(pubkey, now);
-        let num_slots = rng.gen_range(0..20);
-        let slots: Vec<_> = std::iter::repeat_with(|| 47825632 + rng.gen_range(0..512))
+        let num_slots = rng.random_range(0..20);
+        let slots: Vec<_> = std::iter::repeat_with(|| 47825632 + rng.random_range(0..512))
             .take(num_slots)
             .collect();
         epoch_slots.add(&slots);
         epoch_slots
-    }
-}
-
-struct SlotsIter<'a> {
-    unc: Cow<'a, Uncompressed>,
-    range: Range<Slot>,
-}
-
-impl<'a> SlotsIter<'a> {
-    fn new(unc: Cow<'a, Uncompressed>, min_slot: Slot) -> Self {
-        let start = min_slot.saturating_sub(unc.first_slot);
-        let end = unc.slots.len().min(unc.num as u64);
-        let range = start..end;
-        Self { unc, range }
-    }
-}
-
-impl Iterator for SlotsIter<'_> {
-    type Item = Slot;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            let k = self.range.next()?;
-            if self.unc.slots.get(k) {
-                return Some(self.unc.first_slot + k);
-            }
-        }
     }
 }
 
@@ -442,6 +439,14 @@ mod tests {
         assert_eq!(slots.first_slot, 1);
         assert_eq!(slots.num, 701);
         assert_eq!(slots.to_slots(1), vec![1, 2, 701]);
+    }
+
+    #[test]
+    fn test_epoch_slots_compressed_fails_when_input_smaller_than_output() {
+        let mut slots = Uncompressed::new(4);
+        let data = [6940, 6971];
+        slots.add(&data);
+        assert_eq!(Flate2::deflate(slots), Err(Error::CompressError));
     }
 
     #[test]
@@ -525,7 +530,7 @@ mod tests {
     }
 
     fn make_rand_slots<R: Rng>(rng: &mut R) -> impl Iterator<Item = Slot> + '_ {
-        repeat_with(|| rng.gen_range(1..5)).scan(0, |slot, step| {
+        repeat_with(|| rng.random_range(1..5)).scan(0, |slot, step| {
             *slot += step;
             Some(*slot)
         })
@@ -533,7 +538,7 @@ mod tests {
 
     #[test]
     fn test_epoch_slots_fill_uncompressed_random_range() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         for _ in 0..10 {
             let range: Vec<Slot> = make_rand_slots(&mut rng).take(5000).collect();
             let sz = EpochSlots::default().max_compressed_slot_size();
@@ -547,7 +552,7 @@ mod tests {
 
     #[test]
     fn test_epoch_slots_fill_compressed_random_range() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         for _ in 0..10 {
             let range: Vec<Slot> = make_rand_slots(&mut rng).take(5000).collect();
             let sz = EpochSlots::default().max_compressed_slot_size();
@@ -563,7 +568,7 @@ mod tests {
 
     #[test]
     fn test_epoch_slots_fill_random_range() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         for _ in 0..10 {
             let range: Vec<Slot> = make_rand_slots(&mut rng).take(5000).collect();
             let mut slots = EpochSlots::default();

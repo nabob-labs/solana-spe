@@ -17,8 +17,7 @@ crate-type = ["lib"]
 name = "solana_compute_budget_program"
 
 [features]
-svm-internal = []
+agave-unstable-api = []
 
 [dependencies]
-qualifier_attr = { workspace = true }
 solana-program-runtime = { workspace = true }

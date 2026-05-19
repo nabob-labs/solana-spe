@@ -7,7 +7,7 @@ authors = { workspace = true }
 repository = { workspace = true }
 homepage = { workspace = true }
 license = { workspace = true }
-edition = { workspace = true }
+edition = "2024"
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
@@ -17,13 +17,14 @@ crate-type = ["lib"]
 name = "solana_compute_budget_instruction"
 
 [features]
+agave-unstable-api = []
 dev-context-only-utils = []
 
 [dependencies]
 agave-feature-set = { workspace = true }
 log = { workspace = true }
 solana-borsh = { workspace = true }
-solana-builtins-default-costs = { workspace = true, features = ["svm-internal"] }
+solana-builtins-default-costs = { workspace = true }
 solana-compute-budget = { workspace = true }
 solana-compute-budget-interface = { workspace = true, features = ["borsh"] }
 solana-instruction = { workspace = true }
@@ -38,12 +39,13 @@ thiserror = { workspace = true }
 bincode = { workspace = true }
 criterion = { workspace = true }
 rand = { workspace = true }
-solana-builtins-default-costs = { workspace = true, features = ["dev-context-only-utils", "svm-internal"] }
+solana-builtins-default-costs = { workspace = true, features = ["dev-context-only-utils"] }
+solana-compute-budget-instruction = { path = ".", features = ["agave-unstable-api"] }
 solana-hash = { workspace = true }
 solana-keypair = { workspace = true }
 solana-message = { workspace = true }
-solana-program = { workspace = true }
 solana-signer = { workspace = true }
+solana-stake-interface = { workspace = true }
 solana-system-interface = { workspace = true }
 solana-transaction = { workspace = true, features = ["blake3"] }
 

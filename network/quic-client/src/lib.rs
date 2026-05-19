@@ -1,3 +1,4 @@
+#![cfg(feature = "agave-unstable-api")]
 #![allow(clippy::arithmetic_side_effects)]
 
 pub mod nonblocking;
@@ -12,9 +13,13 @@ use {
             QuicClient, QuicClientConnection as NonblockingQuicClientConnection,
             QuicLazyInitializedEndpoint,
         },
-        quic_client::QuicClientConnection as BlockingQuicClientConnection,
+        quic_client::{
+            QuicClientConnection as BlockingQuicClientConnection, close_quic_connection,
+        },
     },
-    quinn::Endpoint,
+    log::debug,
+    quic_client::get_runtime,
+    quinn::{Endpoint, EndpointConfig, TokioRuntime},
     solana_connection_cache::{
         connection_cache::{
             BaseClientConnection, ClientError, ConnectionCache, ConnectionManager, ConnectionPool,
@@ -26,9 +31,9 @@ use {
     solana_pubkey::Pubkey,
     solana_signer::Signer,
     solana_streamer::streamer::StakedNodes,
-    solana_tls_utils::{new_dummy_x509_certificate, QuicClientCertificate},
+    solana_tls_utils::{QuicClientCertificate, new_dummy_x509_certificate},
     std::{
-        net::{IpAddr, SocketAddr},
+        net::{IpAddr, SocketAddr, UdpSocket},
         sync::{Arc, RwLock},
     },
 };
@@ -68,6 +73,19 @@ impl ConnectionPool for QuicPool {
             self.endpoint.clone(),
             *addr,
         ))))
+    }
+}
+
+impl Drop for QuicPool {
+    fn drop(&mut self) {
+        debug!(
+            "Dropping QuicPool with {} connections",
+            self.connections.len()
+        );
+        for connection in self.connections.drain(..) {
+            // Explicitly drop each connection to ensure resources are released
+            close_quic_connection(connection.0.clone());
+        }
     }
 }
 
@@ -146,8 +164,14 @@ impl QuicConfig {
         self.maybe_client_pubkey = Some(*client_pubkey);
     }
 
-    pub fn update_client_endpoint(&mut self, client_endpoint: Endpoint) {
-        self.client_endpoint = Some(client_endpoint);
+    pub fn update_client_endpoint(&mut self, client_socket: UdpSocket) {
+        let runtime = get_runtime();
+        let _guard = runtime.enter();
+        let config = EndpointConfig::default();
+        self.client_endpoint = Some(
+            quinn::Endpoint::new(config, None, client_socket, Arc::new(TokioRuntime))
+                .expect("QuicNewConnection::create_endpoint quinn::Endpoint::new"),
+        );
     }
 }
 

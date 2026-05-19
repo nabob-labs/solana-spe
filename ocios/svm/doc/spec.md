@@ -128,13 +128,9 @@ information.
 
 ```rust
 pub trait TransactionProcessingCallback {
-    fn account_matches_owners(&self, account: &Pubkey, owners: &[Pubkey]) -> Option<usize>;
-
-    fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<AccountSharedData>;
+    fn get_account_shared_data(&self, pubkey: &Pubkey) -> Option<(AccountSharedData, Slot)>;
 
     fn add_builtin_account(&self, _name: &str, _program_id: &Pubkey) {}
-
-    fn get_current_epoch_vote_account_stake(&self, _vote_address: &Pubkey) -> u64;
 }
 ```
 
@@ -187,15 +183,13 @@ the transaction processor.
 - `account_overrides`: Encapsulates overridden accounts, typically used for
   transaction simulation.
 - `compute_budget`: The compute budget to use for transaction execution.
-- `check_program_modification_slot`: Whether or not to check a program's
-  modification slot when replenishing a program cache instance.
+- `check_program_deployment_slot`: Whether or not to check a program's
+  deployment slot when replenishing a program cache instance.
 - `log_messages_bytes_limit`: The maximum number of bytes that log messages can
   consume.
 - `limit_to_load_programs`: Whether to limit the number of programs loaded for
   the transaction batch.
 - `recording_config`: Recording capabilities for transaction execution.
-- `transaction_account_lock_limit`: The max number of accounts that a
-  transaction may lock.
 
 ### `LoadAndExecuteSanitizedTransactionsOutput`
 
@@ -279,7 +273,7 @@ Steps of `load_and_execute_sanitized_transactions`
          - `programs_loaded_for_tx_batch` contains a reference to all the `ProgramCacheEntry`s
             necessary for the transaction. It maintains an `Arc` to the programs in the global
             `ProgramCacheEntry` data structure.
-      6. Call `MessageProcessor::process_message` to execute the
+   6. Call `MessageProcessor::process_message` to execute the
       transaction. `MessageProcessor` is contained in
       solana-program-runtime crate. The result of processing message
       is either `ProcessedMessageInfo` which is an i64 wrapped in a
@@ -287,10 +281,11 @@ Steps of `load_and_execute_sanitized_transactions`
       `TransactionError`, if any of instructions failed to execute
       correctly.
    7. Verify transaction accounts' `RentState` changes (`verify_changes` function)
-      - If the account `RentState` pre-transaction processing is rent exempt or unitiliazed, the verification will pass.
+      - If the account `RentState` post-transaction processing is rent exempt or uninitialized, the verification will pass, regardless of the pre-transaction `RentState`.
       - If the account `RentState` pre-transaction is rent paying:
-         - A transition to a state uninitialized or rent exempt post-transaction is not allowed.
-         - If its size has changed or its balance has increased, it cannot remain rent paying.
+         - It may remain rent paying only if its size has not changed and its balance has not increased.
+      - If the account `RentState` pre-transaction is rent exempt or uninitialized:
+         - It cannot become rent paying.
    8. Extract log messages.
    9. Extract inner instructions (`Vec<Vec<InnerInstruction>>`).
    10. Extract `ExecutionRecord` components from transaction context.

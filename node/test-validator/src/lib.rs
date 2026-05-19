@@ -1,68 +1,82 @@
 #![allow(clippy::arithmetic_side_effects)]
 use {
-    agave_feature_set::{FeatureSet, FEATURE_NAMES},
-    base64::{prelude::BASE64_STANDARD, Engine},
+    agave_feature_set::{
+        FEATURE_NAMES, FeatureSet, alpenglow, increase_cpi_account_info_limit,
+        raise_cpi_nesting_limit_to_8,
+    },
+    agave_snapshots::{
+        SnapshotInterval, paths::BANK_SNAPSHOTS_DIR, snapshot_config::SnapshotConfig,
+    },
+    agave_syscalls::create_program_runtime_environment_v1,
+    base64::{Engine, prelude::BASE64_STANDARD},
     crossbeam_channel::Receiver,
     log::*,
+    solana_account::{Account, AccountSharedData, ReadableAccount, WritableAccount},
     solana_accounts_db::{
         accounts_db::AccountsDbConfig, accounts_index::AccountsIndexConfig,
-        hardened_unpack::MAX_GENESIS_ARCHIVE_UNPACKED_SIZE,
         utils::create_accounts_run_and_snapshot_dirs,
     },
     solana_cli_output::CliAccount,
+    solana_clock::{DEFAULT_MS_PER_SLOT, Slot},
+    solana_commitment_config::CommitmentConfig,
     solana_compute_budget::compute_budget::ComputeBudget,
     solana_core::{
         admin_rpc_post_init::AdminRpcRequestMetadataPostInit,
         consensus::tower_storage::TowerStorage,
         validator::{Validator, ValidatorConfig, ValidatorStartProgress, ValidatorTpuConfig},
     },
+    solana_epoch_schedule::EpochSchedule,
+    solana_fee_calculator::FeeRateGovernor,
+    solana_genesis_utils::MAX_GENESIS_ARCHIVE_UNPACKED_SIZE,
     solana_geyser_plugin_manager::{
-        geyser_plugin_manager::GeyserPluginManager, GeyserPluginManagerRequest,
+        GeyserPluginManagerRequest, geyser_plugin_manager::GeyserPluginManager,
     },
     solana_gossip::{
-        cluster_info::{ClusterInfo, Node},
+        cluster_info::{ClusterInfo, NodeConfig},
         contact_info::Protocol,
-        gossip_service::discover_cluster,
-        socketaddr,
+        node::Node,
     },
+    solana_inflation::Inflation,
+    solana_instruction::{AccountMeta, Instruction},
+    solana_keypair::{Keypair, read_keypair_file, write_keypair_file},
     solana_ledger::{
         blockstore::create_new_ledger, blockstore_options::LedgerColumnOptions,
         create_new_tmp_ledger,
     },
-    solana_net_utils::PortRange,
+    solana_loader_v3_interface::state::UpgradeableLoaderState,
+    solana_message::Message,
+    solana_native_token::LAMPORTS_PER_SOL,
+    solana_net_utils::{
+        PortRange, SocketAddrSpace, find_available_ports_in_range, multihomed_sockets::BindIpAddrs,
+    },
+    solana_program_runtime::{
+        execution_budget::SVMTransactionExecutionBudget, invoke_context::InvokeContext,
+    },
+    solana_pubkey::Pubkey,
+    solana_rent::Rent,
     solana_rpc::{rpc::JsonRpcConfig, rpc_pubsub_service::PubSubConfig},
     solana_rpc_client::{nonblocking, rpc_client::RpcClient},
-    solana_rpc_client_api::request::MAX_MULTIPLE_ACCOUNTS,
+    solana_rpc_client_api::{
+        client_error::Error as RpcClientError, request::MAX_MULTIPLE_ACCOUNTS,
+    },
     solana_runtime::{
-        bank_forks::BankForks,
-        genesis_utils::{self, create_genesis_config_with_leader_ex_no_features},
+        bank_forks::BankForks, genesis_utils::create_genesis_config_with_leader_ex,
         runtime_config::RuntimeConfig,
-        snapshot_config::SnapshotConfig,
     },
-    solana_sdk::{
-        account::{Account, AccountSharedData, ReadableAccount, WritableAccount},
-        bpf_loader_upgradeable::UpgradeableLoaderState,
-        clock::{Slot, DEFAULT_MS_PER_SLOT},
-        commitment_config::CommitmentConfig,
-        epoch_schedule::EpochSchedule,
-        exit::Exit,
-        fee_calculator::FeeRateGovernor,
-        instruction::{AccountMeta, Instruction},
-        message::Message,
-        native_token::sol_to_lamports,
-        pubkey::Pubkey,
-        rent::Rent,
-        signature::{read_keypair_file, write_keypair_file, Keypair, Signer},
-    },
-    solana_streamer::socket::SocketAddrSpace,
-    solana_tpu_client::tpu_client::DEFAULT_TPU_ENABLE_UDP,
+    solana_sbpf::{elf::Executable, verifier::RequisiteVerifier},
+    solana_sdk_ids::address_lookup_table,
+    solana_signer::Signer,
+    solana_streamer::quic::DEFAULT_QUIC_ENDPOINTS,
+    solana_transaction::{Transaction, TransactionError},
+    solana_validator_exit::Exit,
     std::{
         collections::{HashMap, HashSet},
         ffi::OsStr,
         fmt::Display,
-        fs::{self, remove_dir_all, File},
+        fs::{self, File, remove_dir_all},
         io::Read,
         net::{IpAddr, Ipv4Addr, SocketAddr},
+        num::{NonZero, NonZeroU64},
         path::{Path, PathBuf},
         str::FromStr,
         sync::{Arc, RwLock},
@@ -94,14 +108,13 @@ pub struct TestValidatorNodeConfig {
 
 impl Default for TestValidatorNodeConfig {
     fn default() -> Self {
-        const MIN_PORT_RANGE: u16 = 1024;
-        const MAX_PORT_RANGE: u16 = 65535;
-
-        let bind_ip_addr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
-        let port_range = (MIN_PORT_RANGE, MAX_PORT_RANGE);
-
+        let bind_ip_addr = IpAddr::V4(Ipv4Addr::LOCALHOST);
+        #[cfg(not(debug_assertions))]
+        let port_range = solana_net_utils::VALIDATOR_PORT_RANGE;
+        #[cfg(debug_assertions)]
+        let port_range = solana_net_utils::sockets::localhost_port_range_for_tests();
         Self {
-            gossip_addr: socketaddr!(Ipv4Addr::LOCALHOST, 0),
+            gossip_addr: SocketAddr::new(bind_ip_addr, port_range.0),
             port_range,
             bind_ip_addr,
         }
@@ -121,6 +134,7 @@ pub struct TestValidatorGenesis {
     upgradeable_programs: Vec<UpgradeableProgramInfo>,
     ticks_per_slot: Option<u64>,
     epoch_schedule: Option<EpochSchedule>,
+    inflation: Option<Inflation>,
     node_config: TestValidatorNodeConfig,
     pub validator_exit: Arc<RwLock<Exit>>,
     pub start_progress: Arc<RwLock<ValidatorStartProgress>>,
@@ -129,17 +143,19 @@ pub struct TestValidatorGenesis {
     pub max_ledger_shreds: Option<u64>,
     pub max_genesis_archive_unpacked_size: Option<u64>,
     pub geyser_plugin_config_files: Option<Vec<PathBuf>>,
+    pub enable_scheduler_bindings: bool,
     deactivate_feature_set: HashSet<Pubkey>,
     compute_unit_limit: Option<u64>,
     pub log_messages_bytes_limit: Option<usize>,
     pub transaction_account_lock_limit: Option<usize>,
-    pub tpu_enable_udp: bool,
     pub geyser_plugin_manager: Arc<RwLock<GeyserPluginManager>>,
     admin_rpc_service_post_init: Arc<RwLock<Option<AdminRpcRequestMetadataPostInit>>>,
 }
 
 impl Default for TestValidatorGenesis {
     fn default() -> Self {
+        // Default to Tower consensus to ensure proper converage pre-Alpenglow.
+        let deactivate_feature_set = [alpenglow::id()].into_iter().collect();
         Self {
             fee_rate_governor: FeeRateGovernor::default(),
             ledger_path: Option::<PathBuf>::default(),
@@ -153,6 +169,7 @@ impl Default for TestValidatorGenesis {
             upgradeable_programs: Vec::<UpgradeableProgramInfo>::default(),
             ticks_per_slot: Option::<u64>::default(),
             epoch_schedule: Option::<EpochSchedule>::default(),
+            inflation: Option::<Inflation>::default(),
             node_config: TestValidatorNodeConfig::default(),
             validator_exit: Arc::<RwLock<Exit>>::default(),
             start_progress: Arc::<RwLock<ValidatorStartProgress>>::default(),
@@ -161,12 +178,12 @@ impl Default for TestValidatorGenesis {
             max_ledger_shreds: Option::<u64>::default(),
             max_genesis_archive_unpacked_size: Option::<u64>::default(),
             geyser_plugin_config_files: Option::<Vec<PathBuf>>::default(),
-            deactivate_feature_set: HashSet::<Pubkey>::default(),
+            enable_scheduler_bindings: false,
+            deactivate_feature_set,
             compute_unit_limit: Option::<u64>::default(),
             log_messages_bytes_limit: Option::<usize>::default(),
             transaction_account_lock_limit: Option::<usize>::default(),
-            tpu_enable_udp: DEFAULT_TPU_ENABLE_UDP,
-            geyser_plugin_manager: Arc::new(RwLock::new(GeyserPluginManager::new())),
+            geyser_plugin_manager: Arc::new(RwLock::new(GeyserPluginManager::default())),
             admin_rpc_service_post_init:
                 Arc::<RwLock<Option<AdminRpcRequestMetadataPostInit>>>::default(),
         }
@@ -177,7 +194,7 @@ fn try_transform_program_data(
     address: &Pubkey,
     account: &mut AccountSharedData,
 ) -> Result<(), String> {
-    if account.owner() == &solana_sdk::bpf_loader_upgradeable::id() {
+    if account.owner() == &solana_sdk_ids::bpf_loader_upgradeable::id() {
         let programdata_offset = UpgradeableLoaderState::size_of_programdata_metadata();
         let programdata_meta = account.data().get(0..programdata_offset).ok_or(format!(
             "Failed to get upgradeable programdata data from {address}"
@@ -232,11 +249,6 @@ impl TestValidatorGenesis {
         ledger_path.join("vote-account-keypair.json").exists()
     }
 
-    pub fn tpu_enable_udp(&mut self, tpu_enable_udp: bool) -> &mut Self {
-        self.tpu_enable_udp = tpu_enable_udp;
-        self
-    }
-
     pub fn fee_rate_governor(&mut self, fee_rate_governor: FeeRateGovernor) -> &mut Self {
         self.fee_rate_governor = fee_rate_governor;
         self
@@ -249,6 +261,11 @@ impl TestValidatorGenesis {
 
     pub fn epoch_schedule(&mut self, epoch_schedule: EpochSchedule) -> &mut Self {
         self.epoch_schedule = Some(epoch_schedule);
+        self
+    }
+
+    pub fn inflation(&mut self, inflation: Inflation) -> &mut Self {
+        self.inflation = Some(inflation);
         self
     }
 
@@ -336,7 +353,7 @@ impl TestValidatorGenesis {
     {
         let addresses: Vec<Pubkey> = addresses.into_iter().collect();
         for chunk in addresses.chunks(MAX_MULTIPLE_ACCOUNTS) {
-            info!("Fetching {:?} over RPC...", chunk);
+            info!("Fetching {chunk:?} over RPC...");
             let responses = rpc_client
                 .get_multiple_accounts(chunk)
                 .map_err(|err| format!("Failed to fetch: {err}"))?;
@@ -344,7 +361,7 @@ impl TestValidatorGenesis {
                 if let Some(account) = res {
                     self.add_account(*address, transform(address, account)?);
                 } else if skip_missing {
-                    warn!("Could not find {}, skipping.", address);
+                    warn!("Could not find {address}, skipping.");
                 } else {
                     return Err(format!("Failed to fetch {address}"));
                 }
@@ -373,6 +390,55 @@ impl TestValidatorGenesis {
                 Ok(account_shared_data)
             },
         )
+    }
+
+    pub fn deep_clone_address_lookup_table_accounts<T>(
+        &mut self,
+        addresses: T,
+        rpc_client: &RpcClient,
+    ) -> Result<&mut Self, String>
+    where
+        T: IntoIterator<Item = Pubkey>,
+    {
+        const LOOKUP_TABLE_META_SIZE: usize = 56;
+        let addresses: Vec<Pubkey> = addresses.into_iter().collect();
+        let mut alt_entries: Vec<Pubkey> = Vec::new();
+
+        for chunk in addresses.chunks(MAX_MULTIPLE_ACCOUNTS) {
+            info!("Fetching {chunk:?} over RPC...");
+            let responses = rpc_client
+                .get_multiple_accounts(chunk)
+                .map_err(|err| format!("Failed to fetch: {err}"))?;
+            for (address, res) in chunk.iter().zip(responses) {
+                if let Some(account) = res {
+                    if address_lookup_table::check_id(account.owner()) {
+                        let raw_addresses_data = account
+                            .data()
+                            .get(LOOKUP_TABLE_META_SIZE..)
+                            .ok_or(format!("Failed to get addresses data from {address}"))?;
+
+                        if raw_addresses_data.len() % std::mem::size_of::<Pubkey>() != 0 {
+                            return Err(format!("Invalid alt account data length for {address}"));
+                        }
+
+                        for address_slice in
+                            raw_addresses_data.chunks_exact(std::mem::size_of::<Pubkey>())
+                        {
+                            // safe because size was checked earlier
+                            let address = Pubkey::try_from(address_slice).unwrap();
+                            alt_entries.push(address);
+                        }
+                        self.add_account(*address, AccountSharedData::from(account));
+                    } else {
+                        return Err(format!("Account {address} is not an address lookup table"));
+                    }
+                } else {
+                    return Err(format!("Failed to fetch {address}"));
+                }
+            }
+        }
+
+        self.clone_accounts(alt_entries, rpc_client, true)
     }
 
     pub fn clone_programdata_accounts<T>(
@@ -443,7 +509,7 @@ impl TestValidatorGenesis {
                 .for_each(|(maybe_account, feature_id)| {
                     if maybe_account
                         .as_ref()
-                        .and_then(solana_sdk::feature::from_account)
+                        .and_then(solana_feature_gate_interface::from_account)
                         .and_then(|feature| feature.activated_at)
                         .is_none()
                     {
@@ -484,7 +550,7 @@ impl TestValidatorGenesis {
             let account = account_info
                 .keyed_account
                 .account
-                .decode::<AccountSharedData>()
+                .to_account_shared_data()
                 .unwrap();
 
             self.add_account(address, account);
@@ -511,7 +577,7 @@ impl TestValidatorGenesis {
             json_files.extend(matched_files);
         }
 
-        debug!("account files found: {:?}", json_files);
+        debug!("account files found: {json_files:?}");
 
         let accounts: Vec<_> = json_files
             .iter()
@@ -583,7 +649,7 @@ impl TestValidatorGenesis {
 
         self.upgradeable_programs.push(UpgradeableProgramInfo {
             program_id,
-            loader: solana_sdk::bpf_loader_upgradeable::id(),
+            loader: solana_sdk_ids::bpf_loader_upgradeable::id(),
             upgrade_authority: Pubkey::default(),
             program_path,
         });
@@ -604,6 +670,7 @@ impl TestValidatorGenesis {
     /// Start a test validator with the address of the mint account that will receive tokens
     /// created at genesis.
     ///
+    /// Sync only; calling from a tokio runtime will panic due to nested runtimes.
     pub fn start_with_mint_address(
         &self,
         mint_address: Pubkey,
@@ -616,6 +683,7 @@ impl TestValidatorGenesis {
     /// created at genesis. Augments admin rpc service with dynamic geyser plugin manager if
     /// the geyser plugin service is enabled at startup.
     ///
+    /// Sync only; calling from a tokio runtime will panic due to nested runtimes.
     pub fn start_with_mint_address_and_geyser_plugin_rpc(
         &self,
         mint_address: Pubkey,
@@ -654,14 +722,57 @@ impl TestValidatorGenesis {
     /// created at genesis.
     ///
     /// This function panics on initialization failure.
+    /// Sync only; calling from a tokio runtime will panic due to nested runtimes.
     pub fn start_with_socket_addr_space(
         &self,
         socket_addr_space: SocketAddrSpace,
     ) -> (TestValidator, Keypair) {
         let mint_keypair = Keypair::new();
         self.start_with_mint_address(mint_keypair.pubkey(), socket_addr_space)
+            .inspect(|test_validator| {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_io()
+                    .enable_time()
+                    .build()
+                    .unwrap();
+                let upgradeable_program_ids: Vec<&Pubkey> = self
+                    .upgradeable_programs
+                    .iter()
+                    .map(|p| &p.program_id)
+                    .collect();
+                runtime
+                    .block_on(test_validator.wait_for_upgradeable_programs_deployed(
+                        &upgradeable_program_ids,
+                        &mint_keypair,
+                    ))
+                    .unwrap_or_else(|err| {
+                        panic!("Failed to wait for programs to be deployed: {err:?}")
+                    });
+            })
             .map(|test_validator| (test_validator, mint_keypair))
             .unwrap_or_else(|err| panic!("Test validator failed to start: {err}"))
+    }
+
+    /// Start a test validator with the address of the mint account that will receive tokens
+    /// created at genesis (async version).
+    pub async fn start_async_with_mint_address(
+        &self,
+        mint_keypair: &Keypair,
+        socket_addr_space: SocketAddrSpace,
+    ) -> Result<TestValidator, Box<dyn std::error::Error>> {
+        let test_validator =
+            TestValidator::start(mint_keypair.pubkey(), self, socket_addr_space, None)?;
+        test_validator.wait_for_nonzero_fees().await;
+        let upgradeable_program_ids: Vec<&Pubkey> = self
+            .upgradeable_programs
+            .iter()
+            .map(|p| &p.program_id)
+            .collect();
+        test_validator
+            .wait_for_upgradeable_programs_deployed(&upgradeable_program_ids, mint_keypair)
+            .await
+            .unwrap_or_else(|err| panic!("Failed to wait for programs to be deployed: {err:?}"));
+        Ok(test_validator)
     }
 
     pub async fn start_async(&self) -> (TestValidator, Keypair) {
@@ -676,13 +787,11 @@ impl TestValidatorGenesis {
         socket_addr_space: SocketAddrSpace,
     ) -> (TestValidator, Keypair) {
         let mint_keypair = Keypair::new();
-        match TestValidator::start(mint_keypair.pubkey(), self, socket_addr_space, None) {
-            Ok(test_validator) => {
-                test_validator.wait_for_nonzero_fees().await;
-                (test_validator, mint_keypair)
-            }
-            Err(err) => panic!("Test validator failed to start: {err}"),
-        }
+        let test_validator = self
+            .start_async_with_mint_address(&mint_keypair, socket_addr_space)
+            .await
+            .unwrap_or_else(|err| panic!("Test validator failed to start: {err}"));
+        (test_validator, mint_keypair)
     }
 }
 
@@ -691,13 +800,64 @@ pub struct TestValidator {
     preserve_ledger: bool,
     rpc_pubsub_url: String,
     rpc_url: String,
-    tpu: SocketAddr,
+    tpu_quic: SocketAddr,
     gossip: SocketAddr,
     validator: Option<Validator>,
     vote_account_address: Pubkey,
 }
 
 impl TestValidator {
+    /// Create a configured genesis and start validator
+    /// Sync only; calling from a tokio runtime will panic due to nested runtimes.
+    fn start_with_config(
+        mint_address: Pubkey,
+        faucet_addr: Option<SocketAddr>,
+        socket_addr_space: SocketAddrSpace,
+        target_lamports_per_signature: u64,
+        wait_for_fees: bool,
+    ) -> Self {
+        let test_validator = TestValidatorGenesis::default()
+            .fee_rate_governor(FeeRateGovernor::new(target_lamports_per_signature, 0))
+            .rent(Rent {
+                lamports_per_byte_year: 1,
+                exemption_threshold: 1.0,
+                ..Rent::default()
+            })
+            .faucet_addr(faucet_addr)
+            .start_with_mint_address(mint_address, socket_addr_space)
+            .expect("validator start failed");
+
+        if wait_for_fees {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_io()
+                .enable_time()
+                .build()
+                .unwrap();
+            runtime.block_on(test_validator.wait_for_nonzero_fees());
+        }
+        test_validator
+    }
+
+    /// Create a configured genesis and start validator (async version)
+    async fn async_start_with_config(
+        mint_keypair: &Keypair,
+        faucet_addr: Option<SocketAddr>,
+        socket_addr_space: SocketAddrSpace,
+        target_lamports_per_signature: u64,
+    ) -> Self {
+        TestValidatorGenesis::default()
+            .fee_rate_governor(FeeRateGovernor::new(target_lamports_per_signature, 0))
+            .rent(Rent {
+                lamports_per_byte_year: 1,
+                exemption_threshold: 1.0,
+                ..Rent::default()
+            })
+            .faucet_addr(faucet_addr)
+            .start_async_with_mint_address(mint_keypair, socket_addr_space)
+            .await
+            .expect("validator start failed")
+    }
+
     /// Create and start a `TestValidator` with no transaction fees and minimal rent.
     /// Faucet optional.
     ///
@@ -707,35 +867,7 @@ impl TestValidator {
         faucet_addr: Option<SocketAddr>,
         socket_addr_space: SocketAddrSpace,
     ) -> Self {
-        TestValidatorGenesis::default()
-            .fee_rate_governor(FeeRateGovernor::new(0, 0))
-            .rent(Rent {
-                lamports_per_byte_year: 1,
-                exemption_threshold: 1.0,
-                ..Rent::default()
-            })
-            .faucet_addr(faucet_addr)
-            .start_with_mint_address(mint_address, socket_addr_space)
-            .expect("validator start failed")
-    }
-
-    /// Create a test validator using udp for TPU.
-    pub fn with_no_fees_udp(
-        mint_address: Pubkey,
-        faucet_addr: Option<SocketAddr>,
-        socket_addr_space: SocketAddrSpace,
-    ) -> Self {
-        TestValidatorGenesis::default()
-            .tpu_enable_udp(true)
-            .fee_rate_governor(FeeRateGovernor::new(0, 0))
-            .rent(Rent {
-                lamports_per_byte_year: 1,
-                exemption_threshold: 1.0,
-                ..Rent::default()
-            })
-            .faucet_addr(faucet_addr)
-            .start_with_mint_address(mint_address, socket_addr_space)
-            .expect("validator start failed")
+        Self::start_with_config(mint_address, faucet_addr, socket_addr_space, 0, false)
     }
 
     /// Create and start a `TestValidator` with custom transaction fees and minimal rent.
@@ -748,25 +880,44 @@ impl TestValidator {
         faucet_addr: Option<SocketAddr>,
         socket_addr_space: SocketAddrSpace,
     ) -> Self {
-        TestValidatorGenesis::default()
-            .fee_rate_governor(FeeRateGovernor::new(target_lamports_per_signature, 0))
-            .rent(Rent {
-                lamports_per_byte_year: 1,
-                exemption_threshold: 1.0,
-                ..Rent::default()
-            })
-            .faucet_addr(faucet_addr)
-            .start_with_mint_address(mint_address, socket_addr_space)
-            .expect("validator start failed")
+        Self::start_with_config(
+            mint_address,
+            faucet_addr,
+            socket_addr_space,
+            target_lamports_per_signature,
+            true,
+        )
     }
 
-    /// allow tests to indicate that validator has completed initialization
-    pub fn set_startup_verification_complete_for_tests(&self) {
-        self.bank_forks()
-            .read()
-            .unwrap()
-            .root_bank()
-            .set_startup_verification_complete();
+    /// Create and start a `TestValidator` with no transaction fees and minimal rent (async version).
+    /// Faucet optional.
+    ///
+    /// This function panics on initialization failure.
+    pub async fn async_with_no_fees(
+        mint_keypair: &Keypair,
+        faucet_addr: Option<SocketAddr>,
+        socket_addr_space: SocketAddrSpace,
+    ) -> Self {
+        Self::async_start_with_config(mint_keypair, faucet_addr, socket_addr_space, 0).await
+    }
+
+    /// Create and start a `TestValidator` with custom transaction fees and minimal rent (async version).
+    /// Faucet optional.
+    ///
+    /// This function panics on initialization failure.
+    pub async fn async_with_custom_fees(
+        mint_keypair: &Keypair,
+        target_lamports_per_signature: u64,
+        faucet_addr: Option<SocketAddr>,
+        socket_addr_space: SocketAddrSpace,
+    ) -> Self {
+        Self::async_start_with_config(
+            mint_keypair,
+            faucet_addr,
+            socket_addr_space,
+            target_lamports_per_signature,
+        )
+        .await
     }
 
     /// Initialize the ledger directory
@@ -782,36 +933,52 @@ impl TestValidator {
         let validator_identity = Keypair::new();
         let validator_vote_account = Keypair::new();
         let validator_stake_account = Keypair::new();
-        let validator_identity_lamports = sol_to_lamports(500.);
-        let validator_stake_lamports = sol_to_lamports(1_000_000.);
-        let mint_lamports = sol_to_lamports(500_000_000.);
+        let validator_identity_lamports = 500 * LAMPORTS_PER_SOL;
+        let validator_stake_lamports = 1_000_000 * LAMPORTS_PER_SOL;
+        let mint_lamports = 500_000_000 * LAMPORTS_PER_SOL;
 
         // Only activate features which are not explicitly deactivated.
-        let mut feature_set = FeatureSet::default().inactive().clone();
+        let mut feature_set = FeatureSet::all_enabled();
         for feature in &config.deactivate_feature_set {
-            if feature_set.remove(feature) {
-                info!("Feature for {:?} deactivated", feature)
+            if FEATURE_NAMES.contains_key(feature) {
+                feature_set.deactivate(feature);
+                info!("Feature for {feature:?} deactivated");
             } else {
-                warn!(
-                    "Feature {:?} set for deactivation is not a known Feature public key",
-                    feature,
-                )
+                warn!("Feature {feature:?} set for deactivation is not a known Feature public key",)
             }
         }
 
+        let runtime_features = feature_set.runtime_features();
+        let program_runtime_environment = create_program_runtime_environment_v1(
+            &runtime_features,
+            &SVMTransactionExecutionBudget::new_with_defaults(
+                runtime_features.raise_cpi_nesting_limit_to_8,
+            ),
+            true,
+            false,
+        )?;
+        let program_runtime_environment = Arc::new(program_runtime_environment);
+
         let mut accounts = config.accounts.clone();
-        for (address, account) in solana_program_test::programs::spl_programs(&config.rent) {
+        for (address, account) in solana_program_binaries::spl_programs(&config.rent) {
             accounts.entry(address).or_insert(account);
         }
         for (address, account) in
-            solana_program_test::programs::core_bpf_programs(&config.rent, |feature_id| {
-                feature_set.contains(feature_id)
+            solana_program_binaries::core_bpf_programs(&config.rent, |feature_id| {
+                feature_set.is_active(feature_id)
             })
         {
             accounts.entry(address).or_insert(account);
         }
         for upgradeable_program in &config.upgradeable_programs {
             let data = solana_program_test::read_file(&upgradeable_program.program_path);
+            let executable =
+                Executable::<InvokeContext>::from_elf(&data, program_runtime_environment.clone())
+                    .map_err(|err| format!("ELF error: {err}"))?;
+            executable
+                .verify::<RequisiteVerifier>()
+                .map_err(|err| format!("ELF error: {err}"))?;
+
             let (programdata_address, _) = Pubkey::find_program_address(
                 &[upgradeable_program.program_id.as_ref()],
                 &upgradeable_program.loader,
@@ -849,17 +1016,19 @@ impl TestValidator {
             );
         }
 
-        let mut genesis_config = create_genesis_config_with_leader_ex_no_features(
+        let mut genesis_config = create_genesis_config_with_leader_ex(
             mint_lamports,
             &mint_address,
             &validator_identity.pubkey(),
             &validator_vote_account.pubkey(),
             &validator_stake_account.pubkey(),
+            None,
             validator_stake_lamports,
             validator_identity_lamports,
             config.fee_rate_governor.clone(),
             config.rent.clone(),
-            solana_sdk::genesis_config::ClusterType::Development,
+            solana_cluster_type::ClusterType::Development,
+            &feature_set,
             accounts.into_iter().collect(),
         );
         genesis_config.epoch_schedule = config
@@ -872,8 +1041,8 @@ impl TestValidator {
             genesis_config.ticks_per_slot = ticks_per_slot;
         }
 
-        for feature in feature_set {
-            genesis_utils::activate_feature(&mut genesis_config, feature);
+        if let Some(inflation) = config.inflation {
+            genesis_config.inflation = inflation;
         }
 
         let ledger_path = match &config.ledger_path {
@@ -947,27 +1116,45 @@ impl TestValidator {
                 .to_str()
                 .unwrap(),
         )?;
-
-        let mut node = Node::new_single_bind(
-            &validator_identity.pubkey(),
-            &config.node_config.gossip_addr,
-            config.node_config.port_range,
-            config.node_config.bind_ip_addr,
-        );
-        if let Some((rpc, rpc_pubsub)) = config.rpc_ports {
-            let addr = node.info.gossip().unwrap().ip();
-            node.info.set_rpc((addr, rpc)).unwrap();
-            node.info.set_rpc_pubsub((addr, rpc_pubsub)).unwrap();
-        }
+        let node = {
+            let bind_ip_addr = config.node_config.bind_ip_addr;
+            let validator_node_config = NodeConfig {
+                bind_ip_addrs: BindIpAddrs::new(vec![bind_ip_addr])?,
+                gossip_port: config.node_config.gossip_addr.port(),
+                port_range: config.node_config.port_range,
+                advertised_ip: bind_ip_addr,
+                public_tvu_addr: None,
+                public_tpu_addr: None,
+                public_tpu_forwards_addr: None,
+                num_tvu_receive_sockets: NonZero::new(1).unwrap(),
+                num_tvu_retransmit_sockets: NonZero::new(1).unwrap(),
+                num_quic_endpoints: NonZero::new(DEFAULT_QUIC_ENDPOINTS)
+                    .expect("Number of QUIC endpoints can not be zero"),
+            };
+            let mut node =
+                Node::new_with_external_ip(&validator_identity.pubkey(), validator_node_config);
+            let (rpc, rpc_pubsub) = config.rpc_ports.unwrap_or_else(|| {
+                let rpc_ports: [u16; 2] =
+                    find_available_ports_in_range(bind_ip_addr, config.node_config.port_range)
+                        .unwrap();
+                (rpc_ports[0], rpc_ports[1])
+            });
+            node.info.set_rpc((bind_ip_addr, rpc)).unwrap();
+            node.info
+                .set_rpc_pubsub((bind_ip_addr, rpc_pubsub))
+                .unwrap();
+            node
+        };
 
         let vote_account_address = validator_vote_account.pubkey();
         let rpc_url = format!("http://{}", node.info.rpc().unwrap());
         let rpc_pubsub_url = format!("ws://{}/", node.info.rpc_pubsub().unwrap());
-        let tpu = node.info.tpu(Protocol::UDP).unwrap();
+        let tpu_quic = node.info.tpu(Protocol::QUIC).unwrap();
         let gossip = node.info.gossip().unwrap();
 
         {
-            let mut authorized_voter_keypairs = config.authorized_voter_keypairs.write().unwrap();
+            let mut authorized_voter_keypairs: std::sync::RwLockWriteGuard<'_, Vec<Arc<Keypair>>> =
+                config.authorized_voter_keypairs.write().unwrap();
             if !authorized_voter_keypairs
                 .iter()
                 .any(|x| x.pubkey() == vote_account_address)
@@ -976,21 +1163,25 @@ impl TestValidator {
             }
         }
 
-        let accounts_db_config = Some(AccountsDbConfig {
-            index: Some(AccountsIndexConfig {
-                started_from_validator: true,
-                ..AccountsIndexConfig::default()
-            }),
+        let accounts_db_config = AccountsDbConfig {
+            index: Some(AccountsIndexConfig::default()),
             account_indexes: Some(config.rpc_config.account_indexes.clone()),
             ..AccountsDbConfig::default()
-        });
+        };
 
         let runtime_config = RuntimeConfig {
             compute_budget: config
                 .compute_unit_limit
                 .map(|compute_unit_limit| ComputeBudget {
                     compute_unit_limit,
-                    ..ComputeBudget::default()
+                    ..ComputeBudget::new_with_defaults(
+                        !config
+                            .deactivate_feature_set
+                            .contains(&raise_cpi_nesting_limit_to_8::id()),
+                        !config
+                            .deactivate_feature_set
+                            .contains(&increase_cpi_account_info_limit::id()),
+                    )
                 }),
             log_messages_bytes_limit: config.log_messages_bytes_limit,
             transaction_account_lock_limit: config.transaction_account_lock_limit,
@@ -1010,7 +1201,6 @@ impl TestValidator {
             )),
             rpc_config: config.rpc_config.clone(),
             pubsub_config: config.pubsub_config.clone(),
-            accounts_hash_interval_slots: 100,
             account_paths: vec![
                 create_accounts_run_and_snapshot_dirs(ledger_path.join("accounts"))
                     .unwrap()
@@ -1018,9 +1208,11 @@ impl TestValidator {
             ],
             run_verification: false, // Skip PoH verification of ledger on startup for speed
             snapshot_config: SnapshotConfig {
-                full_snapshot_archive_interval_slots: 100,
-                incremental_snapshot_archive_interval_slots: Slot::MAX,
-                bank_snapshots_dir: ledger_path.join("snapshot"),
+                full_snapshot_archive_interval: SnapshotInterval::Slots(
+                    NonZeroU64::new(100).unwrap(),
+                ),
+                incremental_snapshot_archive_interval: SnapshotInterval::Disabled,
+                bank_snapshots_dir: ledger_path.join(BANK_SNAPSHOTS_DIR),
                 full_snapshot_archives_dir: ledger_path.to_path_buf(),
                 incremental_snapshot_archives_dir: ledger_path.to_path_buf(),
                 ..SnapshotConfig::default()
@@ -1032,6 +1224,7 @@ impl TestValidator {
             staked_nodes_overrides: config.staked_nodes_overrides.clone(),
             accounts_db_config,
             runtime_config,
+            enable_scheduler_bindings: config.enable_scheduler_bindings,
             ..ValidatorConfig::default_for_test()
         };
         if let Some(ref tower_storage) = config.tower_storage {
@@ -1050,21 +1243,17 @@ impl TestValidator {
             rpc_to_plugin_manager_receiver,
             config.start_progress.clone(),
             socket_addr_space,
-            ValidatorTpuConfig::new_for_tests(config.tpu_enable_udp),
+            ValidatorTpuConfig::new_for_tests(),
             config.admin_rpc_service_post_init.clone(),
+            None,
         )?);
-
-        // Needed to avoid panics in `solana-responder-gossip` in tests that create a number of
-        // test validators concurrently...
-        discover_cluster(&gossip, 1, socket_addr_space)
-            .map_err(|err| format!("TestValidator startup failed: {err:?}"))?;
 
         let test_validator = TestValidator {
             ledger_path,
             preserve_ledger,
             rpc_pubsub_url,
             rpc_url,
-            tpu,
+            tpu_quic,
             gossip,
             validator,
             vote_account_address,
@@ -1106,13 +1295,13 @@ impl TestValidator {
                             }
                         }
                         Err(err) => {
-                            warn!("get_fee_for_message() failed: {:?}", err);
+                            warn!("get_fee_for_message() failed: {err:?}");
                             break;
                         }
                     }
                 }
                 Err(err) => {
-                    warn!("get_latest_blockhash() failed: {:?}", err);
+                    warn!("get_latest_blockhash() failed: {err:?}");
                     break;
                 }
             }
@@ -1120,9 +1309,84 @@ impl TestValidator {
         }
     }
 
-    /// Return the validator's TPU address
-    pub fn tpu(&self) -> &SocketAddr {
-        &self.tpu
+    /// programs added to genesis ain't immediately usable. Actively check "Program
+    /// is not deployed" error for their availibility.
+    ///
+    /// Returns `TransactionError::AccountNotFound` if the payer account is not funded.
+    /// The caller is responsible for ensuring the payer account has sufficient funds.
+    async fn wait_for_upgradeable_programs_deployed(
+        &self,
+        upgradeable_programs: &[&Pubkey],
+        payer: &Keypair,
+    ) -> Result<(), RpcClientError> {
+        let rpc_client = nonblocking::rpc_client::RpcClient::new_with_commitment(
+            self.rpc_url.clone(),
+            CommitmentConfig::processed(),
+        );
+
+        let mut deployed = vec![false; upgradeable_programs.len()];
+        const MAX_ATTEMPTS: u64 = 10;
+
+        for attempt in 1..=MAX_ATTEMPTS {
+            let blockhash = rpc_client.get_latest_blockhash().await.unwrap();
+            for (program_id, is_deployed) in upgradeable_programs.iter().zip(deployed.iter_mut()) {
+                if *is_deployed {
+                    continue;
+                }
+
+                let transaction = Transaction::new_signed_with_payer(
+                    &[Instruction {
+                        program_id: **program_id,
+                        accounts: vec![],
+                        data: vec![],
+                    }],
+                    Some(&payer.pubkey()),
+                    &[&payer],
+                    blockhash,
+                );
+                match rpc_client.simulate_transaction(&transaction).await {
+                    Ok(response) => {
+                        if let Some(e) = response.value.err {
+                            let err_string = format!("{e:?}");
+                            if err_string.contains("Program is not deployed") {
+                                debug!("{program_id:?} - not deployed");
+                            } else if err_string.contains("AccountNotFound") {
+                                // Payer account not funded - this is a caller error
+                                return Err(RpcClientError::from(
+                                    TransactionError::AccountNotFound,
+                                ));
+                            } else {
+                                // Assuming all other errors could only occur *after*
+                                // program is deployed for usability
+                                *is_deployed = true;
+                                debug!("{program_id:?} - Unexpected error: {e:?}");
+                            }
+                        } else {
+                            *is_deployed = true;
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Failed to simulate transaction: {e:?}");
+                        // Error if we're at final attempt - flakiness is tolerated up to MAX_ATTEMPTS
+                        if attempt == MAX_ATTEMPTS {
+                            return Err(e);
+                        }
+                    }
+                }
+            }
+            if deployed.iter().all(|&deployed| deployed) {
+                return Ok(());
+            }
+
+            println!("Waiting for programs to be fully deployed {attempt} ...");
+            sleep(Duration::from_millis(DEFAULT_MS_PER_SLOT)).await;
+        }
+        panic!("Timeout waiting for program to become usable");
+    }
+
+    /// Return the validator's TPU QUIC address
+    pub fn tpu_quic(&self) -> &SocketAddr {
+        &self.tpu_quic
     }
 
     /// Return the validator's Gossip address
@@ -1196,38 +1460,96 @@ impl Drop for TestValidator {
 
 #[cfg(test)]
 mod test {
-    use {super::*, solana_sdk::feature::Feature};
+    use {super::*, solana_feature_gate_interface::Feature};
 
     #[test]
     fn get_health() {
         let (test_validator, _payer) = TestValidatorGenesis::default().start();
-        test_validator.set_startup_verification_complete_for_tests();
         let rpc_client = test_validator.get_rpc_client();
         rpc_client.get_health().expect("health");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn nonblocking_get_health() {
         let (test_validator, _payer) = TestValidatorGenesis::default().start_async().await;
-        test_validator.set_startup_verification_complete_for_tests();
         let rpc_client = test_validator.get_async_rpc_client();
         rpc_client.get_health().await.expect("health");
     }
 
-    #[tokio::test]
+    #[test]
+    fn test_upgradeable_program_deploayment() {
+        let program_id = Pubkey::new_unique();
+        let (test_validator, payer) = TestValidatorGenesis::default()
+            .add_program("../programs/bpf-loader-tests/noop", program_id)
+            .start();
+        let rpc_client = test_validator.get_rpc_client();
+
+        let blockhash = rpc_client.get_latest_blockhash().unwrap();
+        let transaction = Transaction::new_signed_with_payer(
+            &[Instruction {
+                program_id,
+                accounts: vec![],
+                data: vec![],
+            }],
+            Some(&payer.pubkey()),
+            &[&payer],
+            blockhash,
+        );
+
+        assert!(
+            rpc_client
+                .send_and_confirm_transaction(&transaction)
+                .is_ok()
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn test_nonblocking_upgradeable_program_deploayment() {
+        let program_id = Pubkey::new_unique();
+        let (test_validator, payer) = TestValidatorGenesis::default()
+            .add_program("../programs/bpf-loader-tests/noop", program_id)
+            .start_async()
+            .await;
+        let rpc_client = test_validator.get_async_rpc_client();
+
+        let blockhash = rpc_client.get_latest_blockhash().await.unwrap();
+        let transaction = Transaction::new_signed_with_payer(
+            &[Instruction {
+                program_id,
+                accounts: vec![],
+                data: vec![],
+            }],
+            Some(&payer.pubkey()),
+            &[&payer],
+            blockhash,
+        );
+
+        assert!(
+            rpc_client
+                .send_and_confirm_transaction(&transaction)
+                .await
+                .is_ok()
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     #[should_panic]
     async fn document_tokio_panic() {
         // `start()` blows up when run within tokio
         let (_test_validator, _payer) = TestValidatorGenesis::default().start();
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_deactivate_features() {
         let mut control = FeatureSet::default().inactive().clone();
         let mut deactivate_features = Vec::new();
         [
-            solana_sdk::feature_set::deprecate_rewards_sysvar::id(),
-            solana_sdk::feature_set::disable_fees_sysvar::id(),
+            agave_feature_set::deprecate_rewards_sysvar::id(),
+            agave_feature_set::disable_fees_sysvar::id(),
+            alpenglow::id(),
+            agave_feature_set::bls_pubkey_management_in_vote_account::id(),
+            agave_feature_set::vote_account_initialize_v2::id(),
+            agave_feature_set::validator_admission_ticket::id(),
         ]
         .into_iter()
         .for_each(|feature| {
@@ -1265,10 +1587,10 @@ mod test {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_override_feature_account() {
-        let with_deactivate_flag = solana_sdk::feature_set::deprecate_rewards_sysvar::id();
-        let without_deactivate_flag = solana_sdk::feature_set::disable_fees_sysvar::id();
+        let with_deactivate_flag = agave_feature_set::deprecate_rewards_sysvar::id();
+        let without_deactivate_flag = agave_feature_set::disable_fees_sysvar::id();
 
         let owner = Pubkey::new_unique();
         let account = || AccountSharedData::new(100_000, 0, &owner);
@@ -1291,27 +1613,21 @@ mod test {
 
         // The first one, where we provided `--deactivate-feature`, should be
         // the account we provided.
-        let overriden_account = our_accounts[0].as_ref().unwrap();
-        assert_eq!(overriden_account.lamports, 100_000);
-        assert_eq!(overriden_account.data.len(), 0);
-        assert_eq!(overriden_account.owner, owner);
+        let overridden_account = our_accounts[0].as_ref().unwrap();
+        assert_eq!(overridden_account.lamports, 100_000);
+        assert_eq!(overridden_account.data.len(), 0);
+        assert_eq!(overridden_account.owner, owner);
 
         // The second one should be a feature account.
         let feature_account = our_accounts[1].as_ref().unwrap();
-        assert_eq!(feature_account.owner, solana_sdk::feature::id());
+        assert_eq!(feature_account.owner, solana_sdk_ids::feature::id());
         let feature_state: Feature = bincode::deserialize(feature_account.data()).unwrap();
         assert!(feature_state.activated_at.is_some());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn test_core_bpf_programs() {
-        let (test_validator, _payer) = TestValidatorGenesis::default()
-            .deactivate_features(&[
-                // Don't migrate the config program.
-                solana_sdk::feature_set::migrate_config_program_to_core_bpf::id(),
-            ])
-            .start_async()
-            .await;
+        let (test_validator, _payer) = TestValidatorGenesis::default().start_async().await;
 
         let rpc_client = test_validator.get_async_rpc_client();
 
@@ -1320,6 +1636,7 @@ mod test {
                 solana_sdk_ids::address_lookup_table::id(),
                 solana_sdk_ids::config::id(),
                 solana_sdk_ids::feature::id(),
+                solana_sdk_ids::stake::id(),
             ])
             .await
             .unwrap();
@@ -1329,14 +1646,45 @@ mod test {
         assert_eq!(account.owner, solana_sdk_ids::bpf_loader_upgradeable::id());
         assert!(account.executable);
 
-        // Config is a builtin.
+        // Config is a BPF program.
         let account = fetched_programs[1].as_ref().unwrap();
-        assert_eq!(account.owner, solana_sdk_ids::native_loader::id());
+        assert_eq!(account.owner, solana_sdk_ids::bpf_loader_upgradeable::id());
         assert!(account.executable);
 
         // Feature Gate is a BPF program.
         let account = fetched_programs[2].as_ref().unwrap();
         assert_eq!(account.owner, solana_sdk_ids::bpf_loader_upgradeable::id());
         assert!(account.executable);
+
+        // Stake is a BPF program.
+        let account = fetched_programs[3].as_ref().unwrap();
+        assert_eq!(account.owner, solana_sdk_ids::bpf_loader_upgradeable::id());
+        assert!(account.executable);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+    async fn test_wait_for_program_with_unfunded_payer() {
+        let program_id = Pubkey::new_unique();
+        let (test_validator, _mint_keypair) = TestValidatorGenesis::default()
+            .add_program("../programs/bpf-loader-tests/noop", program_id)
+            .start_async()
+            .await;
+
+        // Create an unfunded payer keypair
+        let unfunded_payer = Keypair::new();
+
+        // Call wait_for_upgradeable_programs_deployed with unfunded payer
+        let result = test_validator
+            .wait_for_upgradeable_programs_deployed(&[&program_id], &unfunded_payer)
+            .await;
+
+        // Verify it returns AccountNotFound error
+        let err = result.unwrap_err();
+        assert!(matches!(
+            *err.kind,
+            solana_rpc_client_api::client_error::ErrorKind::TransactionError(
+                TransactionError::AccountNotFound
+            )
+        ));
     }
 }

@@ -1,28 +1,57 @@
 use {
-    crate::{admin_rpc_service, cli::DefaultArgs, new_spinner_progress_bar, println_name_value},
-    clap::{value_t_or_exit, App, Arg, ArgMatches, SubCommand},
+    crate::{
+        admin_rpc_service,
+        commands::{FromClapArgMatches, Result},
+        new_spinner_progress_bar, println_name_value,
+    },
+    clap::{App, Arg, ArgMatches, SubCommand, value_t_or_exit},
     console::style,
+    jsonrpc_core::ErrorCode,
+    jsonrpc_core_client::RpcError,
     solana_clap_utils::{
         input_parsers::pubkey_of,
         input_validators::{is_parsable, is_pubkey_or_keypair, is_valid_percentage},
     },
+    solana_clock::{DEFAULT_S_PER_SLOT, Slot},
+    solana_commitment_config::CommitmentConfig,
+    solana_pubkey::Pubkey,
     solana_rpc_client::rpc_client::RpcClient,
     solana_rpc_client_api::config::RpcLeaderScheduleConfig,
-    solana_sdk::{
-        clock::{Slot, DEFAULT_S_PER_SLOT},
-        commitment_config::CommitmentConfig,
-        pubkey::Pubkey,
-    },
     std::{
         collections::VecDeque,
         path::Path,
-        process::exit,
         time::{Duration, SystemTime},
     },
 };
 
-pub(crate) fn command(default_args: &DefaultArgs) -> App<'_, '_> {
-    SubCommand::with_name("wait-for-restart-window")
+const COMMAND: &str = "wait-for-restart-window";
+
+const DEFAULT_MIN_IDLE_TIME: &str = "10";
+const DEFAULT_MAX_DELINQUENT_STAKE: &str = "5";
+
+#[derive(Debug, PartialEq)]
+pub struct WaitForRestartWindowArgs {
+    pub min_idle_time: usize,
+    pub identity: Option<Pubkey>,
+    pub max_delinquent_stake: u8,
+    pub skip_new_snapshot_check: bool,
+    pub skip_health_check: bool,
+}
+
+impl FromClapArgMatches for WaitForRestartWindowArgs {
+    fn from_clap_arg_match(matches: &ArgMatches) -> Result<Self> {
+        Ok(WaitForRestartWindowArgs {
+            min_idle_time: value_t_or_exit!(matches, "min_idle_time", usize),
+            identity: pubkey_of(matches, "identity"),
+            max_delinquent_stake: value_t_or_exit!(matches, "max_delinquent_stake", u8),
+            skip_new_snapshot_check: matches.is_present("skip_new_snapshot_check"),
+            skip_health_check: matches.is_present("skip_health_check"),
+        })
+    }
+}
+
+pub(crate) fn command<'a>() -> App<'a, 'a> {
+    SubCommand::with_name(COMMAND)
         .about("Monitor the validator for a good time to restart")
         .arg(
             Arg::with_name("min_idle_time")
@@ -30,10 +59,8 @@ pub(crate) fn command(default_args: &DefaultArgs) -> App<'_, '_> {
                 .takes_value(true)
                 .validator(is_parsable::<usize>)
                 .value_name("MINUTES")
-                .default_value(&default_args.wait_for_restart_window_min_idle_time)
-                .help(
-                    "Minimum time that the validator should not be leader before restarting",
-                ),
+                .default_value(DEFAULT_MIN_IDLE_TIME)
+                .help("Minimum time that the validator should not be leader before restarting"),
         )
         .arg(
             Arg::with_name("identity")
@@ -48,8 +75,8 @@ pub(crate) fn command(default_args: &DefaultArgs) -> App<'_, '_> {
                 .long("max-delinquent-stake")
                 .takes_value(true)
                 .validator(is_valid_percentage)
-                .default_value(&default_args.wait_for_restart_window_max_delinquent_stake)
                 .value_name("PERCENT")
+                .default_value(DEFAULT_MAX_DELINQUENT_STAKE)
                 .help("The maximum delinquent stake % permitted for a restart"),
         )
         .arg(
@@ -63,29 +90,54 @@ pub(crate) fn command(default_args: &DefaultArgs) -> App<'_, '_> {
                 .help("Skip health check"),
         )
         .after_help(
-            "Note: If this command exits with a non-zero status then this not a good time for a restart",
+            "Note: If this command exits with a non-zero status then this not a good time for a \
+             restart",
         )
 }
 
-pub fn execute(matches: &ArgMatches, ledger_path: &Path) {
-    let min_idle_time = value_t_or_exit!(matches, "min_idle_time", usize);
-    let identity = pubkey_of(matches, "identity");
-    let max_delinquent_stake = value_t_or_exit!(matches, "max_delinquent_stake", u8);
-    let skip_new_snapshot_check = matches.is_present("skip_new_snapshot_check");
-    let skip_health_check = matches.is_present("skip_health_check");
+pub fn execute(matches: &ArgMatches, ledger_path: &Path) -> Result<()> {
+    let wait_for_restart_window_args = WaitForRestartWindowArgs::from_clap_arg_match(matches)?;
 
     wait_for_restart_window(
         ledger_path,
-        identity,
-        min_idle_time,
-        max_delinquent_stake,
-        skip_new_snapshot_check,
-        skip_health_check,
-    )
-    .unwrap_or_else(|err| {
-        println!("{err}");
-        exit(1);
-    });
+        wait_for_restart_window_args.identity,
+        wait_for_restart_window_args.min_idle_time,
+        wait_for_restart_window_args.max_delinquent_stake,
+        wait_for_restart_window_args.skip_new_snapshot_check,
+        wait_for_restart_window_args.skip_health_check,
+    )?;
+
+    Ok(())
+}
+
+/// Returns whether to skip the check that requires a new snapshot to have been generated before
+/// restarting. If the validator is not generating snapshots, this check can never be satisfied
+/// and must be skipped.
+fn should_skip_snapshot_check(
+    skip_new_snapshot_check_arg: bool,
+    is_generating_snapshots: Option<bool>,
+) -> bool {
+    if !skip_new_snapshot_check_arg {
+        match is_generating_snapshots {
+            Some(false) => {
+                println!("Validator is not generating snapshots. Skipping new snapshot check...");
+                true
+            }
+            Some(true) => false,
+            None => {
+                // The server is an older version that does not support the isGeneratingSnapshots
+                // method. We cannot determine whether snapshots are being generated, so leave the
+                // snapshot check enabled.
+                println!(
+                    "Validator doesn't support isGeneratingSnapshots RPC method, Assuming \
+                     snapshots are being generated and leaving snapshot check enabled..."
+                );
+                false
+            }
+        }
+    } else {
+        skip_new_snapshot_check_arg
+    }
 }
 
 pub fn wait_for_restart_window(
@@ -95,19 +147,38 @@ pub fn wait_for_restart_window(
     max_delinquency_percentage: u8,
     skip_new_snapshot_check: bool,
     skip_health_check: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
     let sleep_interval = Duration::from_secs(5);
 
     let min_idle_slots = (min_idle_time_in_minutes as f64 * 60. / DEFAULT_S_PER_SLOT) as Slot;
 
+    let is_generating_snapshots_result = admin_rpc_service::runtime().block_on(async {
+        let admin_client = admin_rpc_service::connect(ledger_path).await?;
+        admin_client.is_generating_snapshots().await
+    });
+
+    // MethodNotFound indicates the server is an older version that does not support this method.
+    // Map to None so should_skip_snapshot_check() leaves the snapshot check enabled.
+    // All other errors are unexpected and we bail immediately.
+    let is_generating_snapshots = match is_generating_snapshots_result {
+        Ok(val) => Some(val),
+        Err(RpcError::JsonRpcError(ref e)) if e.code == ErrorCode::MethodNotFound => None,
+        Err(err) => {
+            return Err(
+                format!("Failed to check if validator is generating snapshots: {err}").into(),
+            );
+        }
+    };
+
+    let skip_new_snapshot_check =
+        should_skip_snapshot_check(skip_new_snapshot_check, is_generating_snapshots);
+
     let admin_client = admin_rpc_service::connect(ledger_path);
     let rpc_addr = admin_rpc_service::runtime()
         .block_on(async move { admin_client.await?.rpc_addr().await })
-        .map_err(|err| format!("Unable to get validator RPC address: {err}"))?;
-
-    let Some(rpc_client) = rpc_addr.map(RpcClient::new_socket) else {
-        return Err("RPC not available".into());
-    };
+        .map_err(|err| format!("validator RPC address request failed: {err}"))?
+        .ok_or("validator RPC is unavailable".to_string())?;
+    let rpc_client = RpcClient::new_socket(rpc_addr);
 
     let my_identity = rpc_client.get_identity()?;
     let identity = identity.unwrap_or(my_identity);
@@ -185,6 +256,7 @@ pub fn wait_for_restart_window(
 
             upcoming_idle_windows.clear();
             {
+                let has_leader_slots = !leader_schedule.is_empty();
                 let mut leader_schedule = leader_schedule.clone();
                 let mut max_idle_window = 0;
 
@@ -197,11 +269,11 @@ pub fn wait_for_restart_window(
                     }
                     idle_window_start_slot = next_leader_slot;
                 }
-                if !leader_schedule.is_empty() && upcoming_idle_windows.is_empty() {
+                if has_leader_slots && upcoming_idle_windows.is_empty() {
                     return Err(format!(
-                        "Validator has no idle window of at least {} slots. Largest idle window \
-                       for epoch {} is {} slots",
-                        min_idle_slots, epoch_info.epoch, max_idle_window
+                        "Validator has no idle window of at least {min_idle_slots} slots. Largest \
+                         idle window for epoch {} is {max_idle_window} slots",
+                        epoch_info.epoch,
                     )
                     .into());
                 }
@@ -255,7 +327,7 @@ pub fn wait_for_restart_window(
                                     }
                                     None => format!(
                                         "Validator will be leader soon. Next leader slot is \
-                                       {next_leader_slot}"
+                                         {next_leader_slot}"
                                     ),
                                 })
                             }
@@ -340,4 +412,116 @@ pub fn wait_for_restart_window(
     drop(progress_bar);
     println!("{}", style("Ready to restart").green());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use {super::*, crate::commands::tests::verify_args_struct_by_command, std::str::FromStr};
+
+    impl Default for WaitForRestartWindowArgs {
+        fn default() -> Self {
+            WaitForRestartWindowArgs {
+                min_idle_time: DEFAULT_MIN_IDLE_TIME
+                    .parse()
+                    .expect("invalid DEFAULT_MIN_IDLE_TIME"),
+                identity: None,
+                max_delinquent_stake: DEFAULT_MAX_DELINQUENT_STAKE
+                    .parse()
+                    .expect("invalid DEFAULT_MAX_DELINQUENT_STAKE"),
+                skip_new_snapshot_check: false,
+                skip_health_check: false,
+            }
+        }
+    }
+
+    #[test]
+    fn verify_args_struct_by_command_wait_for_restart_window_default() {
+        verify_args_struct_by_command(
+            command(),
+            vec![COMMAND],
+            WaitForRestartWindowArgs::default(),
+        );
+    }
+
+    #[test]
+    fn verify_args_struct_by_command_wait_for_restart_window_skip_new_snapshot_check() {
+        verify_args_struct_by_command(
+            command(),
+            vec![COMMAND, "--skip-new-snapshot-check"],
+            WaitForRestartWindowArgs {
+                skip_new_snapshot_check: true,
+                ..WaitForRestartWindowArgs::default()
+            },
+        );
+    }
+
+    #[test]
+    fn verify_args_struct_by_command_wait_for_restart_window_skip_health_check() {
+        verify_args_struct_by_command(
+            command(),
+            vec![COMMAND, "--skip-health-check"],
+            WaitForRestartWindowArgs {
+                skip_health_check: true,
+                ..WaitForRestartWindowArgs::default()
+            },
+        );
+    }
+
+    #[test]
+    fn verify_args_struct_by_command_wait_for_restart_window_min_idle_time() {
+        verify_args_struct_by_command(
+            command(),
+            vec![COMMAND, "--min-idle-time", "60"],
+            WaitForRestartWindowArgs {
+                min_idle_time: 60,
+                ..WaitForRestartWindowArgs::default()
+            },
+        );
+    }
+
+    #[test]
+    fn verify_args_struct_by_command_wait_for_restart_window_identity() {
+        verify_args_struct_by_command(
+            command(),
+            vec![
+                COMMAND,
+                "--identity",
+                "ch1do11111111111111111111111111111111111111",
+            ],
+            WaitForRestartWindowArgs {
+                identity: Some(
+                    Pubkey::from_str("ch1do11111111111111111111111111111111111111").unwrap(),
+                ),
+                ..WaitForRestartWindowArgs::default()
+            },
+        );
+    }
+
+    #[test]
+    fn verify_args_struct_by_command_wait_for_restart_window_max_delinquent_stake() {
+        verify_args_struct_by_command(
+            command(),
+            vec![COMMAND, "--max-delinquent-stake", "10"],
+            WaitForRestartWindowArgs {
+                max_delinquent_stake: 10,
+                ..WaitForRestartWindowArgs::default()
+            },
+        );
+    }
+
+    #[test]
+    fn test_should_skip_snapshot_check_with_arg_true() {
+        // Verify cases where the skip_new_snapshot_check_arg is true, which should always skip
+        // the snapshot check regardless of the result of is_generating_snapshots
+        assert!(should_skip_snapshot_check(true, Some(false)));
+        assert!(should_skip_snapshot_check(true, Some(true)));
+        assert!(should_skip_snapshot_check(true, None));
+
+        // Verify cases where the skip_new_snapshot_check_arg is false, which should only skip if
+        // is_generating_snapshots returns Some(false). Notice the ! in cases 2 and 3.
+        assert!(should_skip_snapshot_check(false, Some(false)));
+        assert!(!should_skip_snapshot_check(false, Some(true)));
+        // None means old server version (MethodNotFound); leave snapshot check enabled
+        assert!(!should_skip_snapshot_check(false, None));
+    }
 }

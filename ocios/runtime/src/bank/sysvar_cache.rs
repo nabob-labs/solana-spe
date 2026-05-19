@@ -4,13 +4,9 @@ use super::Bank;
 #[cfg(test)]
 mod tests {
     use {
-        super::*,
-        solana_sdk::{
-            genesis_config::create_genesis_config, pubkey::Pubkey,
-            sysvar::epoch_rewards::EpochRewards,
-        },
-        solana_stake_program::points::PointValue,
-        std::sync::Arc,
+        super::*, crate::inflation_rewards::points::PointValue,
+        solana_genesis_config::create_genesis_config, solana_pubkey::Pubkey,
+        solana_sysvar::epoch_rewards::EpochRewards, std::sync::Arc,
     };
 
     #[test]
@@ -125,7 +121,7 @@ mod tests {
             expected_epoch_rewards.distributed_rewards,
             expected_epoch_rewards.distribution_starting_block_height,
             num_partitions,
-            PointValue {
+            &PointValue {
                 rewards: 100,
                 points: total_points,
             },

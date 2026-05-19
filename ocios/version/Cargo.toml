@@ -16,14 +16,15 @@ targets = ["x86_64-unknown-linux-gnu"]
 name = "solana_version"
 
 [features]
+agave-unstable-api = []
 dummy-for-ci-check = []
 frozen-abi = ["dep:solana-frozen-abi", "dep:solana-frozen-abi-macro"]
 
 [dependencies]
 agave-feature-set = { workspace = true }
+rand = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true }
-serde_derive = { workspace = true }
 solana-frozen-abi = { workspace = true, optional = true, features = [
     "frozen-abi",
 ] }
@@ -32,6 +33,9 @@ solana-frozen-abi-macro = { workspace = true, optional = true, features = [
 ] }
 solana-sanitize = { workspace = true }
 solana-serde-varint = { workspace = true }
+
+[dev-dependencies]
+bincode = { workspace = true }
 
 [lints]
 workspace = true

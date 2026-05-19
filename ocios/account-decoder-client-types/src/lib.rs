@@ -1,14 +1,16 @@
+#![cfg(feature = "agave-unstable-api")]
 //! Core RPC client types for solana-account-decoder
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #[cfg(feature = "zstd")]
 use std::io::Read;
 use {
-    base64::{prelude::BASE64_STANDARD, Engine},
+    base64::{Engine, prelude::BASE64_STANDARD},
     core::str::FromStr,
-    serde_derive::{Deserialize, Serialize},
+    serde::{Deserialize, Serialize},
     serde_json::Value,
-    solana_account::WritableAccount,
+    solana_account::{Account, AccountSharedData},
     solana_pubkey::Pubkey,
+    std::sync::Arc,
 };
 pub mod token;
 
@@ -71,15 +73,26 @@ pub enum UiAccountEncoding {
 }
 
 impl UiAccount {
-    pub fn decode<T: WritableAccount>(&self) -> Option<T> {
-        let data = self.data.decode()?;
-        Some(T::create(
+    pub fn to_account_shared_data(&self) -> Option<AccountSharedData> {
+        let data = Arc::new(self.data.decode()?);
+        Some(AccountSharedData::create_from_existing_shared_data(
             self.lamports,
             data,
             Pubkey::from_str(&self.owner).ok()?,
             self.executable,
             self.rent_epoch,
         ))
+    }
+
+    pub fn to_account(&self) -> Option<Account> {
+        let data = self.data.decode()?;
+        Some(Account {
+            lamports: self.lamports,
+            data,
+            owner: Pubkey::from_str(&self.owner).ok()?,
+            executable: self.executable,
+            rent_epoch: self.rent_epoch,
+        })
     }
 }
 

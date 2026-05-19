@@ -2,62 +2,63 @@ use {
     crate::{
         checks::{check_account_for_fee_with_commitment, check_unique_pubkeys},
         cli::{
-            log_instruction_custom_error, CliCommand, CliCommandInfo, CliConfig, CliError,
-            ProcessResult,
+            CliCommand, CliCommandInfo, CliConfig, CliError, ProcessResult,
+            log_instruction_custom_error,
         },
         compute_budget::{
-            simulate_and_update_compute_unit_limit, ComputeUnitConfig, WithComputeUnitConfig,
+            ComputeUnitConfig, WithComputeUnitConfig, simulate_and_update_compute_unit_limit,
         },
         feature::get_feature_activation_epoch,
         memo::WithMemo,
         nonce::check_nonce_account,
-        spend_utils::{resolve_spend_tx_and_check_account_balances, SpendAmount},
+        spend_utils::{SpendAmount, resolve_spend_tx_and_check_account_balances},
     },
-    clap::{value_t, App, AppSettings, Arg, ArgGroup, ArgMatches, SubCommand},
-    solana_account::{from_account, state_traits::StateMut, Account},
+    clap::{App, AppSettings, Arg, ArgGroup, ArgMatches, SubCommand, value_t},
+    solana_account::{Account, from_account, state_traits::StateMut},
     solana_clap_utils::{
-        compute_budget::{compute_unit_price_arg, ComputeUnitLimit, COMPUTE_UNIT_PRICE_ARG},
-        fee_payer::{fee_payer_arg, FEE_PAYER_ARG},
+        ArgConstant,
+        compute_budget::{COMPUTE_UNIT_PRICE_ARG, ComputeUnitLimit, compute_unit_price_arg},
+        fee_payer::{FEE_PAYER_ARG, fee_payer_arg},
         hidden_unless_forced,
         input_parsers::*,
         input_validators::*,
         keypair::{DefaultSigner, SignerIndex},
-        memo::{memo_arg, MEMO_ARG},
+        memo::{MEMO_ARG, memo_arg},
         nonce::*,
         offline::*,
-        ArgConstant,
     },
     solana_cli_output::{
-        self, display::BuildBalanceMessageConfig, return_signers_with_config, CliBalance,
-        CliEpochReward, CliStakeHistory, CliStakeHistoryEntry, CliStakeState, CliStakeType,
-        OutputFormat, ReturnSignersConfig,
+        self, CliBalance, CliEpochReward, CliStakeHistory, CliStakeHistoryEntry, CliStakeState,
+        CliStakeType, OutputFormat, ReturnSignersConfig, display::BuildBalanceMessageConfig,
+        return_signers_with_config,
     },
-    solana_clock::{Clock, Epoch, UnixTimestamp, SECONDS_PER_DAY},
+    solana_clock::{Clock, Epoch, SECONDS_PER_DAY, UnixTimestamp},
     solana_commitment_config::CommitmentConfig,
     solana_epoch_schedule::EpochSchedule,
     solana_message::Message,
     solana_native_token::Sol,
-    solana_program::stake::{
-        self,
-        instruction::{self as stake_instruction, LockupArgs, StakeError},
-        state::{Authorized, Lockup, Meta, StakeActivationStatus, StakeAuthorize, StakeStateV2},
-        tools::{acceptable_reference_epoch_credits, eligible_for_deactivate_delinquent},
-    },
     solana_pubkey::Pubkey,
     solana_remote_wallet::remote_wallet::RemoteWalletManager,
-    solana_rpc_client::rpc_client::RpcClient,
+    solana_rpc_client::nonblocking::rpc_client::RpcClient,
     solana_rpc_client_api::{
         config::RpcGetVoteAccountsConfig,
         request::DELINQUENT_VALIDATOR_SLOT_DISTANCE,
         response::{RpcInflationReward, RpcVoteAccountStatus},
     },
-    solana_rpc_client_nonce_utils::blockhash_query::BlockhashQuery,
+    solana_rpc_client_nonce_utils::nonblocking::blockhash_query::BlockhashQuery,
     solana_sdk_ids::{
         system_program,
         sysvar::{clock, stake_history},
     },
+    solana_stake_interface::{
+        self as stake,
+        error::StakeError,
+        instruction::{self as stake_instruction, LockupArgs},
+        stake_history::StakeHistory,
+        state::{Authorized, Lockup, Meta, StakeActivationStatus, StakeAuthorize, StakeStateV2},
+        tools::{acceptable_reference_epoch_credits, eligible_for_deactivate_delinquent},
+    },
     solana_system_interface::{error::SystemError, instruction as system_instruction},
-    solana_sysvar::stake_history::StakeHistory,
     solana_transaction::Transaction,
     std::{ops::Deref, rc::Rc},
 };
@@ -513,10 +514,9 @@ impl StakeSubCommands for App<'_, '_> {
                         .value_name("AMOUNT")
                         .takes_value(true)
                         .validator(is_amount)
-                        .requires("sign_only")
                         .help(
-                            "Offline signing only: the rent-exempt amount to move into the new \
-                             stake account, in SOL",
+                            "The rent-exempt amount to move into the new stake account, in SOL. \
+                             Required for offline signing.",
                         ),
                 ),
         )
@@ -568,11 +568,11 @@ impl StakeSubCommands for App<'_, '_> {
                         .index(3)
                         .value_name("AMOUNT")
                         .takes_value(true)
-                        .validator(is_amount_or_all)
+                        .validator(is_amount_or_all_or_available)
                         .required(true)
                         .help(
                             "The amount to withdraw from the stake account, in SOL; accepts \
-                             keyword ALL",
+                             keywords ALL or AVAILABLE",
                         ),
                 )
                 .arg(
@@ -755,8 +755,8 @@ impl StakeSubCommands for App<'_, '_> {
                         .default_value_if("with_rewards", None, "1")
                         .requires("with_rewards")
                         .help(
-                            "Display rewards for NUM recent epochs, max 10 \
-                            [default: latest epoch only]",
+                            "Display rewards for NUM recent epochs, max 10 [default: latest epoch \
+                             only]",
                         ),
                 ),
         )
@@ -1367,9 +1367,9 @@ pub fn parse_stake_minimum_delegation(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn process_create_stake_account(
+pub async fn process_create_stake_account(
     rpc_client: &RpcClient,
-    config: &CliConfig,
+    config: &CliConfig<'_>,
     stake_account: SignerIndex,
     seed: &Option<String>,
     staker: &Option<Pubkey>,
@@ -1403,8 +1403,8 @@ pub fn process_create_stake_account(
     let nonce_authority = config.signers[nonce_authority];
 
     let compute_unit_limit = match blockhash_query {
-        BlockhashQuery::None(_) | BlockhashQuery::FeeCalculator(_, _) => ComputeUnitLimit::Default,
-        BlockhashQuery::All(_) => ComputeUnitLimit::Simulated,
+        BlockhashQuery::Static(_) | BlockhashQuery::Validated(_, _) => ComputeUnitLimit::Default,
+        BlockhashQuery::Rpc(_) => ComputeUnitLimit::Simulated,
     };
     let build_message = |lamports| {
         let authorized = Authorized {
@@ -1463,11 +1463,14 @@ pub fn process_create_stake_account(
         }
     };
 
-    let recent_blockhash = blockhash_query.get_blockhash(rpc_client, config.commitment)?;
+    let recent_blockhash = blockhash_query
+        .get_blockhash(rpc_client, config.commitment)
+        .await?;
 
     if !sign_only && amount == SpendAmount::All {
-        let minimum_balance =
-            rpc_client.get_minimum_balance_for_rent_exemption(StakeStateV2::size_of())?;
+        let minimum_balance = rpc_client
+            .get_minimum_balance_for_rent_exemption(StakeStateV2::size_of())
+            .await?;
         amount = SpendAmount::AllForAccountCreation {
             create_account_min_balance: minimum_balance,
         };
@@ -1483,10 +1486,11 @@ pub fn process_create_stake_account(
         compute_unit_limit,
         build_message,
         config.commitment,
-    )?;
+    )
+    .await?;
 
     if !sign_only {
-        if let Ok(stake_account) = rpc_client.get_account(&stake_account_address) {
+        if let Ok(stake_account) = rpc_client.get_account(&stake_account_address).await {
             let err_msg = if stake_account.owner == stake::program::id() {
                 format!("Stake account {stake_account_address} already exists")
             } else {
@@ -1495,8 +1499,9 @@ pub fn process_create_stake_account(
             return Err(CliError::BadParameter(err_msg).into());
         }
 
-        let minimum_balance =
-            rpc_client.get_minimum_balance_for_rent_exemption(StakeStateV2::size_of())?;
+        let minimum_balance = rpc_client
+            .get_minimum_balance_for_rent_exemption(StakeStateV2::size_of())
+            .await?;
         if lamports < minimum_balance {
             return Err(CliError::BadParameter(format!(
                 "need at least {minimum_balance} lamports for stake account to be rent exempt, \
@@ -1506,11 +1511,13 @@ pub fn process_create_stake_account(
         }
 
         if let Some(nonce_account) = &nonce_account {
-            let nonce_account = solana_rpc_client_nonce_utils::get_account_with_commitment(
-                rpc_client,
-                nonce_account,
-                config.commitment,
-            )?;
+            let nonce_account =
+                solana_rpc_client_nonce_utils::nonblocking::get_account_with_commitment(
+                    rpc_client,
+                    nonce_account,
+                    config.commitment,
+                )
+                .await?;
             check_nonce_account(&nonce_account, &nonce_authority.pubkey(), &recent_blockhash)?;
         }
     }
@@ -1527,19 +1534,21 @@ pub fn process_create_stake_account(
         )
     } else {
         tx.try_sign(&config.signers, recent_blockhash)?;
-        let result = rpc_client.send_and_confirm_transaction_with_spinner_and_config(
-            &tx,
-            config.commitment,
-            config.send_transaction_config,
-        );
+        let result = rpc_client
+            .send_and_confirm_transaction_with_spinner_and_config(
+                &tx,
+                config.commitment,
+                config.send_transaction_config,
+            )
+            .await;
         log_instruction_custom_error::<SystemError>(result, config)
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn process_stake_authorize(
+pub async fn process_stake_authorize(
     rpc_client: &RpcClient,
-    config: &CliConfig,
+    config: &CliConfig<'_>,
     stake_account_pubkey: &Pubkey,
     new_authorizations: &[StakeAuthorizationIndexed],
     custodian: Option<SignerIndex>,
@@ -1556,11 +1565,7 @@ pub fn process_stake_authorize(
     let mut ixs = Vec::new();
     let custodian = custodian.map(|index| config.signers[index]);
     let current_stake_account = if !sign_only {
-        Some(get_stake_account_state(
-            rpc_client,
-            stake_account_pubkey,
-            config.commitment,
-        )?)
+        Some(get_stake_account_state(rpc_client, stake_account_pubkey, config.commitment).await?)
     } else {
         None
     };
@@ -1618,8 +1623,8 @@ pub fn process_stake_authorize(
         }
     }
     let compute_unit_limit = match blockhash_query {
-        BlockhashQuery::None(_) | BlockhashQuery::FeeCalculator(_, _) => ComputeUnitLimit::Default,
-        BlockhashQuery::All(_) => ComputeUnitLimit::Simulated,
+        BlockhashQuery::Static(_) | BlockhashQuery::Validated(_, _) => ComputeUnitLimit::Default,
+        BlockhashQuery::Rpc(_) => ComputeUnitLimit::Simulated,
     };
     ixs = ixs
         .with_memo(memo)
@@ -1628,7 +1633,9 @@ pub fn process_stake_authorize(
             compute_unit_limit,
         });
 
-    let recent_blockhash = blockhash_query.get_blockhash(rpc_client, config.commitment)?;
+    let recent_blockhash = blockhash_query
+        .get_blockhash(rpc_client, config.commitment)
+        .await?;
 
     let nonce_authority = config.signers[nonce_authority];
     let fee_payer = config.signers[fee_payer];
@@ -1643,7 +1650,7 @@ pub fn process_stake_authorize(
     } else {
         Message::new(&ixs, Some(&fee_payer.pubkey()))
     };
-    simulate_and_update_compute_unit_limit(&compute_unit_limit, rpc_client, &mut message)?;
+    simulate_and_update_compute_unit_limit(&compute_unit_limit, rpc_client, &mut message).await?;
     let mut tx = Transaction::new_unsigned(message);
 
     if sign_only {
@@ -1658,11 +1665,13 @@ pub fn process_stake_authorize(
     } else {
         tx.try_sign(&config.signers, recent_blockhash)?;
         if let Some(nonce_account) = &nonce_account {
-            let nonce_account = solana_rpc_client_nonce_utils::get_account_with_commitment(
-                rpc_client,
-                nonce_account,
-                config.commitment,
-            )?;
+            let nonce_account =
+                solana_rpc_client_nonce_utils::nonblocking::get_account_with_commitment(
+                    rpc_client,
+                    nonce_account,
+                    config.commitment,
+                )
+                .await?;
             check_nonce_account(&nonce_account, &nonce_authority.pubkey(), &recent_blockhash)?;
         }
         check_account_for_fee_with_commitment(
@@ -1670,24 +1679,29 @@ pub fn process_stake_authorize(
             &tx.message.account_keys[0],
             &tx.message,
             config.commitment,
-        )?;
+        )
+        .await?;
         let result = if no_wait {
-            rpc_client.send_transaction_with_config(&tx, config.send_transaction_config)
+            rpc_client
+                .send_transaction_with_config(&tx, config.send_transaction_config)
+                .await
         } else {
-            rpc_client.send_and_confirm_transaction_with_spinner_and_config(
-                &tx,
-                config.commitment,
-                config.send_transaction_config,
-            )
+            rpc_client
+                .send_and_confirm_transaction_with_spinner_and_config(
+                    &tx,
+                    config.commitment,
+                    config.send_transaction_config,
+                )
+                .await
         };
         log_instruction_custom_error::<StakeError>(result, config)
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn process_deactivate_stake_account(
+pub async fn process_deactivate_stake_account(
     rpc_client: &RpcClient,
-    config: &CliConfig,
+    config: &CliConfig<'_>,
     stake_account_pubkey: &Pubkey,
     stake_authority: SignerIndex,
     sign_only: bool,
@@ -1701,7 +1715,9 @@ pub fn process_deactivate_stake_account(
     fee_payer: SignerIndex,
     compute_unit_price: Option<u64>,
 ) -> ProcessResult {
-    let recent_blockhash = blockhash_query.get_blockhash(rpc_client, config.commitment)?;
+    let recent_blockhash = blockhash_query
+        .get_blockhash(rpc_client, config.commitment)
+        .await?;
 
     let stake_account_address = if let Some(seed) = seed {
         Pubkey::create_with_seed(stake_account_pubkey, seed, &stake::program::id())?
@@ -1709,12 +1725,16 @@ pub fn process_deactivate_stake_account(
         *stake_account_pubkey
     };
 
+    // DeactivateDelinquent parses a VoteState, which may change between simulation and execution
     let compute_unit_limit = match blockhash_query {
-        BlockhashQuery::None(_) | BlockhashQuery::FeeCalculator(_, _) => ComputeUnitLimit::Default,
-        BlockhashQuery::All(_) => ComputeUnitLimit::Simulated,
+        BlockhashQuery::Static(_) | BlockhashQuery::Validated(_, _) => ComputeUnitLimit::Default,
+        BlockhashQuery::Rpc(_) if deactivate_delinquent => {
+            ComputeUnitLimit::SimulatedWithExtraPercentage(5)
+        }
+        BlockhashQuery::Rpc(_) => ComputeUnitLimit::Simulated,
     };
     let ixs = vec![if deactivate_delinquent {
-        let stake_account = rpc_client.get_account(&stake_account_address)?;
+        let stake_account = rpc_client.get_account(&stake_account_address).await?;
         if stake_account.owner != stake::program::id() {
             return Err(CliError::BadParameter(format!(
                 "{stake_account_address} is not a stake account",
@@ -1729,24 +1749,25 @@ pub fn process_deactivate_stake_account(
                     return Err(CliError::BadParameter(format!(
                         "{stake_account_address} is not a delegated stake account",
                     ))
-                    .into())
+                    .into());
                 }
             },
             Err(err) => {
                 return Err(CliError::RpcRequestError(format!(
                     "Account data could not be deserialized to stake state: {err}"
                 ))
-                .into())
+                .into());
             }
         };
 
-        let current_epoch = rpc_client.get_epoch_info()?.epoch;
+        let current_epoch = rpc_client.get_epoch_info().await?.epoch;
 
         let (_, vote_state) = crate::vote::get_vote_account(
             rpc_client,
             &vote_account_address,
             rpc_client.commitment(),
-        )?;
+        )
+        .await?;
         if !eligible_for_deactivate_delinquent(&vote_state.epoch_credits, current_epoch) {
             return Err(CliError::BadParameter(format!(
                 "Stake has not been delinquent for {} epochs",
@@ -1757,7 +1778,8 @@ pub fn process_deactivate_stake_account(
 
         // Search for a reference vote account
         let reference_vote_account_address = rpc_client
-            .get_vote_accounts()?
+            .get_vote_accounts()
+            .await?
             .current
             .into_iter()
             .find(|vote_account_info| {
@@ -1798,7 +1820,7 @@ pub fn process_deactivate_stake_account(
     } else {
         Message::new(&ixs, Some(&fee_payer.pubkey()))
     };
-    simulate_and_update_compute_unit_limit(&compute_unit_limit, rpc_client, &mut message)?;
+    simulate_and_update_compute_unit_limit(&compute_unit_limit, rpc_client, &mut message).await?;
     let mut tx = Transaction::new_unsigned(message);
 
     if sign_only {
@@ -1813,11 +1835,13 @@ pub fn process_deactivate_stake_account(
     } else {
         tx.try_sign(&config.signers, recent_blockhash)?;
         if let Some(nonce_account) = &nonce_account {
-            let nonce_account = solana_rpc_client_nonce_utils::get_account_with_commitment(
-                rpc_client,
-                nonce_account,
-                config.commitment,
-            )?;
+            let nonce_account =
+                solana_rpc_client_nonce_utils::nonblocking::get_account_with_commitment(
+                    rpc_client,
+                    nonce_account,
+                    config.commitment,
+                )
+                .await?;
             check_nonce_account(&nonce_account, &nonce_authority.pubkey(), &recent_blockhash)?;
         }
         check_account_for_fee_with_commitment(
@@ -1825,20 +1849,23 @@ pub fn process_deactivate_stake_account(
             &tx.message.account_keys[0],
             &tx.message,
             config.commitment,
-        )?;
-        let result = rpc_client.send_and_confirm_transaction_with_spinner_and_config(
-            &tx,
-            config.commitment,
-            config.send_transaction_config,
-        );
+        )
+        .await?;
+        let result = rpc_client
+            .send_and_confirm_transaction_with_spinner_and_config(
+                &tx,
+                config.commitment,
+                config.send_transaction_config,
+            )
+            .await;
         log_instruction_custom_error::<StakeError>(result, config)
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn process_withdraw_stake(
+pub async fn process_withdraw_stake(
     rpc_client: &RpcClient,
-    config: &CliConfig,
+    config: &CliConfig<'_>,
     stake_account_pubkey: &Pubkey,
     destination_account_pubkey: &Pubkey,
     amount: SpendAmount,
@@ -1863,14 +1890,16 @@ pub fn process_withdraw_stake(
         *stake_account_pubkey
     };
 
-    let recent_blockhash = blockhash_query.get_blockhash(rpc_client, config.commitment)?;
+    let recent_blockhash = blockhash_query
+        .get_blockhash(rpc_client, config.commitment)
+        .await?;
 
     let fee_payer = config.signers[fee_payer];
     let nonce_authority = config.signers[nonce_authority];
 
     let compute_unit_limit = match blockhash_query {
-        BlockhashQuery::None(_) | BlockhashQuery::FeeCalculator(_, _) => ComputeUnitLimit::Default,
-        BlockhashQuery::All(_) => ComputeUnitLimit::Simulated,
+        BlockhashQuery::Static(_) | BlockhashQuery::Validated(_, _) => ComputeUnitLimit::Default,
+        BlockhashQuery::Rpc(_) => ComputeUnitLimit::Simulated,
     };
     let build_message = |lamports| {
         let ixs = vec![stake_instruction::withdraw(
@@ -1908,7 +1937,8 @@ pub fn process_withdraw_stake(
         compute_unit_limit,
         build_message,
         config.commitment,
-    )?;
+    )
+    .await?;
 
     let mut tx = Transaction::new_unsigned(message);
 
@@ -1924,11 +1954,13 @@ pub fn process_withdraw_stake(
     } else {
         tx.try_sign(&config.signers, recent_blockhash)?;
         if let Some(nonce_account) = &nonce_account {
-            let nonce_account = solana_rpc_client_nonce_utils::get_account_with_commitment(
-                rpc_client,
-                nonce_account,
-                config.commitment,
-            )?;
+            let nonce_account =
+                solana_rpc_client_nonce_utils::nonblocking::get_account_with_commitment(
+                    rpc_client,
+                    nonce_account,
+                    config.commitment,
+                )
+                .await?;
             check_nonce_account(&nonce_account, &nonce_authority.pubkey(), &recent_blockhash)?;
         }
         check_account_for_fee_with_commitment(
@@ -1936,20 +1968,23 @@ pub fn process_withdraw_stake(
             &tx.message.account_keys[0],
             &tx.message,
             config.commitment,
-        )?;
-        let result = rpc_client.send_and_confirm_transaction_with_spinner_and_config(
-            &tx,
-            config.commitment,
-            config.send_transaction_config,
-        );
+        )
+        .await?;
+        let result = rpc_client
+            .send_and_confirm_transaction_with_spinner_and_config(
+                &tx,
+                config.commitment,
+                config.send_transaction_config,
+            )
+            .await;
         log_instruction_custom_error::<StakeError>(result, config)
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn process_split_stake(
+pub async fn process_split_stake(
     rpc_client: &RpcClient,
-    config: &CliConfig,
+    config: &CliConfig<'_>,
     stake_account_pubkey: &Pubkey,
     stake_authority: SignerIndex,
     sign_only: bool,
@@ -1997,14 +2032,16 @@ pub fn process_split_stake(
         split_stake_account.pubkey()
     };
 
-    let rent_exempt_reserve = if !sign_only {
-        let stake_minimum_delegation = rpc_client.get_stake_minimum_delegation()?;
+    let rent_exempt_reserve = if let Some(rent_exempt_reserve) = rent_exempt_reserve {
+        *rent_exempt_reserve
+    } else {
+        let stake_minimum_delegation = rpc_client.get_stake_minimum_delegation().await?;
         if lamports < stake_minimum_delegation {
             let lamports = Sol(lamports);
             let stake_minimum_delegation = Sol(stake_minimum_delegation);
             return Err(CliError::BadParameter(format!(
-                "need at least {stake_minimum_delegation} for minimum stake delegation, \
-                 provided: {lamports}"
+                "need at least {stake_minimum_delegation} for minimum stake delegation, provided: \
+                 {lamports}"
             ))
             .into());
         }
@@ -2017,7 +2054,8 @@ pub fn process_split_stake(
                 owner if owner == system_program::id() => {
                     if !account.data.is_empty() {
                         Err(CliError::BadParameter(format!(
-                            "Account {split_stake_account_address} has data and cannot be used to split stake"
+                            "Account {split_stake_account_address} has data and cannot be used to \
+                             split stake"
                         )))
                     } else {
                         // if `stake_account`'s owner is the system_program and its data is
@@ -2026,28 +2064,28 @@ pub fn process_split_stake(
                     }
                 }
                 _ => Err(CliError::BadParameter(format!(
-                    "Account {split_stake_account_address} already exists and cannot be used to split stake"
-                )))
+                    "Account {split_stake_account_address} already exists and cannot be used to \
+                     split stake"
+                ))),
             }
         };
         let current_balance =
-            if let Ok(stake_account) = rpc_client.get_account(&split_stake_account_address) {
+            if let Ok(stake_account) = rpc_client.get_account(&split_stake_account_address).await {
                 check_stake_account(stake_account)?
             } else {
                 0
             };
 
-        let rent_exempt_reserve =
-            rpc_client.get_minimum_balance_for_rent_exemption(StakeStateV2::size_of())?;
+        let rent_exempt_reserve = rpc_client
+            .get_minimum_balance_for_rent_exemption(StakeStateV2::size_of())
+            .await?;
 
         rent_exempt_reserve.saturating_sub(current_balance)
-    } else {
-        rent_exempt_reserve
-            .cloned()
-            .expect("rent_exempt_reserve_sol is required with sign_only")
     };
 
-    let recent_blockhash = blockhash_query.get_blockhash(rpc_client, config.commitment)?;
+    let recent_blockhash = blockhash_query
+        .get_blockhash(rpc_client, config.commitment)
+        .await?;
 
     let mut ixs = vec![];
     if rent_exempt_reserve > 0 {
@@ -2058,8 +2096,8 @@ pub fn process_split_stake(
         ));
     }
     let compute_unit_limit = match blockhash_query {
-        BlockhashQuery::None(_) | BlockhashQuery::FeeCalculator(_, _) => ComputeUnitLimit::Default,
-        BlockhashQuery::All(_) => ComputeUnitLimit::Simulated,
+        BlockhashQuery::Static(_) | BlockhashQuery::Validated(_, _) => ComputeUnitLimit::Default,
+        BlockhashQuery::Rpc(_) => ComputeUnitLimit::Simulated,
     };
     if let Some(seed) = split_stake_account_seed {
         ixs.append(
@@ -2105,7 +2143,7 @@ pub fn process_split_stake(
     } else {
         Message::new(&ixs, Some(&fee_payer.pubkey()))
     };
-    simulate_and_update_compute_unit_limit(&compute_unit_limit, rpc_client, &mut message)?;
+    simulate_and_update_compute_unit_limit(&compute_unit_limit, rpc_client, &mut message).await?;
     let mut tx = Transaction::new_unsigned(message);
 
     if sign_only {
@@ -2120,11 +2158,13 @@ pub fn process_split_stake(
     } else {
         tx.try_sign(&config.signers, recent_blockhash)?;
         if let Some(nonce_account) = &nonce_account {
-            let nonce_account = solana_rpc_client_nonce_utils::get_account_with_commitment(
-                rpc_client,
-                nonce_account,
-                config.commitment,
-            )?;
+            let nonce_account =
+                solana_rpc_client_nonce_utils::nonblocking::get_account_with_commitment(
+                    rpc_client,
+                    nonce_account,
+                    config.commitment,
+                )
+                .await?;
             check_nonce_account(&nonce_account, &nonce_authority.pubkey(), &recent_blockhash)?;
         }
         check_account_for_fee_with_commitment(
@@ -2132,20 +2172,23 @@ pub fn process_split_stake(
             &tx.message.account_keys[0],
             &tx.message,
             config.commitment,
-        )?;
-        let result = rpc_client.send_and_confirm_transaction_with_spinner_and_config(
-            &tx,
-            config.commitment,
-            config.send_transaction_config,
-        );
+        )
+        .await?;
+        let result = rpc_client
+            .send_and_confirm_transaction_with_spinner_and_config(
+                &tx,
+                config.commitment,
+                config.send_transaction_config,
+            )
+            .await;
         log_instruction_custom_error::<StakeError>(result, config)
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn process_merge_stake(
+pub async fn process_merge_stake(
     rpc_client: &RpcClient,
-    config: &CliConfig,
+    config: &CliConfig<'_>,
     stake_account_pubkey: &Pubkey,
     source_stake_account_pubkey: &Pubkey,
     stake_authority: SignerIndex,
@@ -2183,7 +2226,7 @@ pub fn process_merge_stake(
 
     if !sign_only {
         for stake_account_address in &[stake_account_pubkey, source_stake_account_pubkey] {
-            if let Ok(stake_account) = rpc_client.get_account(stake_account_address) {
+            if let Ok(stake_account) = rpc_client.get_account(stake_account_address).await {
                 if stake_account.owner != stake::program::id() {
                     return Err(CliError::BadParameter(format!(
                         "Account {stake_account_address} is not a stake account"
@@ -2194,11 +2237,13 @@ pub fn process_merge_stake(
         }
     }
 
-    let recent_blockhash = blockhash_query.get_blockhash(rpc_client, config.commitment)?;
+    let recent_blockhash = blockhash_query
+        .get_blockhash(rpc_client, config.commitment)
+        .await?;
 
     let compute_unit_limit = match blockhash_query {
-        BlockhashQuery::None(_) | BlockhashQuery::FeeCalculator(_, _) => ComputeUnitLimit::Default,
-        BlockhashQuery::All(_) => ComputeUnitLimit::Simulated,
+        BlockhashQuery::Static(_) | BlockhashQuery::Validated(_, _) => ComputeUnitLimit::Default,
+        BlockhashQuery::Rpc(_) => ComputeUnitLimit::Simulated,
     };
     let ixs = stake_instruction::merge(
         stake_account_pubkey,
@@ -2223,7 +2268,7 @@ pub fn process_merge_stake(
     } else {
         Message::new(&ixs, Some(&fee_payer.pubkey()))
     };
-    simulate_and_update_compute_unit_limit(&compute_unit_limit, rpc_client, &mut message)?;
+    simulate_and_update_compute_unit_limit(&compute_unit_limit, rpc_client, &mut message).await?;
     let mut tx = Transaction::new_unsigned(message);
 
     if sign_only {
@@ -2238,11 +2283,13 @@ pub fn process_merge_stake(
     } else {
         tx.try_sign(&config.signers, recent_blockhash)?;
         if let Some(nonce_account) = &nonce_account {
-            let nonce_account = solana_rpc_client_nonce_utils::get_account_with_commitment(
-                rpc_client,
-                nonce_account,
-                config.commitment,
-            )?;
+            let nonce_account =
+                solana_rpc_client_nonce_utils::nonblocking::get_account_with_commitment(
+                    rpc_client,
+                    nonce_account,
+                    config.commitment,
+                )
+                .await?;
             check_nonce_account(&nonce_account, &nonce_authority.pubkey(), &recent_blockhash)?;
         }
         check_account_for_fee_with_commitment(
@@ -2250,20 +2297,23 @@ pub fn process_merge_stake(
             &tx.message.account_keys[0],
             &tx.message,
             config.commitment,
-        )?;
-        let result = rpc_client.send_and_confirm_transaction_with_spinner_and_config(
-            &tx,
-            config.commitment,
-            config.send_transaction_config,
-        );
+        )
+        .await?;
+        let result = rpc_client
+            .send_and_confirm_transaction_with_spinner_and_config(
+                &tx,
+                config.commitment,
+                config.send_transaction_config,
+            )
+            .await;
         log_instruction_custom_error::<StakeError>(result, config)
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn process_stake_set_lockup(
+pub async fn process_stake_set_lockup(
     rpc_client: &RpcClient,
-    config: &CliConfig,
+    config: &CliConfig<'_>,
     stake_account_pubkey: &Pubkey,
     lockup: &LockupArgs,
     new_custodian_signer: Option<SignerIndex>,
@@ -2277,12 +2327,14 @@ pub fn process_stake_set_lockup(
     fee_payer: SignerIndex,
     compute_unit_price: Option<u64>,
 ) -> ProcessResult {
-    let recent_blockhash = blockhash_query.get_blockhash(rpc_client, config.commitment)?;
+    let recent_blockhash = blockhash_query
+        .get_blockhash(rpc_client, config.commitment)
+        .await?;
     let custodian = config.signers[custodian];
 
     let compute_unit_limit = match blockhash_query {
-        BlockhashQuery::None(_) | BlockhashQuery::FeeCalculator(_, _) => ComputeUnitLimit::Default,
-        BlockhashQuery::All(_) => ComputeUnitLimit::Simulated,
+        BlockhashQuery::Static(_) | BlockhashQuery::Validated(_, _) => ComputeUnitLimit::Default,
+        BlockhashQuery::Rpc(_) => ComputeUnitLimit::Simulated,
     };
     let ixs = vec![if new_custodian_signer.is_some() {
         stake_instruction::set_lockup_checked(stake_account_pubkey, lockup, &custodian.pubkey())
@@ -2298,7 +2350,8 @@ pub fn process_stake_set_lockup(
     let fee_payer = config.signers[fee_payer];
 
     if !sign_only {
-        let state = get_stake_account_state(rpc_client, stake_account_pubkey, config.commitment)?;
+        let state =
+            get_stake_account_state(rpc_client, stake_account_pubkey, config.commitment).await?;
         let lockup = match state {
             StakeStateV2::Stake(Meta { lockup, .. }, ..) => Some(lockup),
             StakeStateV2::Initialized(Meta { lockup, .. }) => Some(lockup),
@@ -2326,7 +2379,7 @@ pub fn process_stake_set_lockup(
     } else {
         Message::new(&ixs, Some(&fee_payer.pubkey()))
     };
-    simulate_and_update_compute_unit_limit(&compute_unit_limit, rpc_client, &mut message)?;
+    simulate_and_update_compute_unit_limit(&compute_unit_limit, rpc_client, &mut message).await?;
     let mut tx = Transaction::new_unsigned(message);
 
     if sign_only {
@@ -2341,11 +2394,13 @@ pub fn process_stake_set_lockup(
     } else {
         tx.try_sign(&config.signers, recent_blockhash)?;
         if let Some(nonce_account) = &nonce_account {
-            let nonce_account = solana_rpc_client_nonce_utils::get_account_with_commitment(
-                rpc_client,
-                nonce_account,
-                config.commitment,
-            )?;
+            let nonce_account =
+                solana_rpc_client_nonce_utils::nonblocking::get_account_with_commitment(
+                    rpc_client,
+                    nonce_account,
+                    config.commitment,
+                )
+                .await?;
             check_nonce_account(&nonce_account, &nonce_authority.pubkey(), &recent_blockhash)?;
         }
         check_account_for_fee_with_commitment(
@@ -2353,22 +2408,21 @@ pub fn process_stake_set_lockup(
             &tx.message.account_keys[0],
             &tx.message,
             config.commitment,
-        )?;
-        let result = rpc_client.send_and_confirm_transaction_with_spinner_and_config(
-            &tx,
-            config.commitment,
-            config.send_transaction_config,
-        );
+        )
+        .await?;
+        let result = rpc_client
+            .send_and_confirm_transaction_with_spinner_and_config(
+                &tx,
+                config.commitment,
+                config.send_transaction_config,
+            )
+            .await;
         log_instruction_custom_error::<StakeError>(result, config)
     }
 }
 
 fn u64_some_if_not_zero(n: u64) -> Option<u64> {
-    if n > 0 {
-        Some(n)
-    } else {
-        None
-    }
+    if n > 0 { Some(n) } else { None }
 }
 
 pub fn build_stake_state(
@@ -2472,13 +2526,14 @@ pub fn build_stake_state(
     }
 }
 
-fn get_stake_account_state(
+async fn get_stake_account_state(
     rpc_client: &RpcClient,
     stake_account_pubkey: &Pubkey,
     commitment_config: CommitmentConfig,
 ) -> Result<StakeStateV2, Box<dyn std::error::Error>> {
     let stake_account = rpc_client
-        .get_account_with_commitment(stake_account_pubkey, commitment_config)?
+        .get_account_with_commitment(stake_account_pubkey, commitment_config)
+        .await?
         .value
         .ok_or_else(|| {
             CliError::RpcRequestError(format!("{stake_account_pubkey:?} account does not exist"))
@@ -2511,18 +2566,18 @@ pub(crate) fn check_current_authority(
     }
 }
 
-pub fn get_epoch_boundary_timestamps(
+pub async fn get_epoch_boundary_timestamps(
     rpc_client: &RpcClient,
     reward: &RpcInflationReward,
     epoch_schedule: &EpochSchedule,
 ) -> Result<(UnixTimestamp, UnixTimestamp), Box<dyn std::error::Error>> {
-    let epoch_end_time = rpc_client.get_block_time(reward.effective_slot)?;
+    let epoch_end_time = rpc_client.get_block_time(reward.effective_slot).await?;
     let mut epoch_start_slot = epoch_schedule.get_first_slot_in_epoch(reward.epoch);
     let epoch_start_time = loop {
         if epoch_start_slot >= reward.effective_slot {
             return Err("epoch_start_time not found".to_string().into());
         }
-        match rpc_client.get_block_time(epoch_start_slot) {
+        match rpc_client.get_block_time(epoch_start_slot).await {
             Ok(block_time) => {
                 break block_time;
             }
@@ -2569,41 +2624,39 @@ pub fn make_cli_reward(
     }
 }
 
-pub(crate) fn fetch_epoch_rewards(
+pub(crate) async fn fetch_epoch_rewards(
     rpc_client: &RpcClient,
     address: &Pubkey,
     mut num_epochs: usize,
     starting_epoch: Option<u64>,
 ) -> Result<Vec<CliEpochReward>, Box<dyn std::error::Error>> {
     let mut all_epoch_rewards = vec![];
-    let epoch_schedule = rpc_client.get_epoch_schedule()?;
+    let epoch_schedule = rpc_client.get_epoch_schedule().await?;
     let mut rewards_epoch = if let Some(epoch) = starting_epoch {
         epoch
     } else {
         rpc_client
-            .get_epoch_info()?
+            .get_epoch_info()
+            .await?
             .epoch
             .saturating_sub(num_epochs as u64)
     };
 
-    let mut process_reward =
-        |reward: &Option<RpcInflationReward>| -> Result<(), Box<dyn std::error::Error>> {
-            if let Some(reward) = reward {
+    while num_epochs > 0 {
+        if let Ok(rewards) = rpc_client
+            .get_inflation_reward(&[*address], Some(rewards_epoch))
+            .await
+        {
+            if let Some(reward) = &rewards[0] {
                 let (epoch_start_time, epoch_end_time) =
-                    get_epoch_boundary_timestamps(rpc_client, reward, &epoch_schedule)?;
-                let block_time = rpc_client.get_block_time(reward.effective_slot)?;
+                    get_epoch_boundary_timestamps(rpc_client, reward, &epoch_schedule).await?;
+                let block_time = rpc_client.get_block_time(reward.effective_slot).await?;
                 if let Some(cli_reward) =
                     make_cli_reward(reward, block_time, epoch_start_time, epoch_end_time)
                 {
                     all_epoch_rewards.push(cli_reward);
                 }
             }
-            Ok(())
-        };
-
-    while num_epochs > 0 {
-        if let Ok(rewards) = rpc_client.get_inflation_reward(&[*address], Some(rewards_epoch)) {
-            process_reward(&rewards[0])?;
         } else {
             eprintln!("Rewards not available for epoch {rewards_epoch}");
         }
@@ -2614,36 +2667,58 @@ pub(crate) fn fetch_epoch_rewards(
     Ok(all_epoch_rewards)
 }
 
-pub fn process_show_stake_account(
+pub async fn process_show_stake_account(
     rpc_client: &RpcClient,
-    config: &CliConfig,
+    config: &CliConfig<'_>,
     stake_account_address: &Pubkey,
     use_lamports_unit: bool,
     with_rewards: Option<usize>,
     use_csv: bool,
     starting_epoch: Option<u64>,
 ) -> ProcessResult {
-    let stake_account = rpc_client.get_account(stake_account_address)?;
+    let stake_account = rpc_client.get_account(stake_account_address).await?;
+    let state = get_account_stake_state(
+        rpc_client,
+        stake_account_address,
+        stake_account,
+        use_lamports_unit,
+        with_rewards,
+        use_csv,
+        starting_epoch,
+    )
+    .await?;
+    Ok(config.output_format.formatted_string(&state))
+}
+
+pub async fn get_account_stake_state(
+    rpc_client: &RpcClient,
+    stake_account_address: &Pubkey,
+    stake_account: solana_account::Account,
+    use_lamports_unit: bool,
+    with_rewards: Option<usize>,
+    use_csv: bool,
+    starting_epoch: Option<u64>,
+) -> Result<CliStakeState, CliError> {
     if stake_account.owner != stake::program::id() {
         return Err(CliError::RpcRequestError(format!(
             "{stake_account_address:?} is not a stake account",
-        ))
-        .into());
+        )));
     }
     match stake_account.state() {
         Ok(stake_state) => {
-            let stake_history_account = rpc_client.get_account(&stake_history::id())?;
+            let stake_history_account = rpc_client.get_account(&stake_history::id()).await?;
             let stake_history = from_account(&stake_history_account).ok_or_else(|| {
                 CliError::RpcRequestError("Failed to deserialize stake history".to_string())
             })?;
-            let clock_account = rpc_client.get_account(&clock::id())?;
+            let clock_account = rpc_client.get_account(&clock::id()).await?;
             let clock: Clock = from_account(&clock_account).ok_or_else(|| {
                 CliError::RpcRequestError("Failed to deserialize clock sysvar".to_string())
             })?;
             let new_rate_activation_epoch = get_feature_activation_epoch(
                 rpc_client,
                 &agave_feature_set::reduce_stake_warmup_cooldown::id(),
-            )?;
+            )
+            .await?;
 
             let mut state = build_stake_state(
                 stake_account.lamports,
@@ -2656,38 +2731,38 @@ pub fn process_show_stake_account(
             );
 
             if state.stake_type == CliStakeType::Stake && state.activation_epoch.is_some() {
-                let epoch_rewards = with_rewards.and_then(|num_epochs| {
-                    match fetch_epoch_rewards(
+                if let Some(num_epochs) = with_rewards {
+                    state.epoch_rewards = match fetch_epoch_rewards(
                         rpc_client,
                         stake_account_address,
                         num_epochs,
                         starting_epoch,
-                    ) {
+                    )
+                    .await
+                    {
                         Ok(rewards) => Some(rewards),
                         Err(error) => {
                             eprintln!("Failed to fetch epoch rewards: {error:?}");
                             None
                         }
-                    }
-                });
-                state.epoch_rewards = epoch_rewards;
+                    };
+                }
             }
-            Ok(config.output_format.formatted_string(&state))
+            Ok(state)
         }
         Err(err) => Err(CliError::RpcRequestError(format!(
             "Account data could not be deserialized to stake state: {err}"
-        ))
-        .into()),
+        ))),
     }
 }
 
-pub fn process_show_stake_history(
+pub async fn process_show_stake_history(
     rpc_client: &RpcClient,
-    config: &CliConfig,
+    config: &CliConfig<'_>,
     use_lamports_unit: bool,
     limit_results: usize,
 ) -> ProcessResult {
-    let stake_history_account = rpc_client.get_account(&stake_history::id())?;
+    let stake_history_account = rpc_client.get_account(&stake_history::id()).await?;
     let stake_history =
         from_account::<StakeHistory, _>(&stake_history_account).ok_or_else(|| {
             CliError::RpcRequestError("Failed to deserialize stake history".to_string())
@@ -2715,9 +2790,9 @@ pub fn process_show_stake_history(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn process_delegate_stake(
+pub async fn process_delegate_stake(
     rpc_client: &RpcClient,
-    config: &CliConfig,
+    config: &CliConfig<'_>,
     stake_account_pubkey: &Pubkey,
     vote_account_pubkey: &Pubkey,
     stake_authority: SignerIndex,
@@ -2749,7 +2824,9 @@ pub fn process_delegate_stake(
         let RpcVoteAccountStatus {
             current,
             delinquent,
-        } = rpc_client.get_vote_accounts_with_config(get_vote_accounts_config)?;
+        } = rpc_client
+            .get_vote_accounts_with_config(get_vote_accounts_config)
+            .await?;
         // filter should return at most one result
         let rpc_vote_account =
             current
@@ -2763,6 +2840,7 @@ pub fn process_delegate_stake(
         let root_slot = rpc_vote_account.root_slot;
         let min_root_slot = rpc_client
             .get_slot()
+            .await
             .map(|slot| slot.saturating_sub(DELINQUENT_VALIDATOR_SLOT_DISTANCE))?;
         let sanity_check_result = if root_slot >= min_root_slot || activated_stake == 0 {
             Ok(())
@@ -2786,11 +2864,14 @@ pub fn process_delegate_stake(
         }
     }
 
-    let recent_blockhash = blockhash_query.get_blockhash(rpc_client, config.commitment)?;
+    let recent_blockhash = blockhash_query
+        .get_blockhash(rpc_client, config.commitment)
+        .await?;
 
+    // DelegateStake parses a VoteState, which may change between simulation and execution
     let compute_unit_limit = match blockhash_query {
-        BlockhashQuery::None(_) | BlockhashQuery::FeeCalculator(_, _) => ComputeUnitLimit::Default,
-        BlockhashQuery::All(_) => ComputeUnitLimit::Simulated,
+        BlockhashQuery::Static(_) | BlockhashQuery::Validated(_, _) => ComputeUnitLimit::Default,
+        BlockhashQuery::Rpc(_) => ComputeUnitLimit::SimulatedWithExtraPercentage(5),
     };
     let ixs = vec![stake_instruction::delegate_stake(
         stake_account_pubkey,
@@ -2816,7 +2897,7 @@ pub fn process_delegate_stake(
     } else {
         Message::new(&ixs, Some(&fee_payer.pubkey()))
     };
-    simulate_and_update_compute_unit_limit(&compute_unit_limit, rpc_client, &mut message)?;
+    simulate_and_update_compute_unit_limit(&compute_unit_limit, rpc_client, &mut message).await?;
     let mut tx = Transaction::new_unsigned(message);
 
     if sign_only {
@@ -2831,11 +2912,13 @@ pub fn process_delegate_stake(
     } else {
         tx.try_sign(&config.signers, recent_blockhash)?;
         if let Some(nonce_account) = &nonce_account {
-            let nonce_account = solana_rpc_client_nonce_utils::get_account_with_commitment(
-                rpc_client,
-                nonce_account,
-                config.commitment,
-            )?;
+            let nonce_account =
+                solana_rpc_client_nonce_utils::nonblocking::get_account_with_commitment(
+                    rpc_client,
+                    nonce_account,
+                    config.commitment,
+                )
+                .await?;
             check_nonce_account(&nonce_account, &nonce_authority.pubkey(), &recent_blockhash)?;
         }
         check_account_for_fee_with_commitment(
@@ -2843,23 +2926,27 @@ pub fn process_delegate_stake(
             &tx.message.account_keys[0],
             &tx.message,
             config.commitment,
-        )?;
-        let result = rpc_client.send_and_confirm_transaction_with_spinner_and_config(
-            &tx,
-            config.commitment,
-            config.send_transaction_config,
-        );
+        )
+        .await?;
+        let result = rpc_client
+            .send_and_confirm_transaction_with_spinner_and_config(
+                &tx,
+                config.commitment,
+                config.send_transaction_config,
+            )
+            .await;
         log_instruction_custom_error::<StakeError>(result, config)
     }
 }
 
-pub fn process_stake_minimum_delegation(
+pub async fn process_stake_minimum_delegation(
     rpc_client: &RpcClient,
-    config: &CliConfig,
+    config: &CliConfig<'_>,
     use_lamports_unit: bool,
 ) -> ProcessResult {
-    let stake_minimum_delegation =
-        rpc_client.get_stake_minimum_delegation_with_commitment(config.commitment)?;
+    let stake_minimum_delegation = rpc_client
+        .get_stake_minimum_delegation_with_commitment(config.commitment)
+        .await?;
 
     let stake_minimum_delegation_output = CliBalance {
         lamports: stake_minimum_delegation,
@@ -2881,9 +2968,9 @@ mod tests {
         super::*,
         crate::{clap_app::get_clap_app, cli::parse_command},
         solana_hash::Hash,
-        solana_keypair::{keypair_from_seed, read_keypair_file, write_keypair, Keypair},
+        solana_keypair::{Keypair, keypair_from_seed, read_keypair_file, write_keypair},
         solana_presigner::Presigner,
-        solana_rpc_client_nonce_utils::blockhash_query,
+        solana_rpc_client_nonce_utils::nonblocking::blockhash_query::Source,
         solana_signer::Signer,
         tempfile::NamedTempFile,
     };
@@ -2948,7 +3035,7 @@ mod tests {
                     ],
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -2997,7 +3084,7 @@ mod tests {
                     ],
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -3046,7 +3133,7 @@ mod tests {
                     ],
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -3081,7 +3168,7 @@ mod tests {
                     }],
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -3115,7 +3202,7 @@ mod tests {
                     }],
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -3153,7 +3240,7 @@ mod tests {
                     }],
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -3188,7 +3275,7 @@ mod tests {
                     }],
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -3222,7 +3309,7 @@ mod tests {
                     }],
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -3260,7 +3347,7 @@ mod tests {
                     }],
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -3307,7 +3394,7 @@ mod tests {
                     ],
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -3359,7 +3446,7 @@ mod tests {
                     ],
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -3409,7 +3496,7 @@ mod tests {
                     ],
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -3445,7 +3532,7 @@ mod tests {
                     }],
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -3482,7 +3569,7 @@ mod tests {
                     }],
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -3521,7 +3608,7 @@ mod tests {
                     }],
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -3557,7 +3644,7 @@ mod tests {
                     }],
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -3594,7 +3681,7 @@ mod tests {
                     }],
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -3633,7 +3720,7 @@ mod tests {
                     }],
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -3675,7 +3762,7 @@ mod tests {
                     }],
                     sign_only: true,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::None(blockhash),
+                    blockhash_query: BlockhashQuery::Static(blockhash),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -3718,10 +3805,7 @@ mod tests {
                     }],
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::FeeCalculator(
-                        blockhash_query::Source::Cluster,
-                        blockhash
-                    ),
+                    blockhash_query: BlockhashQuery::Validated(Source::Cluster, blockhash),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -3774,8 +3858,8 @@ mod tests {
                     }],
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::FeeCalculator(
-                        blockhash_query::Source::NonceAccount(nonce_account),
+                    blockhash_query: BlockhashQuery::Validated(
+                        Source::NonceAccount(nonce_account),
                         blockhash
                     ),
                     nonce_account: Some(nonce_account),
@@ -3816,10 +3900,7 @@ mod tests {
                     }],
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::FeeCalculator(
-                        blockhash_query::Source::Cluster,
-                        blockhash
-                    ),
+                    blockhash_query: BlockhashQuery::Validated(Source::Cluster, blockhash),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -3863,8 +3944,8 @@ mod tests {
                     }],
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::FeeCalculator(
-                        blockhash_query::Source::NonceAccount(nonce_account_pubkey),
+                    blockhash_query: BlockhashQuery::Validated(
+                        Source::NonceAccount(nonce_account_pubkey),
                         blockhash
                     ),
                     nonce_account: Some(nonce_account_pubkey),
@@ -3909,7 +3990,7 @@ mod tests {
                     }],
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -3953,10 +4034,7 @@ mod tests {
                     }],
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::FeeCalculator(
-                        blockhash_query::Source::Cluster,
-                        blockhash
-                    ),
+                    blockhash_query: BlockhashQuery::Validated(Source::Cluster, blockhash),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -4008,7 +4086,7 @@ mod tests {
                     amount: SpendAmount::Some(50_000_000_000),
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -4049,7 +4127,7 @@ mod tests {
                     amount: SpendAmount::Some(50_000_000_000),
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -4089,7 +4167,7 @@ mod tests {
                     amount: SpendAmount::Some(50_000_000_000),
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -4159,8 +4237,8 @@ mod tests {
                     amount: SpendAmount::Some(50_000_000_000),
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::FeeCalculator(
-                        blockhash_query::Source::NonceAccount(nonce_account),
+                    blockhash_query: BlockhashQuery::Validated(
+                        Source::NonceAccount(nonce_account),
                         nonce_hash
                     ),
                     nonce_account: Some(nonce_account),
@@ -4292,10 +4370,7 @@ mod tests {
                     force: false,
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::FeeCalculator(
-                        blockhash_query::Source::Cluster,
-                        blockhash
-                    ),
+                    blockhash_query: BlockhashQuery::Validated(Source::Cluster, blockhash),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -4325,7 +4400,7 @@ mod tests {
                     force: false,
                     sign_only: true,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::None(blockhash),
+                    blockhash_query: BlockhashQuery::Static(blockhash),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -4362,10 +4437,7 @@ mod tests {
                     force: false,
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::FeeCalculator(
-                        blockhash_query::Source::Cluster,
-                        blockhash
-                    ),
+                    blockhash_query: BlockhashQuery::Validated(Source::Cluster, blockhash),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -4411,8 +4483,8 @@ mod tests {
                     force: false,
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::FeeCalculator(
-                        blockhash_query::Source::NonceAccount(nonce_account),
+                    blockhash_query: BlockhashQuery::Validated(
+                        Source::NonceAccount(nonce_account),
                         blockhash
                     ),
                     nonce_account: Some(nonce_account),
@@ -4451,7 +4523,7 @@ mod tests {
                     force: false,
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -4485,7 +4557,39 @@ mod tests {
                     custodian: None,
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
+                    nonce_account: None,
+                    nonce_authority: 0,
+                    memo: None,
+                    seed: None,
+                    fee_payer: 0,
+                    compute_unit_price: None,
+                },
+                signers: vec![Box::new(read_keypair_file(&default_keypair_file).unwrap())],
+            }
+        );
+
+        // Test WithdrawStake Subcommand w/ AVAILABLE amount
+        let test_withdraw_stake = test_commands.clone().get_matches_from(vec![
+            "test",
+            "withdraw-stake",
+            &stake_account_string,
+            &stake_account_string,
+            "AVAILABLE",
+        ]);
+
+        assert_eq!(
+            parse_command(&test_withdraw_stake, &default_signer, &mut None).unwrap(),
+            CliCommandInfo {
+                command: CliCommand::WithdrawStake {
+                    stake_account_pubkey,
+                    destination_account_pubkey: stake_account_pubkey,
+                    amount: SpendAmount::Available,
+                    withdraw_authority: 0,
+                    custodian: None,
+                    sign_only: false,
+                    dump_transaction_message: false,
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -4519,7 +4623,7 @@ mod tests {
                     custodian: None,
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -4553,7 +4657,7 @@ mod tests {
                     custodian: None,
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -4590,7 +4694,7 @@ mod tests {
                     custodian: Some(1),
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -4637,8 +4741,8 @@ mod tests {
                     custodian: None,
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::FeeCalculator(
-                        blockhash_query::Source::NonceAccount(nonce_account),
+                    blockhash_query: BlockhashQuery::Validated(
+                        Source::NonceAccount(nonce_account),
                         nonce_hash
                     ),
                     nonce_account: Some(nonce_account),
@@ -4761,10 +4865,7 @@ mod tests {
                     sign_only: false,
                     deactivate_delinquent: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::FeeCalculator(
-                        blockhash_query::Source::Cluster,
-                        blockhash
-                    ),
+                    blockhash_query: BlockhashQuery::Validated(Source::Cluster, blockhash),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -4793,7 +4894,7 @@ mod tests {
                     sign_only: true,
                     deactivate_delinquent: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::None(blockhash),
+                    blockhash_query: BlockhashQuery::Static(blockhash),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -4829,10 +4930,7 @@ mod tests {
                     sign_only: false,
                     deactivate_delinquent: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::FeeCalculator(
-                        blockhash_query::Source::Cluster,
-                        blockhash
-                    ),
+                    blockhash_query: BlockhashQuery::Validated(Source::Cluster, blockhash),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -4877,8 +4975,8 @@ mod tests {
                     sign_only: false,
                     deactivate_delinquent: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::FeeCalculator(
-                        blockhash_query::Source::NonceAccount(nonce_account),
+                    blockhash_query: BlockhashQuery::Validated(
+                        Source::NonceAccount(nonce_account),
                         blockhash
                     ),
                     nonce_account: Some(nonce_account),
@@ -4913,7 +5011,7 @@ mod tests {
                     sign_only: false,
                     deactivate_delinquent: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::All(blockhash_query::Source::Cluster),
+                    blockhash_query: BlockhashQuery::Rpc(Source::Cluster),
                     nonce_account: None,
                     nonce_authority: 0,
                     memo: None,
@@ -5014,8 +5112,8 @@ mod tests {
                     stake_authority: 0,
                     sign_only: false,
                     dump_transaction_message: false,
-                    blockhash_query: BlockhashQuery::FeeCalculator(
-                        blockhash_query::Source::NonceAccount(nonce_account),
+                    blockhash_query: BlockhashQuery::Validated(
+                        Source::NonceAccount(nonce_account),
                         nonce_hash
                     ),
                     nonce_account: Some(nonce_account),

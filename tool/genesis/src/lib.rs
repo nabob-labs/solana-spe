@@ -1,3 +1,4 @@
+#![cfg(feature = "agave-unstable-api")]
 #![allow(clippy::arithmetic_side_effects)]
 pub mod address_generator;
 pub mod genesis_accounts;
@@ -29,4 +30,5 @@ pub struct StakedValidatorAccountInfo {
     pub identity_account: String,
     pub vote_account: String,
     pub stake_account: String,
+    pub bls_pubkey: Option<String>,
 }

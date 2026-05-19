@@ -1,11 +1,9 @@
 use {
     super::Bank,
+    crate::inflation_rewards::points::PointValue,
     log::info,
-    solana_sdk::{
-        account::{create_account_shared_data_with_fields as create_account, from_account},
-        sysvar,
-    },
-    solana_stake_program::points::PointValue,
+    solana_account::{create_account_shared_data_with_fields as create_account, from_account},
+    solana_sysvar as sysvar,
 };
 
 impl Bank {
@@ -14,7 +12,7 @@ impl Bank {
         if let Some(account) = self.get_account(&sysvar::epoch_rewards::id()) {
             let epoch_rewards: sysvar::epoch_rewards::EpochRewards =
                 from_account(&account).unwrap();
-            info!("{prefix} epoch_rewards sysvar: {:?}", epoch_rewards);
+            info!("{prefix} epoch_rewards sysvar: {epoch_rewards:?}");
         } else {
             info!("{prefix} epoch_rewards sysvar: none");
         }
@@ -28,7 +26,7 @@ impl Bank {
         distributed_rewards: u64,
         distribution_starting_block_height: u64,
         num_partitions: u64,
-        point_value: PointValue,
+        point_value: &PointValue,
     ) {
         assert!(point_value.rewards >= distributed_rewards);
 
@@ -107,13 +105,9 @@ impl Bank {
 #[cfg(test)]
 mod tests {
     use {
-        super::*,
-        crate::bank::tests::create_genesis_config,
-        solana_sdk::{
-            account::ReadableAccount, epoch_schedule::EpochSchedule,
-            native_token::LAMPORTS_PER_SOL, pubkey::Pubkey,
-        },
-        std::sync::Arc,
+        super::*, crate::bank::tests::create_genesis_config, solana_account::ReadableAccount,
+        solana_epoch_schedule::EpochSchedule, solana_native_token::LAMPORTS_PER_SOL,
+        solana_pubkey::Pubkey, std::sync::Arc,
     };
 
     /// Test `EpochRewards` sysvar creation, distribution, and burning.
@@ -151,7 +145,7 @@ mod tests {
             sysvar::epoch_rewards::EpochRewards::default()
         );
 
-        bank.create_epoch_rewards_sysvar(10, 42, num_partitions, point_value.clone());
+        bank.create_epoch_rewards_sysvar(10, 42, num_partitions, &point_value);
         let account = bank.get_account(&sysvar::epoch_rewards::id()).unwrap();
         let expected_balance = bank.get_minimum_balance_for_rent_exemption(account.data().len());
         // Expected balance is the sysvar rent-exempt balance
@@ -165,7 +159,7 @@ mod tests {
         let bank = Bank::new_from_parent(Arc::new(bank), &Pubkey::default(), parent_slot + 1);
         // Also note that running `create_epoch_rewards_sysvar()` against a bank
         // with an existing EpochRewards sysvar clobbers the previous values
-        bank.create_epoch_rewards_sysvar(10, 42, num_partitions, point_value.clone());
+        bank.create_epoch_rewards_sysvar(10, 42, num_partitions, &point_value);
 
         let expected_epoch_rewards = sysvar::epoch_rewards::EpochRewards {
             distribution_starting_block_height: 42,

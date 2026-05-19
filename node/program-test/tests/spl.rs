@@ -1,28 +1,36 @@
 use {
-    solana_program_test::{programs::spl_programs, ProgramTest},
-    solana_sdk::{
-        bpf_loader, bpf_loader_upgradeable,
-        instruction::{AccountMeta, Instruction},
-        pubkey::Pubkey,
-        signature::Signer,
-        signer::keypair::Keypair,
-        system_instruction,
-        sysvar::rent,
-        transaction::Transaction,
-    },
+    solana_instruction::{AccountMeta, Instruction},
+    solana_keypair::Keypair,
+    solana_program_binaries::spl_programs,
+    solana_program_test::ProgramTest,
+    solana_pubkey::Pubkey,
+    solana_sdk_ids::{bpf_loader, bpf_loader_upgradeable},
+    solana_signer::Signer,
+    solana_system_interface::instruction as system_instruction,
+    solana_sysvar::rent,
+    solana_transaction::Transaction,
 };
 
 #[tokio::test]
 async fn programs_present() {
     let (banks_client, _, _) = ProgramTest::default().start().await;
     let rent = banks_client.get_rent().await.unwrap();
-    let token_2022_id = solana_inline_spl::token_2022::id();
+
+    let token_id = spl_generic_token::token::id();
+    let (token_programdata_id, _) =
+        Pubkey::find_program_address(&[token_id.as_ref()], &bpf_loader_upgradeable::id());
+
+    let token_2022_id = spl_generic_token::token_2022::id();
     let (token_2022_programdata_id, _) =
         Pubkey::find_program_address(&[token_2022_id.as_ref()], &bpf_loader_upgradeable::id());
 
     for (program_id, _) in spl_programs(&rent) {
         let program_account = banks_client.get_account(program_id).await.unwrap().unwrap();
-        if program_id == token_2022_id || program_id == token_2022_programdata_id {
+        if program_id == token_id
+            || program_id == token_programdata_id
+            || program_id == token_2022_id
+            || program_id == token_2022_programdata_id
+        {
             assert_eq!(program_account.owner, bpf_loader_upgradeable::id());
         } else {
             assert_eq!(program_account.owner, bpf_loader::id());
@@ -34,7 +42,7 @@ async fn programs_present() {
 async fn token_2022() {
     let (banks_client, payer, recent_blockhash) = ProgramTest::default().start().await;
 
-    let token_2022_id = solana_inline_spl::token_2022::id();
+    let token_2022_id = spl_generic_token::token_2022::id();
     let mint = Keypair::new();
     let rent = banks_client.get_rent().await.unwrap();
     let space = 82;

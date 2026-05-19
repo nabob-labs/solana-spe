@@ -1,7 +1,7 @@
 use {
     super::{ComputeBudgetInstructionDetails, RuntimeTransaction},
     crate::{
-        signature_details::get_precompile_signature_details,
+        instruction_meta::InstructionMeta,
         transaction_meta::{StaticMeta, TransactionMeta},
         transaction_with_meta::TransactionWithMeta,
     },
@@ -10,10 +10,10 @@ use {
         transaction_version::TransactionVersion, transaction_view::SanitizedTransactionView,
     },
     solana_message::{
-        compiled_instruction::CompiledInstruction,
-        v0::{LoadedAddresses, LoadedMessage, MessageAddressTableLookup},
         LegacyMessage, MessageHeader, SanitizedMessage, TransactionSignatureDetails,
         VersionedMessage,
+        compiled_instruction::CompiledInstruction,
+        v0::{LoadedAddresses, LoadedMessage, MessageAddressTableLookup},
     },
     solana_pubkey::Pubkey,
     solana_svm_transaction::svm_message::SVMMessage,
@@ -39,46 +39,70 @@ fn is_simple_vote_transaction<D: TransactionData>(
 }
 
 impl<D: TransactionData> RuntimeTransaction<SanitizedTransactionView<D>> {
-    pub fn try_from(
+    pub fn try_new(
         transaction: SanitizedTransactionView<D>,
         message_hash: MessageHash,
         is_simple_vote_tx: Option<bool>,
     ) -> Result<Self> {
-        let message_hash = match message_hash {
-            MessageHash::Precomputed(hash) => hash,
-            MessageHash::Compute => VersionedMessage::hash_raw_message(transaction.message_data()),
-        };
-        let is_simple_vote_tx =
-            is_simple_vote_tx.unwrap_or_else(|| is_simple_vote_transaction(&transaction));
-
-        let precompile_signature_details =
-            get_precompile_signature_details(transaction.program_instructions_iter());
-        let signature_details = TransactionSignatureDetails::new(
-            u64::from(transaction.num_required_signatures()),
-            precompile_signature_details.num_secp256k1_instruction_signatures,
-            precompile_signature_details.num_ed25519_instruction_signatures,
-            precompile_signature_details.num_secp256r1_instruction_signatures,
-        );
-        let compute_budget_instruction_details =
-            ComputeBudgetInstructionDetails::try_from(transaction.program_instructions_iter())?;
-
-        Ok(Self {
-            transaction,
-            meta: TransactionMeta {
-                message_hash,
-                is_simple_vote_transaction: is_simple_vote_tx,
-                signature_details,
-                compute_budget_instruction_details,
-            },
-        })
+        from_sanitized_transaction_view(&transaction, message_hash, is_simple_vote_tx)
+            .map(|meta| RuntimeTransaction { transaction, meta })
     }
+}
+
+impl<'a, D: TransactionData> RuntimeTransaction<&'a SanitizedTransactionView<D>> {
+    pub fn try_new(
+        transaction: &'a SanitizedTransactionView<D>,
+        message_hash: MessageHash,
+        is_simple_vote_tx: Option<bool>,
+    ) -> Result<Self> {
+        from_sanitized_transaction_view(transaction, message_hash, is_simple_vote_tx)
+            .map(|meta| RuntimeTransaction { transaction, meta })
+    }
+}
+
+fn from_sanitized_transaction_view<D>(
+    transaction: &SanitizedTransactionView<D>,
+    message_hash: MessageHash,
+    is_simple_vote_tx: Option<bool>,
+) -> Result<TransactionMeta>
+where
+    D: TransactionData,
+{
+    let message_hash = match message_hash {
+        MessageHash::Precomputed(hash) => hash,
+        MessageHash::Compute => VersionedMessage::hash_raw_message(transaction.message_data()),
+    };
+    let is_simple_vote_tx =
+        is_simple_vote_tx.unwrap_or_else(|| is_simple_vote_transaction(transaction));
+
+    let InstructionMeta {
+        precompile_signature_details,
+        instruction_data_len,
+    } = InstructionMeta::try_new(transaction.program_instructions_iter())?;
+
+    let signature_details = TransactionSignatureDetails::new(
+        u64::from(transaction.num_required_signatures()),
+        precompile_signature_details.num_secp256k1_instruction_signatures,
+        precompile_signature_details.num_ed25519_instruction_signatures,
+        precompile_signature_details.num_secp256r1_instruction_signatures,
+    );
+    let compute_budget_instruction_details =
+        ComputeBudgetInstructionDetails::try_from(transaction.program_instructions_iter())?;
+
+    Ok(TransactionMeta {
+        message_hash,
+        is_simple_vote_transaction: is_simple_vote_tx,
+        signature_details,
+        compute_budget_instruction_details,
+        instruction_data_len,
+    })
 }
 
 impl<D: TransactionData> RuntimeTransaction<ResolvedTransactionView<D>> {
     /// Create a new `RuntimeTransaction<ResolvedTransactionView>` from a
     /// `RuntimeTransaction<SanitizedTransactionView>` that already has
     /// static metadata loaded.
-    pub fn try_from(
+    pub fn try_new(
         statically_loaded_runtime_tx: RuntimeTransaction<SanitizedTransactionView<D>>,
         loaded_addresses: Option<LoadedAddresses>,
         reserved_account_keys: &HashSet<Pubkey>,
@@ -103,7 +127,7 @@ impl<D: TransactionData> RuntimeTransaction<ResolvedTransactionView<D>> {
 }
 
 impl<D: TransactionData> TransactionWithMeta for RuntimeTransaction<ResolvedTransactionView<D>> {
-    fn as_sanitized_transaction(&self) -> Cow<SanitizedTransaction> {
+    fn as_sanitized_transaction(&self) -> Cow<'_, SanitizedTransaction> {
         let VersionedTransaction {
             signatures,
             message,
@@ -186,6 +210,10 @@ impl<D: TransactionData> TransactionWithMeta for RuntimeTransaction<ResolvedTran
             message,
         }
     }
+
+    fn serialized_size(&self) -> usize {
+        self.transaction.data().len()
+    }
 }
 
 #[cfg(test)]
@@ -195,7 +223,7 @@ mod tests {
         agave_reserved_account_keys::ReservedAccountKeys,
         solana_hash::Hash,
         solana_keypair::Keypair,
-        solana_message::{v0, AddressLookupTableAccount, SimpleAddressLoader},
+        solana_message::{AddressLookupTableAccount, SimpleAddressLoader, v0},
         solana_signature::Signature,
         solana_system_interface::instruction as system_instruction,
         solana_system_transaction as system_transaction,
@@ -216,9 +244,10 @@ mod tests {
 
         let hash = Hash::new_unique();
         let transaction =
-            SanitizedTransactionView::try_new_sanitized(&serialized_transaction[..]).unwrap();
+            SanitizedTransactionView::try_new_sanitized(&serialized_transaction[..], true, true)
+                .unwrap();
         let static_runtime_transaction =
-            RuntimeTransaction::<SanitizedTransactionView<_>>::try_from(
+            RuntimeTransaction::<SanitizedTransactionView<_>>::try_new(
                 transaction,
                 MessageHash::Precomputed(hash),
                 None,
@@ -229,7 +258,7 @@ mod tests {
         assert!(!static_runtime_transaction.is_simple_vote_transaction());
 
         let dynamic_runtime_transaction =
-            RuntimeTransaction::<ResolvedTransactionView<_>>::try_from(
+            RuntimeTransaction::<ResolvedTransactionView<_>>::try_new(
                 static_runtime_transaction,
                 None,
                 &ReservedAccountKeys::empty_key_set(),
@@ -248,14 +277,15 @@ mod tests {
             reserved_account_keys: &HashSet<Pubkey>,
         ) {
             let bytes = bincode::serialize(&original_transaction).unwrap();
-            let transaction_view = SanitizedTransactionView::try_new_sanitized(&bytes[..]).unwrap();
-            let runtime_transaction = RuntimeTransaction::<SanitizedTransactionView<_>>::try_from(
+            let transaction_view =
+                SanitizedTransactionView::try_new_sanitized(&bytes[..], true, true).unwrap();
+            let runtime_transaction = RuntimeTransaction::<SanitizedTransactionView<_>>::try_new(
                 transaction_view,
                 MessageHash::Compute,
                 None,
             )
             .unwrap();
-            let runtime_transaction = RuntimeTransaction::<ResolvedTransactionView<_>>::try_from(
+            let runtime_transaction = RuntimeTransaction::<ResolvedTransactionView<_>>::try_new(
                 runtime_transaction,
                 loaded_addresses,
                 reserved_account_keys,
@@ -314,14 +344,15 @@ mod tests {
         ) {
             let bytes =
                 bincode::serialize(&original_transaction.to_versioned_transaction()).unwrap();
-            let transaction_view = SanitizedTransactionView::try_new_sanitized(&bytes[..]).unwrap();
-            let runtime_transaction = RuntimeTransaction::<SanitizedTransactionView<_>>::try_from(
+            let transaction_view =
+                SanitizedTransactionView::try_new_sanitized(&bytes[..], true, true).unwrap();
+            let runtime_transaction = RuntimeTransaction::<SanitizedTransactionView<_>>::try_new(
                 transaction_view,
                 MessageHash::Compute,
                 None,
             )
             .unwrap();
-            let runtime_transaction = RuntimeTransaction::<ResolvedTransactionView<_>>::try_from(
+            let runtime_transaction = RuntimeTransaction::<ResolvedTransactionView<_>>::try_new(
                 runtime_transaction,
                 loaded_addresses,
                 reserved_account_keys,
@@ -388,6 +419,38 @@ mod tests {
             sanitized_transaction,
             Some(loaded_addresses),
             &reserved_key_set,
+        );
+    }
+
+    #[test]
+    fn test_serialized_size() {
+        let serialized_transaction =
+            bincode::serialize(&VersionedTransaction::from(system_transaction::transfer(
+                &Keypair::new(),
+                &Pubkey::new_unique(),
+                1,
+                Hash::new_unique(),
+            )))
+            .unwrap();
+        let transaction_view =
+            SanitizedTransactionView::try_new_sanitized(&serialized_transaction[..], true, true)
+                .unwrap();
+        let runtime_transaction = RuntimeTransaction::<SanitizedTransactionView<_>>::try_new(
+            transaction_view,
+            MessageHash::Compute,
+            None,
+        )
+        .unwrap();
+        let runtime_transaction = RuntimeTransaction::<ResolvedTransactionView<_>>::try_new(
+            runtime_transaction,
+            None,
+            &ReservedAccountKeys::empty_key_set(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            runtime_transaction.serialized_size(),
+            serialized_transaction.len()
         );
     }
 }

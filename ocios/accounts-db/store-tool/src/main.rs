@@ -1,8 +1,8 @@
 use {
     ahash::HashSet,
     clap::{
-        crate_description, crate_name, value_t_or_exit, values_t_or_exit, App, AppSettings, Arg,
-        ArgMatches, SubCommand,
+        App, AppSettings, Arg, ArgMatches, SubCommand, crate_description, crate_name,
+        value_t_or_exit, values_t_or_exit,
     },
     rayon::prelude::*,
     solana_account::ReadableAccount,
@@ -115,7 +115,7 @@ fn do_inspect(file: impl AsRef<Path>, verbose: bool) -> Result<(), String> {
             file.as_ref().display(),
         )
     })?;
-    // By default, when the AppendVec is dropped, the backing file will be removed.
+    // By default, when the storage is dropped, the backing file will be removed.
     // We do not want to remove the backing file here in the store-tool, so prevent dropping.
     let storage = ManuallyDrop::new(storage);
 
@@ -125,23 +125,31 @@ fn do_inspect(file: impl AsRef<Path>, verbose: bool) -> Result<(), String> {
     let mut num_accounts = Saturating(0usize);
     let mut stored_accounts_size = Saturating(0);
     let mut lamports = Saturating(0);
-    storage.scan_accounts(|account| {
-        if verbose {
-            println!("{account:?}");
-        } else {
-            println!(
-                "{:#0offset_width$x}: {:44}, owner: {:44}, data size: {:data_size_width$}, lamports: {}",
-                account.offset(),
-                account.pubkey().to_string(),
-                account.owner().to_string(),
-                account.data_len(),
-                account.lamports(),
-            );
-        }
-        num_accounts += 1;
-        stored_accounts_size += account.stored_size();
-        lamports += account.lamports();
-    });
+    storage
+        .scan_accounts_stored_meta_for_store_tool(|account| {
+            if verbose {
+                println!("{account:?}");
+            } else {
+                println!(
+                    "{:#0offset_width$x}: {:44}, owner: {:44}, data size: {:data_size_width$}, \
+                     lamports: {}",
+                    account.offset(),
+                    account.pubkey().to_string(),
+                    account.owner().to_string(),
+                    account.data().len(),
+                    account.lamports(),
+                );
+            }
+            num_accounts += 1;
+            stored_accounts_size += account.stored_size();
+            lamports += account.lamports();
+        })
+        .map_err(|err| {
+            format!(
+                "failed to scan accounts in file '{}': {err}",
+                file.as_ref().display(),
+            )
+        })?;
 
     println!(
         "number of accounts: {}, stored accounts size: {}, file size: {}, lamports: {}",
@@ -186,28 +194,36 @@ fn do_search(
         }) else {
             return;
         };
-        // By default, when the AppendVec is dropped, the backing file will be removed.
+        // By default, when the storage is dropped, the backing file will be removed.
         // We do not want to remove the backing file here in the store-tool, so prevent dropping.
         let storage = ManuallyDrop::new(storage);
 
         let file_name = Path::new(file.file_name().expect("path is a file"));
-        storage.scan_accounts(|account| {
-            if addresses.contains(account.pubkey()) {
-                if verbose {
-                    println!("storage: {}, {account:?}", file_name.display());
-                } else {
-                    println!(
-                        "storage: {}, offset: {}, pubkey: {}, owner: {}, data size: {}, lamports: {}",
-                        file_name.display(),
-                        account.offset(),
-                        account.pubkey(),
-                        account.owner(),
-                        account.data_len(),
-                        account.lamports(),
-                    );
+        storage
+            .scan_accounts_stored_meta_for_store_tool(|account| {
+                if addresses.contains(account.pubkey()) {
+                    if verbose {
+                        println!("storage: {}, {account:?}", file_name.display());
+                    } else {
+                        println!(
+                            "storage: {}, offset: {}, pubkey: {}, owner: {}, data size: {}, \
+                             lamports: {}",
+                            file_name.display(),
+                            account.offset(),
+                            account.pubkey(),
+                            account.owner(),
+                            account.data().len(),
+                            account.lamports(),
+                        );
+                    }
                 }
-            }
-        });
+            })
+            .unwrap_or_else(|err| {
+                eprintln!(
+                    "failed to scan accounts in file '{}': {err}",
+                    file.display()
+                )
+            });
     });
 
     Ok(())

@@ -1,5 +1,7 @@
 use {
-    solana_sdk::{clock::Slot, commitment_config::CommitmentLevel},
+    serde::{Deserialize, Serialize},
+    solana_clock::Slot,
+    solana_commitment_config::CommitmentLevel,
     solana_vote_program::vote_state::MAX_LOCKOUT_HISTORY,
     std::collections::HashMap,
 };
@@ -180,8 +182,16 @@ impl BlockCommitmentCache {
         }
     }
 
+    pub fn set_slot(&mut self, slot: Slot) {
+        self.commitment_slots.slot = slot;
+    }
+
     pub fn set_highest_confirmed_slot(&mut self, slot: Slot) {
         self.commitment_slots.highest_confirmed_slot = slot;
+    }
+
+    pub fn set_root(&mut self, slot: Slot) {
+        self.commitment_slots.root = slot;
     }
 
     pub fn set_highest_super_majority_root(&mut self, root: Slot) {

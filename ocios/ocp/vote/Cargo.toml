@@ -17,14 +17,14 @@ crate-type = ["lib"]
 name = "solana_vote_program"
 
 [features]
-default = ["metrics"]
+agave-unstable-api = []
+dev-context-only-utils = []
 frozen-abi = [
     "dep:solana-frozen-abi",
     "dep:solana-frozen-abi-macro",
     "solana-program-runtime/frozen-abi",
     "solana-vote-interface/frozen-abi",
 ]
-metrics = ["dep:solana-metrics"]
 
 [dependencies]
 agave-feature-set = { workspace = true }
@@ -33,9 +33,9 @@ log = { workspace = true }
 num-derive = { workspace = true }
 num-traits = { workspace = true }
 serde = { workspace = true }
-serde_derive = { workspace = true }
 solana-account = { workspace = true }
 solana-bincode = { workspace = true }
+solana-bls-signatures = { workspace = true }
 solana-clock = { workspace = true }
 solana-epoch-schedule = { workspace = true }
 solana-frozen-abi = { workspace = true, optional = true, features = [
@@ -47,7 +47,6 @@ solana-frozen-abi-macro = { workspace = true, optional = true, features = [
 solana-hash = { workspace = true }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
-solana-metrics = { workspace = true, optional = true }
 solana-packet = { workspace = true }
 solana-program-runtime = { workspace = true }
 solana-pubkey = { workspace = true, features = ["curve25519"] }
@@ -55,23 +54,28 @@ solana-rent = { workspace = true }
 solana-sdk-ids = { workspace = true }
 solana-signer = { workspace = true }
 solana-slot-hashes = { workspace = true }
+solana-system-interface = { workspace = true }
 solana-transaction = { workspace = true, features = ["bincode"] }
 solana-transaction-context = { workspace = true, features = ["bincode"] }
 solana-vote-interface = { workspace = true, features = ["bincode"] }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+agave-logger = { workspace = true }
 assert_matches = { workspace = true }
 criterion = { workspace = true }
 solana-account = { workspace = true }
 solana-clock = { workspace = true }
+solana-fee-calculator = { workspace = true }
 solana-instruction = { workspace = true }
-solana-logger = { workspace = true }
+solana-program-runtime = { workspace = true, features = ["dev-context-only-utils"] }
 solana-pubkey = { workspace = true, features = ["rand"] }
 solana-rent = { workspace = true }
-solana-sdk = { workspace = true }
 solana-sdk-ids = { workspace = true }
 solana-sha256-hasher = { workspace = true }
+solana-svm-feature-set = { workspace = true }
+solana-system-program = { workspace = true }
+solana-vote-program = { path = ".", features = ["agave-unstable-api", "dev-context-only-utils"] }
 test-case = { workspace = true }
 
 [[bench]]

@@ -1,24 +1,27 @@
 use {
+    crate::cluster_info_metrics::should_report_message_signature,
     lru::LruCache,
     rand::{CryptoRng, Rng},
+    serde::{Deserialize, Serialize},
     serde_big_array::BigArray,
     siphasher::sip::SipHasher24,
+    solana_hash::Hash,
+    solana_keypair::{Keypair, signable::Signable},
+    solana_pubkey::Pubkey,
     solana_sanitize::{Sanitize, SanitizeError},
-    solana_sdk::{
-        hash::Hash,
-        pubkey::Pubkey,
-        signature::{Keypair, Signable, Signature, Signer},
-    },
+    solana_signature::Signature,
+    solana_signer::Signer,
     std::{
         borrow::Cow,
         hash::{Hash as _, Hasher},
-        net::SocketAddr,
+        net::{IpAddr, SocketAddr},
         time::{Duration, Instant},
     },
 };
 
 const KEY_REFRESH_CADENCE: Duration = Duration::from_secs(60);
 const PING_PONG_HASH_PREFIX: &[u8] = "SOLANA_PING_PONG".as_bytes();
+const PONG_SIGNATURE_SAMPLE_LEADING_ZEROS: u32 = 5;
 
 // For backward compatibility we are using a const generic parameter here.
 // N should always be >= 8 and only the first 8 bytes are used. So the new code
@@ -60,6 +63,8 @@ pub struct PingCache<const N: usize> {
     pings: LruCache<(Pubkey, SocketAddr), Instant>,
     // Verified pong responses from remote nodes.
     pongs: LruCache<(Pubkey, SocketAddr), Instant>,
+    // Timestamp of last ping message sent to a remote IP.
+    ping_times: LruCache<IpAddr, Instant>,
 }
 
 impl<const N: usize> Ping<N> {
@@ -89,7 +94,7 @@ impl<const N: usize> Signable for Ping<N> {
     }
 
     #[inline]
-    fn signable_data(&self) -> Cow<[u8]> {
+    fn signable_data(&self) -> Cow<'_, [u8]> {
         Cow::Borrowed(&self.token)
     }
 
@@ -116,6 +121,10 @@ impl Pong {
     pub fn from(&self) -> &Pubkey {
         &self.from
     }
+
+    pub(crate) fn signature(&self) -> &Signature {
+        &self.signature
+    }
 }
 
 impl Sanitize for Pong {
@@ -131,7 +140,7 @@ impl Signable for Pong {
         self.from
     }
 
-    fn signable_data(&self) -> Cow<[u8]> {
+    fn signable_data(&self) -> Cow<'static, [u8]> {
         Cow::Owned(self.hash.as_ref().into())
     }
 
@@ -157,10 +166,11 @@ impl<const N: usize> PingCache<N> {
         Self {
             ttl,
             rate_limit_delay,
-            hashers: std::array::from_fn(|_| SipHasher24::new_with_key(&rng.gen())),
+            hashers: std::array::from_fn(|_| SipHasher24::new_with_key(&rng.random())),
             key_refresh: now,
             pings: LruCache::new(cap),
             pongs: LruCache::new(cap),
+            ping_times: LruCache::new(cap),
         }
     }
 
@@ -177,6 +187,19 @@ impl<const N: usize> PingCache<N> {
             return false;
         };
         self.pongs.put(remote_node, now);
+        if let Some(sent_time) = self.ping_times.pop(&socket.ip())
+            && should_report_message_signature(
+                pong.signature(),
+                PONG_SIGNATURE_SAMPLE_LEADING_ZEROS,
+            )
+        {
+            let rtt = now.saturating_duration_since(sent_time);
+            datapoint_info!(
+                "ping_rtt",
+                ("peer_ip", socket.ip().to_string(), String),
+                ("rtt_us", rtt.as_micros() as i64, i64),
+            );
+        }
         true
     }
 
@@ -199,11 +222,12 @@ impl<const N: usize> PingCache<N> {
         self.pings.put(remote_node, now);
         self.maybe_refresh_key(rng, now);
         let token = make_ping_token::<N>(self.hashers[0], &remote_node);
+        self.ping_times.put(remote_node.1.ip(), Instant::now());
         Some(Ping::new(token, keypair))
     }
 
     /// Returns true if the remote node has responded to a ping message.
-    /// Removes expired pong messages. In order to extend verifications before
+    /// Removes expired pong messages. In order to extend verification before
     /// expiration, if the pong message is not too recent, and the node has not
     /// been pinged recently, calls the given function to generates a new ping
     /// message, records current timestamp and hash of ping token, and returns
@@ -224,10 +248,12 @@ impl<const N: usize> PingCache<N> {
                 // Pop if the pong message has expired.
                 if age > self.ttl {
                     self.pongs.pop(&remote_node);
+                    (false, true)
+                } else {
+                    // If the pong message is not too recent, generate a new ping
+                    // message to extend remote node verification.
+                    (true, age > self.ttl / 4)
                 }
-                // If the pong message is not too recent, generate a new ping
-                // message to extend remote node verification.
-                (true, age > self.ttl / 8)
             }
         };
         let ping = should_ping
@@ -238,7 +264,7 @@ impl<const N: usize> PingCache<N> {
 
     fn maybe_refresh_key<R: Rng + CryptoRng>(&mut self, rng: &mut R, now: Instant) {
         if now.checked_duration_since(self.key_refresh) > Some(KEY_REFRESH_CADENCE) {
-            let hasher = SipHasher24::new_with_key(&rng.gen());
+            let hasher = SipHasher24::new_with_key(&rng.random());
             self.hashers[1] = std::mem::replace(&mut self.hashers[0], hasher);
             self.key_refresh = now;
         }
@@ -264,7 +290,7 @@ fn make_ping_token<const N: usize>(
 }
 
 fn hash_ping_token<const N: usize>(token: &[u8; N]) -> Hash {
-    solana_sdk::hash::hashv(&[PING_PONG_HASH_PREFIX, token])
+    solana_sha256_hasher::hashv(&[PING_PONG_HASH_PREFIX, token])
 }
 
 #[cfg(test)]
@@ -280,9 +306,9 @@ mod tests {
 
     #[test]
     fn test_ping_pong() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let keypair = Keypair::new();
-        let ping = Ping::<32>::new(rng.gen(), &keypair);
+        let ping = Ping::<32>::new(rng.random(), &keypair);
         assert!(ping.verify());
         assert!(ping.sanitize().is_ok());
 
@@ -290,7 +316,7 @@ mod tests {
         assert!(pong.verify());
         assert!(pong.sanitize().is_ok());
         assert_eq!(
-            solana_sdk::hash::hashv(&[PING_PONG_HASH_PREFIX, &ping.token]),
+            solana_sha256_hasher::hashv(&[PING_PONG_HASH_PREFIX, &ping.token]),
             pong.hash
         );
     }
@@ -298,27 +324,23 @@ mod tests {
     #[test]
     fn test_ping_cache() {
         let now = Instant::now();
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let ttl = Duration::from_millis(256);
         let delay = ttl / 64;
         let mut cache = PingCache::new(&mut rng, Instant::now(), ttl, delay, /*cap=*/ 1000);
         let this_node = Keypair::new();
-        let keypairs: Vec<_> = repeat_with(Keypair::new).take(8).collect();
-        let sockets: Vec<_> = repeat_with(|| {
-            SocketAddr::V4(SocketAddrV4::new(
-                Ipv4Addr::new(rng.gen(), rng.gen(), rng.gen(), rng.gen()),
-                rng.gen(),
-            ))
-        })
-        .take(8)
-        .collect();
-        let remote_nodes: Vec<(&Keypair, SocketAddr)> = repeat_with(|| {
-            let keypair = &keypairs[rng.gen_range(0..keypairs.len())];
-            let socket = sockets[rng.gen_range(0..sockets.len())];
-            (keypair, socket)
-        })
-        .take(128)
-        .collect();
+        let sockets: Vec<_> = (1u8..=3)
+            .map(|i| {
+                SocketAddr::V4(SocketAddrV4::new(
+                    Ipv4Addr::new(i, i, i, i),
+                    8000 + i as u16,
+                ))
+            })
+            .collect();
+        let keypairs: Vec<_> = repeat_with(Keypair::new).take(sockets.len()).collect();
+        let remote_nodes: Vec<(&Keypair, SocketAddr)> = (0..sockets.len() * 2)
+            .map(|i| (&keypairs[i % sockets.len()], sockets[i % sockets.len()]))
+            .collect();
 
         // Initially all checks should fail. The first observation of each node
         // should create a ping packet.
@@ -361,7 +383,7 @@ mod tests {
             assert!(ping.is_none());
         }
 
-        let now = now + ttl / 8;
+        let now = now + ttl / 4 + Duration::from_millis(1);
         // All nodes still have a valid pong packet, but the cache will create
         // a new ping packet to extend verification.
         seen_nodes.clear();
@@ -383,16 +405,19 @@ mod tests {
         }
 
         let now = now + ttl;
-        // Pong packets are still valid but expired. The first observation of
-        // each node will remove the pong packet from cache and create a new
-        // ping packet.
+        // Pong packets have expired. The first observation of each node will
+        // remove the expired pong packet from cache and create a new ping packet.
+        // check should be false because the pong is expired
         seen_nodes.clear();
         for (keypair, socket) in &remote_nodes {
             let node = (keypair.pubkey(), *socket);
             let (check, ping) = cache.check(&mut rng, &this_node, now, node);
             if seen_nodes.insert(node) {
-                assert!(check);
-                assert!(ping.is_some());
+                assert!(!check, "Expired pong should return check=false");
+                assert!(
+                    ping.is_some(),
+                    "Should generate ping to re-verify expired node"
+                );
             } else {
                 assert!(!check);
                 assert!(ping.is_none());
@@ -419,5 +444,37 @@ mod tests {
             assert!(!check);
             assert_eq!(seen_nodes.insert(node), ping.is_some());
         }
+    }
+
+    #[test]
+    fn test_expired_pong_returns_check_false() {
+        let mut rng = rand::rng();
+        let this_node = Keypair::new();
+        let remote_socket = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(10, 10, 10, 10), 8000));
+        let remote_node_keypair = Keypair::new();
+        let remote_node = (remote_node_keypair.pubkey(), remote_socket);
+        let ttl = Duration::from_secs(20 * 60); // 20 minutes
+        let delay = ttl / 64;
+        let mut now = Instant::now();
+        let mut cache = PingCache::<32>::new(&mut rng, now, ttl, delay, /*cap=*/ 1000);
+
+        // Add a pong for the remote node
+        cache.mock_pong(remote_node.0, remote_node.1, now);
+
+        // Verify the pong is valid. `check` should return true
+        let (check, ping) = cache.check(&mut rng, &this_node, now, remote_node);
+        assert!(check, "Pong should be valid immediately after adding");
+        assert!(ping.is_none(), "Should not generate ping for recent pong");
+
+        // Advance time past TTL to expire the pong
+        now = now + ttl + Duration::from_secs(1);
+
+        // After expiration, check should return false but should_ping should be true (to re-verify)
+        let (check, ping) = cache.check(&mut rng, &this_node, now, remote_node);
+        assert!(!check, "Expired pong should return check=false");
+        assert!(
+            ping.is_some(),
+            "Should generate ping to re-verify expired node"
+        );
     }
 }

@@ -10,13 +10,15 @@ use {
         ops::Deref,
     },
     solana_hash::Hash,
-    solana_message::{v0::LoadedAddresses, AccountKeys},
+    solana_message::{AccountKeys, v0::LoadedAddresses},
     solana_pubkey::Pubkey,
     solana_sdk_ids::bpf_loader_upgradeable,
     solana_signature::Signature,
     solana_svm_transaction::{
-        instruction::SVMInstruction, message_address_table_lookup::SVMMessageAddressTableLookup,
-        svm_message::SVMMessage, svm_transaction::SVMTransaction,
+        instruction::SVMInstruction,
+        message_address_table_lookup::SVMMessageAddressTableLookup,
+        svm_message::{SVMMessage, SVMStaticMessage},
+        svm_transaction::SVMTransaction,
     },
     std::collections::HashSet,
 };
@@ -24,7 +26,7 @@ use {
 /// A parsed and sanitized transaction view that has had all address lookups
 /// resolved.
 pub struct ResolvedTransactionView<D: TransactionData> {
-    /// The parsed and sanitized transction view.
+    /// The parsed and sanitized transaction view.
     view: TransactionView<true, D>,
     /// The resolved address lookups.
     resolved_addresses: Option<LoadedAddresses>,
@@ -149,9 +151,13 @@ impl<D: TransactionData> ResolvedTransactionView<D> {
     pub fn loaded_addresses(&self) -> Option<&LoadedAddresses> {
         self.resolved_addresses.as_ref()
     }
+
+    pub fn into_view(self) -> TransactionView<true, D> {
+        self.view
+    }
 }
 
-impl<D: TransactionData> SVMMessage for ResolvedTransactionView<D> {
+impl<D: TransactionData> SVMStaticMessage for ResolvedTransactionView<D> {
     fn num_transaction_signatures(&self) -> u64 {
         u64::from(self.view.num_required_signatures())
     }
@@ -168,7 +174,7 @@ impl<D: TransactionData> SVMMessage for ResolvedTransactionView<D> {
         usize::from(self.view.num_instructions())
     }
 
-    fn instructions_iter(&self) -> impl Iterator<Item = SVMInstruction> {
+    fn instructions_iter(&self) -> impl Iterator<Item = SVMInstruction<'_>> {
         self.view.instructions_iter()
     }
 
@@ -177,21 +183,37 @@ impl<D: TransactionData> SVMMessage for ResolvedTransactionView<D> {
     ) -> impl Iterator<
         Item = (
             &solana_pubkey::Pubkey,
-            solana_svm_transaction::instruction::SVMInstruction,
+            solana_svm_transaction::instruction::SVMInstruction<'_>,
         ),
     > + Clone {
         self.view.program_instructions_iter()
     }
 
-    fn account_keys(&self) -> AccountKeys {
-        AccountKeys::new(
-            self.view.static_account_keys(),
-            self.resolved_addresses.as_ref(),
-        )
+    fn static_account_keys(&self) -> &[Pubkey] {
+        self.view.static_account_keys()
     }
 
     fn fee_payer(&self) -> &Pubkey {
         &self.view.static_account_keys()[0]
+    }
+
+    fn num_lookup_tables(&self) -> usize {
+        usize::from(self.view.num_address_table_lookups())
+    }
+
+    fn message_address_table_lookups(
+        &self,
+    ) -> impl Iterator<Item = SVMMessageAddressTableLookup<'_>> {
+        self.view.address_table_lookup_iter()
+    }
+}
+
+impl<D: TransactionData> SVMMessage for ResolvedTransactionView<D> {
+    fn account_keys(&self) -> AccountKeys<'_> {
+        AccountKeys::new(
+            self.view.static_account_keys(),
+            self.resolved_addresses.as_ref(),
+        )
     }
 
     fn is_writable(&self, index: usize) -> bool {
@@ -209,14 +231,6 @@ impl<D: TransactionData> SVMMessage for ResolvedTransactionView<D> {
         self.view
             .instructions_iter()
             .any(|ix| ix.program_id_index == index)
-    }
-
-    fn num_lookup_tables(&self) -> usize {
-        usize::from(self.view.num_address_table_lookups())
-    }
-
-    fn message_address_table_lookups(&self) -> impl Iterator<Item = SVMMessageAddressTableLookup> {
-        self.view.address_table_lookup_iter()
     }
 }
 
@@ -244,9 +258,9 @@ mod tests {
         super::*,
         crate::transaction_view::SanitizedTransactionView,
         solana_message::{
+            MessageHeader, VersionedMessage,
             compiled_instruction::CompiledInstruction,
             v0::{self, MessageAddressTableLookup},
-            MessageHeader, VersionedMessage,
         },
         solana_sdk_ids::{system_program, sysvar},
         solana_signature::Signature,
@@ -276,7 +290,7 @@ mod tests {
             }),
         };
         let bytes = bincode::serialize(&transaction).unwrap();
-        let view = SanitizedTransactionView::try_new_sanitized(bytes.as_ref()).unwrap();
+        let view = SanitizedTransactionView::try_new_sanitized(bytes.as_ref(), true, true).unwrap();
         let result = ResolvedTransactionView::try_new(view, None, &HashSet::default());
         assert!(matches!(
             result,
@@ -307,7 +321,7 @@ mod tests {
             }),
         };
         let bytes = bincode::serialize(&transaction).unwrap();
-        let view = SanitizedTransactionView::try_new_sanitized(bytes.as_ref()).unwrap();
+        let view = SanitizedTransactionView::try_new_sanitized(bytes.as_ref(), true, true).unwrap();
         let result =
             ResolvedTransactionView::try_new(view, Some(loaded_addresses), &HashSet::default());
         assert!(matches!(
@@ -344,7 +358,7 @@ mod tests {
             }),
         };
         let bytes = bincode::serialize(&transaction).unwrap();
-        let view = SanitizedTransactionView::try_new_sanitized(bytes.as_ref()).unwrap();
+        let view = SanitizedTransactionView::try_new_sanitized(bytes.as_ref(), true, true).unwrap();
         let result =
             ResolvedTransactionView::try_new(view, Some(loaded_addresses), &HashSet::default());
         assert!(matches!(
@@ -394,7 +408,8 @@ mod tests {
             };
             let transaction = create_transaction_with_keys(static_keys, &loaded_addresses);
             let bytes = bincode::serialize(&transaction).unwrap();
-            let view = SanitizedTransactionView::try_new_sanitized(bytes.as_ref()).unwrap();
+            let view =
+                SanitizedTransactionView::try_new_sanitized(bytes.as_ref(), true, true).unwrap();
             let resolved_view = ResolvedTransactionView::try_new(
                 view,
                 Some(loaded_addresses),
@@ -417,7 +432,8 @@ mod tests {
             };
             let transaction = create_transaction_with_keys(static_keys, &loaded_addresses);
             let bytes = bincode::serialize(&transaction).unwrap();
-            let view = SanitizedTransactionView::try_new_sanitized(bytes.as_ref()).unwrap();
+            let view =
+                SanitizedTransactionView::try_new_sanitized(bytes.as_ref(), true, true).unwrap();
             let resolved_view = ResolvedTransactionView::try_new(
                 view,
                 Some(loaded_addresses),
@@ -440,7 +456,8 @@ mod tests {
             };
             let transaction = create_transaction_with_keys(static_keys, &loaded_addresses);
             let bytes = bincode::serialize(&transaction).unwrap();
-            let view = SanitizedTransactionView::try_new_sanitized(bytes.as_ref()).unwrap();
+            let view =
+                SanitizedTransactionView::try_new_sanitized(bytes.as_ref(), true, true).unwrap();
             let resolved_view = ResolvedTransactionView::try_new(
                 view,
                 Some(loaded_addresses),
@@ -501,7 +518,8 @@ mod tests {
             let static_keys = vec![key0, key1, key2];
             let transaction = create_transaction_with_static_keys(static_keys, &loaded_addresses);
             let bytes = bincode::serialize(&transaction).unwrap();
-            let view = SanitizedTransactionView::try_new_sanitized(bytes.as_ref()).unwrap();
+            let view =
+                SanitizedTransactionView::try_new_sanitized(bytes.as_ref(), true, true).unwrap();
             let resolved_view = ResolvedTransactionView::try_new(
                 view,
                 Some(loaded_addresses.clone()),
@@ -520,7 +538,8 @@ mod tests {
             let static_keys = vec![key0, key1, bpf_loader_upgradeable::ID];
             let transaction = create_transaction_with_static_keys(static_keys, &loaded_addresses);
             let bytes = bincode::serialize(&transaction).unwrap();
-            let view = SanitizedTransactionView::try_new_sanitized(bytes.as_ref()).unwrap();
+            let view =
+                SanitizedTransactionView::try_new_sanitized(bytes.as_ref(), true, true).unwrap();
             let resolved_view = ResolvedTransactionView::try_new(
                 view,
                 Some(loaded_addresses.clone()),
@@ -543,7 +562,8 @@ mod tests {
             };
             let transaction = create_transaction_with_static_keys(static_keys, &loaded_addresses);
             let bytes = bincode::serialize(&transaction).unwrap();
-            let view = SanitizedTransactionView::try_new_sanitized(bytes.as_ref()).unwrap();
+            let view =
+                SanitizedTransactionView::try_new_sanitized(bytes.as_ref(), true, true).unwrap();
 
             let resolved_view = ResolvedTransactionView::try_new(
                 view,

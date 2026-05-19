@@ -5,30 +5,28 @@ extern crate log;
 use {
     rayon::iter::*,
     solana_gossip::{
-        cluster_info::{ClusterInfo, Node},
+        cluster_info::ClusterInfo,
         contact_info::{ContactInfo, Protocol},
         crds::Cursor,
         gossip_service::GossipService,
+        node::Node,
     },
+    solana_hash::Hash,
+    solana_keypair::Keypair,
+    solana_net_utils::SocketAddrSpace,
     solana_perf::packet::Packet,
+    solana_pubkey::Pubkey,
     solana_runtime::bank_forks::BankForks,
-    solana_sdk::{
-        hash::Hash,
-        pubkey::Pubkey,
-        signature::{Keypair, Signer},
-        timing::timestamp,
-        transaction::Transaction,
-    },
-    solana_streamer::{
-        sendmmsg::{multi_target_send, SendPktsError},
-        socket::SocketAddrSpace,
-    },
+    solana_signer::Signer,
+    solana_streamer::sendmmsg::{SendPktsError, multi_target_send},
+    solana_time_utils::timestamp,
+    solana_transaction::Transaction,
     solana_vote_program::{vote_instruction, vote_state::Vote},
     std::{
         net::UdpSocket,
         sync::{
-            atomic::{AtomicBool, Ordering},
             Arc, RwLock,
+            atomic::{AtomicBool, Ordering},
         },
         thread::sleep,
         time::Duration,
@@ -155,8 +153,8 @@ fn retransmit_to(
 /// ring a -> b -> c -> d -> e -> a
 #[test]
 fn gossip_ring() {
-    solana_logger::setup();
-    run_gossip_topo(50, |listen| {
+    agave_logger::setup();
+    run_gossip_topo(40, |listen| {
         let num = listen.len();
         for n in 0..num {
             let y = n % listen.len();
@@ -173,7 +171,7 @@ fn gossip_ring() {
 #[test]
 #[ignore]
 fn gossip_ring_large() {
-    solana_logger::setup();
+    agave_logger::setup();
     run_gossip_topo(600, |listen| {
         let num = listen.len();
         for n in 0..num {
@@ -189,7 +187,7 @@ fn gossip_ring_large() {
 /// star a -> (b,c,d,e)
 #[test]
 fn gossip_star() {
-    solana_logger::setup();
+    agave_logger::setup();
     run_gossip_topo(10, |listen| {
         let num = listen.len();
         for n in 0..(num - 1) {
@@ -208,7 +206,7 @@ fn gossip_star() {
 /// rstar a <- (b,c,d,e)
 #[test]
 fn gossip_rstar() {
-    solana_logger::setup();
+    agave_logger::setup();
     run_gossip_topo(10, |listen| {
         let num = listen.len();
         let xd = {
@@ -227,7 +225,7 @@ fn gossip_rstar() {
 
 #[test]
 pub fn cluster_info_retransmit() {
-    solana_logger::setup();
+    agave_logger::setup();
     let exit = Arc::new(AtomicBool::new(false));
     trace!("c1:");
     let (c1, dr1, tn1) = test_node(exit.clone());
@@ -292,10 +290,10 @@ pub fn cluster_info_scale() {
         solana_perf::test_tx::test_tx,
         solana_runtime::{
             bank::Bank,
-            genesis_utils::{create_genesis_config_with_vote_accounts, ValidatorVoteKeypairs},
+            genesis_utils::{ValidatorVoteKeypairs, create_genesis_config_with_vote_accounts},
         },
     };
-    solana_logger::setup();
+    agave_logger::setup();
     let exit = Arc::new(AtomicBool::new(false));
     let num_nodes: usize = std::env::var("NUM_NODES")
         .unwrap_or_else(|_| "10".to_string())
@@ -347,7 +345,7 @@ pub fn cluster_info_scale() {
         sleep(Duration::from_secs(1));
     }
     time.stop();
-    warn!("found {} nodes in {} success: {}", num_nodes, time, success);
+    warn!("found {num_nodes} nodes in {time} success: {success}");
 
     for num_votes in 1..1000 {
         let mut time = Measure::start("votes");
@@ -391,10 +389,10 @@ pub fn cluster_info_scale() {
                 }
             }
             warn!("not_done: {}/{}", not_done, nodes.len());
-            warn!("num_old: {}", num_old);
-            warn!("num_push_total: {}", num_push_total);
-            warn!("num_pushes: {}", num_pushes);
-            warn!("num_pulls: {}", num_pulls);
+            warn!("num_old: {num_old}");
+            warn!("num_push_total: {num_push_total}");
+            warn!("num_pushes: {num_pushes}");
+            warn!("num_pulls: {num_pulls}");
             success = not_done < (nodes.len() / 20);
             if success {
                 break;
@@ -402,10 +400,7 @@ pub fn cluster_info_scale() {
             sleep(Duration::from_millis(200));
         }
         time.stop();
-        warn!(
-            "propagated vote {} in {} success: {}",
-            num_votes, time, success
-        );
+        warn!("propagated vote {num_votes} in {time} success: {success}");
         sleep(Duration::from_millis(200));
         for (node, _, _) in nodes.iter() {
             node.gossip.push.num_old.store(0, Ordering::Relaxed);

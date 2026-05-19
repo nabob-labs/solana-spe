@@ -1,35 +1,37 @@
 #![allow(clippy::arithmetic_side_effects)]
 use {
+    agave_votor_messages::consensus_message::BLS_KEYPAIR_DERIVE_SEED,
     bip39::{Mnemonic, MnemonicType, Seed},
     clap::{
-        builder::ValueParser, crate_description, crate_name, value_parser, Arg, ArgAction,
-        ArgMatches, Command,
+        Arg, ArgAction, ArgMatches, Command, builder::ValueParser, crate_description, crate_name,
+        value_parser,
     },
+    solana_bls_signatures::{Pubkey as BLSPubkey, keypair::Keypair as BLSKeypair},
     solana_clap_v3_utils::{
+        DisplayError,
         input_parsers::{
-            signer::{SignerSource, SignerSourceParserBuilder},
             STDOUT_OUTFILE_TOKEN,
+            signer::{SignerSource, SignerSourceParserBuilder},
         },
         keygen::{
-            check_for_overwrite,
+            KeyGenerationCommonArgs, NO_OUTFILE_ARG, check_for_overwrite,
             derivation_path::{acquire_derivation_path, derivation_path_arg},
             mnemonic::{
                 acquire_passphrase_and_message, no_passphrase_and_message, try_get_language,
                 try_get_word_count,
             },
-            no_outfile_arg, KeyGenerationCommonArgs, NO_OUTFILE_ARG,
+            no_outfile_arg,
         },
         keypair::{
-            keypair_from_seed_phrase, keypair_from_source, signer_from_source,
-            SKIP_SEED_PHRASE_VALIDATION_ARG,
+            SKIP_SEED_PHRASE_VALIDATION_ARG, keypair_from_seed_phrase, keypair_from_source,
+            signer_from_source,
         },
-        DisplayError,
     },
-    solana_cli_config::{Config, CONFIG_FILE},
+    solana_cli_config::{CONFIG_FILE, Config},
     solana_instruction::{AccountMeta, Instruction},
     solana_keypair::{
-        keypair_from_seed, seed_derivable::keypair_from_seed_and_derivation_path, write_keypair,
-        write_keypair_file, Keypair,
+        Keypair, keypair_from_seed, seed_derivable::keypair_from_seed_and_derivation_path,
+        write_keypair, write_keypair_file,
     },
     solana_message::Message,
     solana_pubkey::Pubkey,
@@ -40,8 +42,8 @@ use {
         error,
         rc::Rc,
         sync::{
-            atomic::{AtomicBool, AtomicU64, Ordering},
             Arc,
+            atomic::{AtomicBool, AtomicU64, Ordering},
         },
         thread,
         time::Instant,
@@ -83,7 +85,7 @@ fn grind_parser(grind_type: GrindType) -> ValueParser {
         };
         if v.matches(':').count() != required_div_count || (v.starts_with(':') || v.ends_with(':'))
         {
-            return Err(format!("Expected : between {} and COUNT", prefix_suffix));
+            return Err(format!("Expected : between {prefix_suffix} and COUNT"));
         }
         // `args` is guaranteed to have length at least 1 by the previous if statement
         let mut args: Vec<&str> = v.split(':').collect();
@@ -248,15 +250,16 @@ fn app<'a>(num_threads: &'a str, crate_version: &'a str) -> Command<'a> {
                         .index(2)
                         .value_name("KEYPAIR")
                         .takes_value(true)
-                        .value_parser(
-                            SignerSourceParserBuilder::default().allow_all().build()
-                        )
+                        .value_parser(SignerSourceParserBuilder::default().allow_all().build())
                         .help("Filepath or URL to a keypair"),
-                )
+                ),
         )
         .subcommand(
             Command::new("new")
-                .about("Generate new keypair file from a random seed phrase and optional BIP39 passphrase")
+                .about(
+                    "Generate new keypair file from a random seed phrase and optional BIP39 \
+                     passphrase",
+                )
                 .disable_version_flag(true)
                 .arg(
                     Arg::new("outfile")
@@ -272,19 +275,13 @@ fn app<'a>(num_threads: &'a str, crate_version: &'a str) -> Command<'a> {
                         .long("force")
                         .help("Overwrite the output file if it exists"),
                 )
-                .arg(
-                    Arg::new("silent")
-                        .short('s')
-                        .long("silent")
-                        .help("Do not display seed phrase. Useful when piping output to other programs that prompt for user input, like gpg"),
-                )
-                .arg(
-                    derivation_path_arg()
-                )
+                .arg(Arg::new("silent").short('s').long("silent").help(
+                    "Do not display seed phrase. Useful when piping output to other programs that \
+                     prompt for user input, like gpg",
+                ))
+                .arg(derivation_path_arg())
                 .key_generation_common_args()
-                .arg(no_outfile_arg()
-                    .conflicts_with_all(&["outfile", "silent"])
-                )
+                .arg(no_outfile_arg().conflicts_with_all(&["outfile", "silent"])),
         )
         .subcommand(
             Command::new("grind")
@@ -304,7 +301,11 @@ fn app<'a>(num_threads: &'a str, crate_version: &'a str) -> Command<'a> {
                         .action(ArgAction::Append)
                         .multiple_values(true)
                         .value_parser(grind_parser(GrindType::Starts))
-                        .help("Saves specified number of keypairs whos public key starts with the indicated prefix\nExample: --starts-with sol:4\nPREFIX type is Base58\nCOUNT type is u64"),
+                        .help(
+                            "Saves specified number of keypairs whos public key starts with the \
+                             indicated prefix\nExample: --starts-with sol:4\nPREFIX type is \
+                             Base58\nCOUNT type is u64",
+                        ),
                 )
                 .arg(
                     Arg::new("ends_with")
@@ -315,7 +316,11 @@ fn app<'a>(num_threads: &'a str, crate_version: &'a str) -> Command<'a> {
                         .action(ArgAction::Append)
                         .multiple_values(true)
                         .value_parser(grind_parser(GrindType::Ends))
-                        .help("Saves specified number of keypairs whos public key ends with the indicated suffix\nExample: --ends-with ana:4\nSUFFIX type is Base58\nCOUNT type is u64"),
+                        .help(
+                            "Saves specified number of keypairs whos public key ends with the \
+                             indicated suffix\nExample: --ends-with ana:4\nSUFFIX type is \
+                             Base58\nCOUNT type is u64",
+                        ),
                 )
                 .arg(
                     Arg::new("starts_and_ends_with")
@@ -326,7 +331,12 @@ fn app<'a>(num_threads: &'a str, crate_version: &'a str) -> Command<'a> {
                         .action(ArgAction::Append)
                         .multiple_values(true)
                         .value_parser(grind_parser(GrindType::StartsAndEnds))
-                        .help("Saves specified number of keypairs whos public key starts and ends with the indicated prefix and suffix\nExample: --starts-and-ends-with sol:ana:4\nPREFIX and SUFFIX type is Base58\nCOUNT type is u64"),
+                        .help(
+                            "Saves specified number of keypairs whos public key starts and ends \
+                             with the indicated prefix and suffix\nExample: \
+                             --starts-and-ends-with sol:ana:4\nPREFIX and SUFFIX type is \
+                             Base58\nCOUNT type is u64",
+                        ),
                 )
                 .arg(
                     Arg::new("num_threads")
@@ -337,22 +347,18 @@ fn app<'a>(num_threads: &'a str, crate_version: &'a str) -> Command<'a> {
                         .default_value(num_threads)
                         .help("Specify the number of grind threads"),
                 )
-                .arg(
-                    Arg::new("use_mnemonic")
-                        .long("use-mnemonic")
-                        .help("Generate using a mnemonic key phrase.  Expect a significant slowdown in this mode"),
-                )
-                .arg(
-                    derivation_path_arg()
-                        .requires("use_mnemonic")
-                )
+                .arg(Arg::new("use_mnemonic").long("use-mnemonic").help(
+                    "Generate using a mnemonic key phrase.  Expect a significant slowdown in this \
+                     mode",
+                ))
+                .arg(derivation_path_arg().requires("use_mnemonic"))
                 .key_generation_common_args()
                 .arg(
                     no_outfile_arg()
-                    // Require a seed phrase to avoid generating a keypair
-                    // but having no way to get the private key
-                    .requires("use_mnemonic")
-                )
+                        // Require a seed phrase to avoid generating a keypair
+                        // but having no way to get the private key
+                        .requires("use_mnemonic"),
+                ),
         )
         .subcommand(
             Command::new("pubkey")
@@ -363,9 +369,7 @@ fn app<'a>(num_threads: &'a str, crate_version: &'a str) -> Command<'a> {
                         .index(1)
                         .value_name("KEYPAIR")
                         .takes_value(true)
-                        .value_parser(
-                            SignerSourceParserBuilder::default().allow_all().build()
-                        )
+                        .value_parser(SignerSourceParserBuilder::default().allow_all().build())
                         .help("Filepath or URL to a keypair"),
                 )
                 .arg(
@@ -386,19 +390,63 @@ fn app<'a>(num_threads: &'a str, crate_version: &'a str) -> Command<'a> {
                         .short('f')
                         .long("force")
                         .help("Overwrite the output file if it exists"),
+                ),
+        )
+        .subcommand(
+            Command::new("bls_pubkey")
+                .about("Display the BLS pubkey derived from given ed25519 keypair file")
+                .disable_version_flag(true)
+                .arg(
+                    Arg::new("keypair")
+                        .index(1)
+                        .value_name("KEYPAIR")
+                        .takes_value(true)
+                        .required(true)
+                        .value_parser(SignerSourceParserBuilder::default().allow_all().build())
+                        .help("Filepath or URL to a keypair"),
                 )
+                .arg(
+                    Arg::new(SKIP_SEED_PHRASE_VALIDATION_ARG.name)
+                        .long(SKIP_SEED_PHRASE_VALIDATION_ARG.long)
+                        .help(SKIP_SEED_PHRASE_VALIDATION_ARG.help),
+                )
+                .arg(
+                    Arg::new("outfile")
+                        .short('o')
+                        .long("outfile")
+                        .value_name("FILEPATH")
+                        .takes_value(true)
+                        .help("Path to generated file"),
+                )
+                .arg(
+                    Arg::new("force")
+                        .short('f')
+                        .long("force")
+                        .help("Overwrite the output file if it exists"),
+                ),
         )
         .subcommand(
             Command::new("recover")
-                .about("Recover keypair from seed phrase and optional BIP39 passphrase")
+                .about(
+                    "Recover keypair from seed phrase and optional BIP39 passphrase, or from a \
+                     base58-encoded keypair",
+                )
                 .disable_version_flag(true)
                 .arg(
                     Arg::new("prompt_signer")
                         .index(1)
                         .value_name("KEYPAIR")
                         .takes_value(true)
-                        .value_parser(SignerSourceParserBuilder::default().allow_prompt().allow_legacy().build())
-                        .help("`prompt:` URI scheme or `ASK` keyword"),
+                        .value_parser(
+                            SignerSourceParserBuilder::default()
+                                .allow_prompt()
+                                .allow_legacy()
+                                .allow_base58_keypair()
+                                .build(),
+                        )
+                        .help(
+                            "`prompt:` URI scheme, `ASK` keyword, or base58-encoded keypair string",
+                        ),
                 )
                 .arg(
                     Arg::new("outfile")
@@ -419,7 +467,6 @@ fn app<'a>(num_threads: &'a str, crate_version: &'a str) -> Command<'a> {
                         .long(SKIP_SEED_PHRASE_VALIDATION_ARG.long)
                         .help(SKIP_SEED_PHRASE_VALIDATION_ARG.help),
                 ),
-
         )
 }
 
@@ -427,6 +474,24 @@ fn write_pubkey_file(outfile: &str, pubkey: Pubkey) -> Result<(), Box<dyn std::e
     use std::io::Write;
 
     let printable = format!("{pubkey}");
+    let serialized = serde_json::to_string(&printable)?;
+
+    if let Some(outdir) = std::path::Path::new(&outfile).parent() {
+        std::fs::create_dir_all(outdir)?;
+    }
+    let mut f = std::fs::File::create(outfile)?;
+    f.write_all(&serialized.into_bytes())?;
+
+    Ok(())
+}
+
+fn write_bls_pubkey_file(
+    outfile: &str,
+    bls_pubkey: BLSPubkey,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::io::Write;
+
+    let printable = format!("{bls_pubkey}");
     let serialized = serde_json::to_string(&printable)?;
 
     if let Some(outdir) = std::path::Path::new(&outfile).parent() {
@@ -468,6 +533,19 @@ fn do_main(matches: &ArgMatches) -> Result<(), Box<dyn error::Error>> {
                 write_pubkey_file(outfile, pubkey)?;
             } else {
                 println!("{pubkey}");
+            }
+        }
+        ("bls_pubkey", matches) => {
+            let keypair = get_keypair_from_matches(matches, config, &mut wallet_manager)?;
+            let bls_keypair = BLSKeypair::derive_from_signer(&keypair, BLS_KEYPAIR_DERIVE_SEED)?;
+            let bls_pubkey: BLSPubkey = bls_keypair.public.into();
+
+            if matches.try_contains_id("outfile")? {
+                let outfile = matches.get_one::<String>("outfile").unwrap();
+                check_for_overwrite(outfile, matches)?;
+                write_bls_pubkey_file(outfile, bls_pubkey)?;
+            } else {
+                println!("{bls_pubkey}");
             }
         }
         ("new", matches) => {
@@ -517,8 +595,14 @@ fn do_main(matches: &ArgMatches) -> Result<(), Box<dyn error::Error>> {
                 let phrase: &str = mnemonic.phrase();
                 let divider = String::from_utf8(vec![b'='; phrase.len()]).unwrap();
                 println!(
-                    "{}\npubkey: {}\n{}\nSave this seed phrase{} to recover your new keypair:\n{}\n{}",
-                    &divider, keypair.pubkey(), &divider, passphrase_message, phrase, &divider
+                    "{}\npubkey: {}\n{}\nSave this seed phrase{} to recover your new \
+                     keypair:\n{}\n{}",
+                    &divider,
+                    keypair.pubkey(),
+                    &divider,
+                    passphrase_message,
+                    phrase,
+                    &divider
                 );
             }
         }
@@ -600,7 +684,9 @@ fn do_main(matches: &ArgMatches) -> Result<(), Box<dyn error::Error>> {
                 && starts_and_ends_with_args.is_empty()
             {
                 return Err(
-                    "Error: No keypair search criteria provided (--starts-with or --ends-with or --starts-and-ends-with)".into()
+                    "Error: No keypair search criteria provided (--starts-with or --ends-with or \
+                     --starts-and-ends-with)"
+                        .into(),
                 );
             }
 
@@ -633,21 +719,29 @@ fn do_main(matches: &ArgMatches) -> Result<(), Box<dyn error::Error>> {
             // these only encapsulate prefixes 1-9 and A-H.  If the user is searching
             // for a keypair that starts with a prefix of J-Z or a-z, then there is no
             // reason to waste time searching for a keypair that will never match
-            let skip_len_44_pubkeys = grind_matches
-                .iter()
-                .map(|g| {
-                    let target_key = if ignore_case {
-                        g.starts.to_ascii_uppercase()
-                    } else {
-                        g.starts.clone()
-                    };
-                    let target_key =
-                        target_key + &(0..44 - g.starts.len()).map(|_| "1").collect::<String>();
-                    bs58::decode(target_key).into_vec()
-                })
-                .filter_map(|s| s.ok())
-                .all(|s| s.len() > 32);
-
+            static BS58_ALPHABET: &str =
+                "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+            let skip_len_44_pubkeys = grind_matches.iter().all(|g| {
+                // If we are ignoring the case, upper-case the search string.
+                // Uppercase letters are always earlier in the alphabet, thus smaller.
+                let target_key = if ignore_case {
+                    g.starts
+                        .chars()
+                        .map(|c| {
+                            let up = c.to_ascii_uppercase();
+                            if BS58_ALPHABET.contains(up) { up } else { c }
+                        })
+                        .collect()
+                } else {
+                    g.starts.clone()
+                };
+                let target_key =
+                    target_key + &(0..44 - g.starts.len()).map(|_| "1").collect::<String>();
+                match bs58::decode(target_key).into_vec() {
+                    Ok(out) => out.len() > 32,
+                    Err(_) => false,
+                }
+            });
             let grind_matches_thread_safe = Arc::new(grind_matches);
             let attempts = Arc::new(AtomicU64::new(1));
             let found = Arc::new(AtomicU64::new(0));
@@ -664,81 +758,103 @@ fn do_main(matches: &ArgMatches) -> Result<(), Box<dyn error::Error>> {
                     let passphrase_message = passphrase_message.clone();
                     let derivation_path = derivation_path.clone();
 
-                    thread::spawn(move || loop {
-                        if done.load(Ordering::Relaxed) {
-                            break;
-                        }
-                        let attempts = attempts.fetch_add(1, Ordering::Relaxed);
-                        if attempts % 1_000_000 == 0 {
-                            println!(
-                                "Searched {} keypairs in {}s. {} matches found.",
-                                attempts,
-                                start.elapsed().as_secs(),
-                                found.load(Ordering::Relaxed),
-                            );
-                        }
-                        let (keypair, phrase) = if use_mnemonic {
-                            let mnemonic = Mnemonic::new(mnemonic_type, language);
-                            let seed = Seed::new(&mnemonic, &passphrase);
-                            let keypair = match derivation_path {
-                                Some(_) => keypair_from_seed_and_derivation_path(seed.as_bytes(), derivation_path.clone()),
-                                None => keypair_from_seed(seed.as_bytes()),
-                            }.unwrap();
-                            (keypair, mnemonic.phrase().to_string())
-                        } else {
-                            (Keypair::new(), "".to_string())
-                        };
-                        // Skip keypairs that will never match the user specified prefix
-                        if skip_len_44_pubkeys && keypair.pubkey() >= smallest_length_44_public_key::PUBKEY {
-                            continue;
-                        }
-                        let mut pubkey = bs58::encode(keypair.pubkey()).into_string();
-                        if ignore_case {
-                            pubkey = pubkey.to_lowercase();
-                        }
-                        let mut total_matches_found = 0;
-                        for i in 0..grind_matches_thread_safe.len() {
-                            if grind_matches_thread_safe[i].count.load(Ordering::Relaxed) == 0 {
-                                total_matches_found += 1;
+                    thread::spawn(move || {
+                        loop {
+                            if done.load(Ordering::Relaxed) {
+                                break;
+                            }
+                            let attempts = attempts.fetch_add(1, Ordering::Relaxed);
+                            if attempts.is_multiple_of(1_000_000) {
+                                println!(
+                                    "Searched {} keypairs in {}s. {} matches found.",
+                                    attempts,
+                                    start.elapsed().as_secs(),
+                                    found.load(Ordering::Relaxed),
+                                );
+                            }
+                            let (keypair, phrase) = if use_mnemonic {
+                                let mnemonic = Mnemonic::new(mnemonic_type, language);
+                                let seed = Seed::new(&mnemonic, &passphrase);
+                                let keypair = match derivation_path {
+                                    Some(_) => keypair_from_seed_and_derivation_path(
+                                        seed.as_bytes(),
+                                        derivation_path.clone(),
+                                    ),
+                                    None => keypair_from_seed(seed.as_bytes()),
+                                }
+                                .unwrap();
+                                (keypair, mnemonic.phrase().to_string())
+                            } else {
+                                (Keypair::new(), "".to_string())
+                            };
+                            // Skip keypairs that will never match the user specified prefix
+                            if skip_len_44_pubkeys
+                                && keypair.pubkey() >= smallest_length_44_public_key::PUBKEY
+                            {
                                 continue;
                             }
-                            if (!grind_matches_thread_safe[i].starts.is_empty()
-                                && grind_matches_thread_safe[i].ends.is_empty()
-                                && pubkey.starts_with(&grind_matches_thread_safe[i].starts))
-                                || (grind_matches_thread_safe[i].starts.is_empty()
-                                    && !grind_matches_thread_safe[i].ends.is_empty()
-                                    && pubkey.ends_with(&grind_matches_thread_safe[i].ends))
-                                || (!grind_matches_thread_safe[i].starts.is_empty()
-                                    && !grind_matches_thread_safe[i].ends.is_empty()
-                                    && pubkey.starts_with(&grind_matches_thread_safe[i].starts)
-                                    && pubkey.ends_with(&grind_matches_thread_safe[i].ends))
-                            {
-                                let _found = found.fetch_add(1, Ordering::Relaxed);
-                                grind_matches_thread_safe[i]
-                                    .count
-                                    .fetch_sub(1, Ordering::Relaxed);
-                                if !no_outfile {
-                                    write_keypair_file(&keypair, format!("{}.json", keypair.pubkey()))
-                                    .unwrap();
-                                    println!(
-                                        "Wrote keypair to {}",
-                                        &format!("{}.json", keypair.pubkey())
-                                    );
+                            let mut pubkey = bs58::encode(keypair.pubkey()).into_string();
+                            if ignore_case {
+                                pubkey = pubkey.to_lowercase();
+                            }
+                            let mut total_matches_found = 0;
+                            for i in 0..grind_matches_thread_safe.len() {
+                                if grind_matches_thread_safe[i].count.load(Ordering::Relaxed) == 0 {
+                                    total_matches_found += 1;
+                                    continue;
                                 }
-                                if use_mnemonic {
-                                    let divider = String::from_utf8(vec![b'='; phrase.len()]).unwrap();
-                                    println!(
-                                        "{}\nFound matching key {}",
-                                        &divider, keypair.pubkey());
-                                    println!(
-                                        "\nSave this seed phrase{} to recover your new keypair:\n{}\n{}",
-                                        passphrase_message, phrase, &divider
-                                    );
+
+                                // A check immediately after arg parsing ensures that some keypair
+                                // search criteria is supplied. That is, one of `.starts` or `.ends`
+                                // will be a non-empty `String`. If the search criteria only specifies
+                                // one of these parameters, an empty `String` is used for the other.
+                                //
+                                // `String::starts_with("")` and `String::ends_with("")` return true for
+                                // for all strings so calling those two functions with the match strings
+                                // is sufficient for evaluating a candidate keypair.
+                                //
+                                // Note that the below logic works if no search criteria is given - no
+                                // search criteria means any pubkey will match
+                                let pubkey_matches_start =
+                                    pubkey.starts_with(&grind_matches_thread_safe[i].starts);
+                                let pubkey_matches_end =
+                                    pubkey.ends_with(&grind_matches_thread_safe[i].ends);
+
+                                if pubkey_matches_start && pubkey_matches_end {
+                                    let _found = found.fetch_add(1, Ordering::Relaxed);
+                                    grind_matches_thread_safe[i]
+                                        .count
+                                        .fetch_sub(1, Ordering::Relaxed);
+                                    if !no_outfile {
+                                        write_keypair_file(
+                                            &keypair,
+                                            format!("{}.json", keypair.pubkey()),
+                                        )
+                                        .unwrap();
+                                        println!(
+                                            "Wrote keypair to {}",
+                                            &format!("{}.json", keypair.pubkey())
+                                        );
+                                    }
+                                    if use_mnemonic {
+                                        let divider =
+                                            String::from_utf8(vec![b'='; phrase.len()]).unwrap();
+                                        println!(
+                                            "{}\nFound matching key {}",
+                                            &divider,
+                                            keypair.pubkey()
+                                        );
+                                        println!(
+                                            "\nSave this seed phrase{} to recover your new \
+                                             keypair:\n{}\n{}",
+                                            passphrase_message, phrase, &divider
+                                        );
+                                    }
                                 }
                             }
-                        }
-                        if total_matches_found == grind_matches_thread_safe.len() {
-                            done.store(true, Ordering::Relaxed);
+                            if total_matches_found == grind_matches_thread_safe.len() {
+                                done.store(true, Ordering::Relaxed);
+                            }
                         }
                     })
                 })
@@ -779,7 +895,8 @@ fn do_main(matches: &ArgMatches) -> Result<(), Box<dyn error::Error>> {
 mod tests {
     use {
         super::*,
-        tempfile::{tempdir, TempDir},
+        solana_keypair::read_keypair_file,
+        tempfile::{TempDir, tempdir},
     };
 
     fn read_pubkey_file(infile: &str) -> Result<Pubkey, Box<dyn std::error::Error>> {
@@ -788,6 +905,14 @@ mod tests {
 
         use std::str::FromStr;
         Ok(Pubkey::from_str(&printable)?)
+    }
+
+    fn read_bls_pubkey_file(infile: &str) -> Result<BLSPubkey, Box<dyn std::error::Error>> {
+        let f = std::fs::File::open(infile)?;
+        let printable: String = serde_json::from_reader(f)?;
+
+        use std::str::FromStr;
+        Ok(BLSPubkey::from_str(&printable)?)
     }
 
     fn process_test_command(args: &[&str]) -> Result<(), Box<dyn error::Error>> {
@@ -876,7 +1001,7 @@ mod tests {
         assert_eq!(result, expected);
 
         // fail case using a config file
-        process_test_command(&[
+        let result = process_test_command(&[
             "solana-keygen",
             "verify",
             &incorrect_pubkey.to_string(),
@@ -905,7 +1030,7 @@ mod tests {
         ])
         .unwrap();
 
-        process_test_command(&[
+        let result = process_test_command(&[
             "solana-keygen",
             "verify",
             &correct_pubkey.to_string(),
@@ -916,7 +1041,7 @@ mod tests {
         .unwrap_err()
         .to_string();
 
-        let expected = format!("Verification for public key: {incorrect_pubkey}: Failed");
+        let expected = format!("Verification for public key: {correct_pubkey}: Failed");
         assert_eq!(result, expected);
     }
 
@@ -1161,5 +1286,91 @@ mod tests {
         assert_eq!(read, pubkey);
         std::fs::remove_file(filename)?;
         Ok(())
+    }
+
+    #[test]
+    fn test_read_write_bls_pubkey() -> Result<(), std::boxed::Box<dyn std::error::Error>> {
+        let filename = "test_bls_pubkey.json";
+        let bls_keypair = BLSKeypair::new();
+        let bls_pubkey: BLSPubkey = bls_keypair.public.into();
+        write_bls_pubkey_file(filename, bls_pubkey)?;
+        let read = read_bls_pubkey_file(filename)?;
+        assert_eq!(read, bls_pubkey);
+        std::fs::remove_file(filename)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_generate_bls_pubkey_from_existing_keypair() {
+        let keypair_out_dir = tempdir().unwrap();
+        let config_out_dir = tempdir().unwrap();
+        let (expected_pubkey, keypair_file, _) =
+            create_tmp_keypair_and_config_file(&keypair_out_dir, &config_out_dir);
+        let my_keypair = read_keypair_file(&keypair_file).unwrap();
+
+        let outfile_dir = tempdir().unwrap();
+        let outfile_path = tmp_outfile_path(&outfile_dir, &expected_pubkey.to_string());
+
+        process_test_command(&[
+            "solana-keygen",
+            "bls_pubkey",
+            "--outfile",
+            &outfile_path,
+            &keypair_file,
+        ])
+        .unwrap();
+
+        let bls_keypair =
+            BLSKeypair::derive_from_signer(&my_keypair, BLS_KEYPAIR_DERIVE_SEED).unwrap();
+        let read_bls_pubkey = read_bls_pubkey_file(&outfile_path).unwrap();
+        assert_eq!(read_bls_pubkey, bls_keypair.public.into());
+    }
+
+    #[test]
+    fn test_parse_recover_from_base58_keypair() {
+        let keypair = Keypair::new();
+
+        let keypair_base58 = keypair.to_base58_string();
+
+        // Note: The recover command with base58 keypair prompts for confirmation,
+        // but we can test the underlying functionality via keypair_from_source
+        // Here we test that the command parses correctly
+        let default_num_threads = num_cpus::get().to_string();
+        let solana_version = solana_version::version!();
+        let app_matches = app(&default_num_threads, solana_version).get_matches_from(vec![
+            "solana-keygen",
+            "recover",
+            &keypair_base58,
+            "-o",
+            &keypair_base58,
+        ]);
+
+        // Verify the argument was parsed correctly
+        let subcommand = app_matches.subcommand().unwrap();
+        assert_eq!(subcommand.0, "recover");
+        let matches = subcommand.1;
+        assert!(matches.try_contains_id("prompt_signer").unwrap());
+    }
+
+    #[test]
+    fn test_base58_keypair_pubkey_command() {
+        let keypair = Keypair::new();
+        let pubkey = keypair.pubkey();
+        let keypair_base58 = keypair.to_base58_string();
+
+        let outfile_dir = tempdir().unwrap();
+        let outfile_path = tmp_outfile_path(&outfile_dir, &pubkey.to_string());
+
+        process_test_command(&[
+            "solana-keygen",
+            "pubkey",
+            &keypair_base58,
+            "--outfile",
+            &outfile_path,
+        ])
+        .unwrap();
+
+        let result_pubkey = read_pubkey_file(&outfile_path).unwrap();
+        assert_eq!(result_pubkey, pubkey);
     }
 }

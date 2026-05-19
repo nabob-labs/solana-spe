@@ -1,16 +1,16 @@
 use {
-    crate::{bucket_stats::BucketStats, MaxSearch},
+    crate::{MaxSearch, bucket_stats::BucketStats},
     memmap2::MmapMut,
-    rand::{thread_rng, Rng},
+    rand::{Rng, rng},
     solana_measure::measure::Measure,
     std::{
-        fs::{remove_file, OpenOptions},
+        fs::{OpenOptions, remove_file},
         io::{Seek, SeekFrom, Write},
         num::NonZeroU64,
         path::{Path, PathBuf},
         sync::{
-            atomic::{AtomicU64, Ordering},
             Arc,
+            atomic::{AtomicU64, Ordering},
         },
     },
 };
@@ -171,7 +171,12 @@ impl<O: BucketOccupied> BucketStorage<O> {
             let full_page_bytes = bytes / PAGE_SIZE * PAGE_SIZE / cell_size * cell_size;
             if full_page_bytes < bytes {
                 let bytes_new = ((bytes / PAGE_SIZE) + 1) * PAGE_SIZE / cell_size * cell_size;
-                assert!(bytes_new >= bytes, "allocating less than requested, capacity: {}, bytes: {}, bytes_new: {}, full_page_bytes: {}", capacity.capacity(), bytes, bytes_new, full_page_bytes);
+                assert!(
+                    bytes_new >= bytes,
+                    "allocating less than requested, capacity: {}, bytes: {bytes}, bytes_new: \
+                     {bytes_new}, full_page_bytes: {full_page_bytes}",
+                    capacity.capacity()
+                );
                 assert_eq!(bytes_new % cell_size, 0);
                 bytes = bytes_new;
                 *capacity = Capacity::Actual(bytes / cell_size);
@@ -352,7 +357,7 @@ impl<O: BucketOccupied> BucketStorage<O> {
         };
         let ptr = {
             let ptr = slice.as_ptr().cast();
-            debug_assert!(ptr as usize % std::mem::align_of::<T>() == 0);
+            debug_assert!((ptr as usize).is_multiple_of(std::mem::align_of::<T>()));
             ptr
         };
         unsafe { std::slice::from_raw_parts(ptr, len as usize) }
@@ -377,7 +382,7 @@ impl<O: BucketOccupied> BucketStorage<O> {
         };
         let ptr = {
             let ptr = slice.as_mut_ptr().cast();
-            debug_assert!(ptr as usize % std::mem::align_of::<T>() == 0);
+            debug_assert!((ptr as usize).is_multiple_of(std::mem::align_of::<T>()));
             ptr
         };
         unsafe { std::slice::from_raw_parts_mut(ptr, len as usize) }
@@ -449,10 +454,10 @@ impl<O: BucketOccupied> BucketStorage<O> {
 
     /// allocate a new memory mapped file of size `bytes` on one of `drives`
     fn new_map(drives: &[PathBuf], bytes: u64, stats: &BucketStats) -> (MmapMut, PathBuf, u128) {
-        let r = thread_rng().gen_range(0..drives.len());
+        let r = rng().random_range(0..drives.len());
         let drive = &drives[r];
-        let file_random = thread_rng().gen_range(0..u128::MAX);
-        let pos = format!("{}", file_random,);
+        let file_random = rng().random_range(0..u128::MAX);
+        let pos = format!("{file_random}");
         let file = drive.join(pos);
         let res = Self::map_open_file(file.clone(), true, bytes, stats).unwrap();
 
@@ -518,7 +523,6 @@ impl<O: BucketOccupied> BucketStorage<O> {
             capacity,
             max_search,
             Arc::clone(stats),
-            #[allow(clippy::map_clone)] // https://github.com/rust-lang/rust-clippy/issues/12560
             bucket
                 .map(|bucket| Arc::clone(&bucket.count))
                 .unwrap_or_default(),
@@ -615,15 +619,17 @@ mod test {
         let stats = Arc::new(BucketStats::default());
         let count = Arc::new(AtomicU64::default());
         // file doesn't exist
-        assert!(BucketStorage::<IndexBucket<u64>>::load_on_restart(
-            PathBuf::from(tmpdir.path()),
-            NonZeroU64::new(elem_size).unwrap(),
-            max_search,
-            stats.clone(),
-            count.clone(),
-        )
-        .is_none());
-        solana_logger::setup();
+        assert!(
+            BucketStorage::<IndexBucket<u64>>::load_on_restart(
+                PathBuf::from(tmpdir.path()),
+                NonZeroU64::new(elem_size).unwrap(),
+                max_search,
+                stats.clone(),
+                count.clone(),
+            )
+            .is_none()
+        );
+        agave_logger::setup();
         for len in [0, 1, 47, 48, 49, 4097] {
             // create a zero len file. That will fail to load since it is too small.
             let path = tmpdir.path().join("small");

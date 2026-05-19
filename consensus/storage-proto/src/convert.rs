@@ -1,18 +1,18 @@
 use {
-    crate::{StoredExtendedRewards, StoredTransactionStatusMeta},
-    solana_account_decoder::parse_token::{real_number_string_trimmed, UiTokenAmount},
-    solana_hash::{Hash, HASH_BYTES},
+    crate::{StoredExtendedRewards, StoredTransactionError, StoredTransactionStatusMeta},
+    solana_account_decoder::parse_token::{UiTokenAmount, real_number_string_trimmed},
+    solana_hash::{HASH_BYTES, Hash},
     solana_instruction::error::InstructionError,
     solana_message::{
+        MessageHeader, VersionedMessage,
         compiled_instruction::CompiledInstruction,
         legacy::Message as LegacyMessage,
         v0::{self, LoadedAddresses, MessageAddressTableLookup},
-        MessageHeader, VersionedMessage,
     },
     solana_pubkey::Pubkey,
     solana_signature::Signature,
-    solana_transaction::{versioned::VersionedTransaction, Transaction},
-    solana_transaction_context::TransactionReturnData,
+    solana_transaction::{Transaction, versioned::VersionedTransaction},
+    solana_transaction_context::transaction::TransactionReturnData,
     solana_transaction_error::TransactionError,
     solana_transaction_status::{
         ConfirmedBlock, EntrySummary, InnerInstruction, InnerInstructions, Reward, RewardType,
@@ -121,6 +121,10 @@ impl From<Reward> for generated::Reward {
                 Some(RewardType::Voting) => generated::RewardType::Voting,
             } as i32,
             commission: reward.commission.map(|c| c.to_string()).unwrap_or_default(),
+            commission_bps: reward
+                .commission_bps
+                .map(|bps| bps.to_string())
+                .unwrap_or_default(),
         }
     }
 }
@@ -140,6 +144,7 @@ impl From<generated::Reward> for Reward {
                 _ => None,
             },
             commission: reward.commission.parse::<u8>().ok(),
+            commission_bps: reward.commission_bps.parse::<u16>().ok(),
         }
     }
 }
@@ -286,6 +291,20 @@ impl From<generated::Transaction> for VersionedTransaction {
     }
 }
 
+impl From<TransactionError> for generated::TransactionError {
+    fn from(value: TransactionError) -> Self {
+        let stored_error = StoredTransactionError::from(value).0;
+        Self { err: stored_error }
+    }
+}
+
+impl From<generated::TransactionError> for TransactionError {
+    fn from(value: generated::TransactionError) -> Self {
+        let stored_error = StoredTransactionError(value.err);
+        stored_error.into()
+    }
+}
+
 impl From<LegacyMessage> for generated::Message {
     fn from(message: LegacyMessage) -> Self {
         Self {
@@ -407,6 +426,7 @@ impl From<TransactionStatusMeta> for generated::TransactionStatusMeta {
             loaded_addresses,
             return_data,
             compute_units_consumed,
+            cost_units,
         } = value;
         let err = match status {
             Ok(()) => None,
@@ -467,6 +487,7 @@ impl From<TransactionStatusMeta> for generated::TransactionStatusMeta {
             return_data,
             return_data_none,
             compute_units_consumed,
+            cost_units,
         }
     }
 }
@@ -499,6 +520,7 @@ impl TryFrom<generated::TransactionStatusMeta> for TransactionStatusMeta {
             return_data,
             return_data_none,
             compute_units_consumed,
+            cost_units,
         } = value;
         let status = match &err {
             None => Ok(()),
@@ -568,6 +590,7 @@ impl TryFrom<generated::TransactionStatusMeta> for TransactionStatusMeta {
             loaded_addresses,
             return_data,
             compute_units_consumed,
+            cost_units,
         })
     }
 }
@@ -751,6 +774,7 @@ impl TryFrom<tx_by_addr::TransactionError> for TransactionError {
                     16 => InstructionError::DuplicateAccountIndex,
                     17 => InstructionError::ExecutableModified,
                     18 => InstructionError::RentEpochModified,
+                    #[allow(deprecated)]
                     19 => InstructionError::NotEnoughAccountKeys,
                     20 => InstructionError::AccountDataSizeChanged,
                     21 => InstructionError::AccountNotExecutable,
@@ -775,7 +799,7 @@ impl TryFrom<tx_by_addr::TransactionError> for TransactionError {
                     41 => InstructionError::ProgramFailedToCompile,
                     42 => InstructionError::Immutable,
                     43 => InstructionError::IncorrectAuthority,
-                    44 => InstructionError::BorshIoError(String::new()),
+                    44 => InstructionError::BorshIoError,
                     45 => InstructionError::AccountNotRentExempt,
                     46 => InstructionError::InvalidAccountOwner,
                     47 => InstructionError::ArithmeticOverflow,
@@ -1040,6 +1064,7 @@ impl From<TransactionError> for tx_by_addr::TransactionError {
                             InstructionError::RentEpochModified => {
                                 tx_by_addr::InstructionErrorType::RentEpochModified
                             }
+                            #[allow(deprecated)]
                             InstructionError::NotEnoughAccountKeys => {
                                 tx_by_addr::InstructionErrorType::NotEnoughAccountKeys
                             }
@@ -1113,7 +1138,7 @@ impl From<TransactionError> for tx_by_addr::TransactionError {
                             InstructionError::IncorrectAuthority => {
                                 tx_by_addr::InstructionErrorType::IncorrectAuthority
                             }
-                            InstructionError::BorshIoError(_) => {
+                            InstructionError::BorshIoError => {
                                 tx_by_addr::InstructionErrorType::BorshIoError
                             }
                             InstructionError::AccountNotRentExempt => {
@@ -1272,6 +1297,7 @@ mod test {
             post_balance: 321,
             reward_type: None,
             commission: None,
+            commission_bps: None,
         };
         let gen_reward: generated::Reward = reward.clone().into();
         assert_eq!(reward, gen_reward.into());
@@ -1752,6 +1778,7 @@ mod test {
             tx_by_addr_transaction_error.try_into().unwrap()
         );
 
+        #[allow(deprecated)]
         let transaction_error =
             TransactionError::InstructionError(10, InstructionError::NotEnoughAccountKeys);
         let tx_by_addr_transaction_error: tx_by_addr::TransactionError =

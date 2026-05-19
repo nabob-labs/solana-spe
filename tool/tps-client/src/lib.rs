@@ -1,3 +1,4 @@
+#![cfg(feature = "agave-unstable-api")]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 use {
     log::debug,
@@ -63,7 +64,7 @@ pub trait TpsClient {
                     return Ok(new_blockhash);
                 }
             }
-            debug!("Got same blockhash ({:?}), will retry...", blockhash);
+            debug!("Got same blockhash ({blockhash:?}), will retry...");
 
             // Retry ~twice during a slot
             sleep(Duration::from_millis(DEFAULT_MS_PER_SLOT / 2));
@@ -125,7 +126,7 @@ pub trait TpsClient {
     fn get_multiple_accounts(&self, pubkeys: &[Pubkey]) -> TpsClientResult<Vec<Option<Account>>>;
 
     fn get_slot_with_commitment(&self, commitment_config: CommitmentConfig)
-        -> TpsClientResult<u64>;
+    -> TpsClientResult<u64>;
 
     fn get_blocks_with_commitment(
         &self,

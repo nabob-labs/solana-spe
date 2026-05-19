@@ -17,6 +17,7 @@ crate-type = ["lib"]
 name = "solana_cost_model"
 
 [features]
+agave-unstable-api = []
 dev-context-only-utils = [
     "dep:solana-hash",
     "dep:solana-message",
@@ -35,7 +36,6 @@ frozen-abi = [
 [dependencies]
 agave-feature-set = { workspace = true }
 ahash = { workspace = true }
-lazy_static = { workspace = true }
 log = { workspace = true }
 solana-bincode = { workspace = true }
 solana-borsh = { workspace = true }
@@ -66,19 +66,19 @@ solana-transaction-error = { workspace = true }
 solana-vote-program = { workspace = true }
 
 [dev-dependencies]
+agave-logger = { workspace = true }
 agave-reserved-account-keys = { workspace = true }
 itertools = { workspace = true }
-rand = "0.8.5"
+rand = { workspace = true }
 # See order-crates-for-publishing.py for using this unusual `path = "."`
 solana-compute-budget-instruction = { workspace = true, features = [
     "dev-context-only-utils",
 ] }
 solana-compute-budget-interface = { workspace = true }
 solana-compute-budget-program = { workspace = true }
-solana-cost-model = { path = ".", features = ["dev-context-only-utils"] }
+solana-cost-model = { path = ".", features = ["agave-unstable-api", "dev-context-only-utils"] }
 solana-instruction = { workspace = true }
 solana-keypair = { workspace = true }
-solana-logger = { workspace = true }
 solana-pubkey = { workspace = true, features = ["rand"] }
 solana-runtime-transaction = { workspace = true, features = [
     "dev-context-only-utils",
@@ -86,6 +86,7 @@ solana-runtime-transaction = { workspace = true, features = [
 solana-signer = { workspace = true }
 solana-system-program = { workspace = true }
 solana-system-transaction = { workspace = true }
+solana-vote = { workspace = true }
 static_assertions = { workspace = true }
 test-case = { workspace = true }
 

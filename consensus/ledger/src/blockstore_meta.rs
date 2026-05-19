@@ -1,18 +1,13 @@
 use {
     crate::{
-        blockstore::MAX_DATA_SHREDS_PER_SLOT,
-        shred::{self, Shred, ShredType},
+        bit_vec::BitVec,
+        shred::{self, DATA_SHREDS_PER_FEC_BLOCK, MAX_DATA_SHREDS_PER_SLOT, Shred, ShredType},
     },
     bitflags::bitflags,
     serde::{Deserialize, Deserializer, Serialize, Serializer},
-    solana_sdk::{
-        clock::{Slot, UnixTimestamp},
-        hash::Hash,
-    },
-    std::{
-        collections::BTreeSet,
-        ops::{Bound, Range, RangeBounds},
-    },
+    solana_clock::{Slot, UnixTimestamp},
+    solana_hash::Hash,
+    std::ops::{Range, RangeBounds},
 };
 
 bitflags! {
@@ -23,7 +18,7 @@ bitflags! {
         // 1) S is a rooted slot itself OR
         // 2) S's parent is connected AND S is full (S's complete block present)
         //
-        // 1) is a straightfoward case, roots are finalized blocks on the main fork
+        // 1) is a straightforward case, roots are finalized blocks on the main fork
         // so by definition, they are connected. All roots are connected, but not
         // all connected slots are (or will become) roots.
         //
@@ -41,7 +36,6 @@ bitflags! {
         // CONNECTED is explicitly the first bit to ensure backwards compatibility
         // with the boolean field that ConnectedFlags replaced in SlotMeta.
         const CONNECTED        = 0b0000_0001;
-        // PARENT_CONNECTED IS INTENTIIONALLY UNUSED FOR NOW
         const PARENT_CONNECTED = 0b1000_0000;
     }
 }
@@ -52,9 +46,56 @@ impl Default for ConnectedFlags {
     }
 }
 
+/// A fixed size BitVec offers fast lookup and fast de/serialization.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(transparent)]
+pub struct CompletedDataIndexes {
+    index: BitVec<MAX_DATA_SHREDS_PER_SLOT>,
+}
+
+// API of CompletedDataIndexes that semantically mirrors BTreeSet<u32>.
+impl CompletedDataIndexes {
+    #[inline]
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = u32> + '_ {
+        self.index.iter_ones().map(|i| i as u32)
+    }
+
+    #[inline]
+    pub fn insert(&mut self, index: u32) {
+        self.index.insert_unchecked(index as usize);
+    }
+
+    #[inline]
+    pub fn contains(&self, index: &u32) -> bool {
+        self.index.contains(*index as usize)
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.index.is_empty()
+    }
+
+    #[inline]
+    pub fn range<R>(&self, bounds: R) -> impl DoubleEndedIterator<Item = u32> + '_
+    where
+        R: RangeBounds<u32>,
+    {
+        let start = bounds.start_bound().map(|&b| b as usize);
+        let end = bounds.end_bound().map(|&b| b as usize);
+        self.index.range((start, end)).iter_ones().map(|i| i as u32)
+    }
+}
+
+impl FromIterator<u32> for CompletedDataIndexes {
+    fn from_iter<T: IntoIterator<Item = u32>>(iter: T) -> Self {
+        let index = iter.into_iter().map(|i| i as usize).collect();
+        CompletedDataIndexes { index }
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 /// The Meta column family
-pub struct SlotMeta {
+pub struct SlotMetaBase<T> {
     /// The number of slots above the root (the genesis block). The first
     /// slot has slot 0.
     pub slot: Slot,
@@ -83,7 +124,52 @@ pub struct SlotMeta {
     pub connected_flags: ConnectedFlags,
     /// Shreds indices which are marked data complete.  That is, those that have the
     /// [`ShredFlags::DATA_COMPLETE_SHRED`][`crate::shred::ShredFlags::DATA_COMPLETE_SHRED`] set.
-    pub completed_data_indexes: BTreeSet<u32>,
+    pub completed_data_indexes: T,
+}
+
+pub type SlotMeta = SlotMetaBase<CompletedDataIndexes>;
+
+/// SlotMetaV3 extends SlotMeta with two additional fields: `parent_block_id`
+/// and `replay_fec_set_index`. The SlotMeta type will continue to be used
+/// (written) for now, but a SlotMetaV3 can be read from the Blockstore and
+/// converted into a SlotMeta. The logic to read and convert SlotMetaV3 to
+/// SlotMeta enables this software to read a Blockstore modified by a future
+/// version where the SlotMetaV3 format is persisted.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
+pub(crate) struct SlotMetaV3 {
+    pub slot: Slot,
+    pub consumed: u64,
+    pub received: u64,
+    pub first_shred_timestamp: u64,
+    #[serde(with = "serde_compat")]
+    pub last_index: Option<u64>,
+    #[serde(with = "serde_compat")]
+    pub parent_slot: Option<Slot>,
+    pub next_slots: Vec<Slot>,
+    pub connected_flags: ConnectedFlags,
+    pub completed_data_indexes: CompletedDataIndexes,
+    /// The block id of the parent block.
+    /// Populated from the block header / update parent marker.
+    pub parent_block_id: Hash,
+    /// The FEC set index from which replay should start for this block.
+    /// Populated from the block header / update parent marker.
+    pub replay_fec_set_index: u32,
+}
+
+impl From<SlotMetaV3> for SlotMeta {
+    fn from(v3: SlotMetaV3) -> Self {
+        SlotMeta {
+            slot: v3.slot,
+            consumed: v3.consumed,
+            received: v3.received,
+            first_shred_timestamp: v3.first_shred_timestamp,
+            last_index: v3.last_index,
+            parent_slot: v3.parent_slot,
+            next_slots: v3.next_slots,
+            connected_flags: v3.connected_flags,
+            completed_data_indexes: v3.completed_data_indexes,
+        }
+    }
 }
 
 // Serde implementation of serialize and deserialize for Option<u64>
@@ -107,53 +193,11 @@ mod serde_compat {
     }
 }
 
-pub type Index = IndexV2;
-pub type ShredIndex = ShredIndexV2;
-/// We currently support falling back to the previous format for migration purposes.
-///
-/// See https://github.com/anza-xyz/agave/issues/3570.
-pub type IndexFallback = IndexV1;
-pub type ShredIndexFallback = ShredIndexV1;
-
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
-/// Index recording presence/absence of shreds
-pub struct IndexV1 {
+pub struct Index {
     pub slot: Slot,
-    data: ShredIndexV1,
-    coding: ShredIndexV1,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
-pub struct IndexV2 {
-    pub slot: Slot,
-    data: ShredIndexV2,
-    coding: ShredIndexV2,
-}
-
-impl From<IndexV2> for IndexV1 {
-    fn from(index: IndexV2) -> Self {
-        IndexV1 {
-            slot: index.slot,
-            data: index.data.into(),
-            coding: index.coding.into(),
-        }
-    }
-}
-
-impl From<IndexV1> for IndexV2 {
-    fn from(index: IndexV1) -> Self {
-        IndexV2 {
-            slot: index.slot,
-            data: index.data.into(),
-            coding: index.coding.into(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
-pub struct ShredIndexV1 {
-    /// Map representing presence/absence of shreds
-    index: BTreeSet<u64>,
+    data: ShredIndex,
+    coding: ShredIndex,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
@@ -208,8 +252,14 @@ mod serde_compat_cast {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ErasureConfig {
-    num_data: usize,
-    num_coding: usize,
+    pub(crate) num_data: usize,
+    pub(crate) num_coding: usize,
+}
+
+impl ErasureConfig {
+    pub(crate) fn is_fixed(&self) -> bool {
+        self.num_data == DATA_SHREDS_PER_FEC_BLOCK && self.num_coding == DATA_SHREDS_PER_FEC_BLOCK
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -281,277 +331,64 @@ impl Index {
     }
 }
 
-#[cfg(test)]
-#[allow(unused)]
-impl IndexFallback {
-    pub(crate) fn new(slot: Slot) -> Self {
-        Self {
-            slot,
-            data: ShredIndexFallback::default(),
-            coding: ShredIndexFallback::default(),
-        }
-    }
-
-    pub fn data(&self) -> &ShredIndexFallback {
-        &self.data
-    }
-    pub fn coding(&self) -> &ShredIndexFallback {
-        &self.coding
-    }
-
-    pub(crate) fn data_mut(&mut self) -> &mut ShredIndexFallback {
-        &mut self.data
-    }
-    pub(crate) fn coding_mut(&mut self) -> &mut ShredIndexFallback {
-        &mut self.coding
-    }
-}
-
-/// Superseded by [`ShredIndexV2`].
+/// A bitvec (`Box<[u8]>`) of shred indices, where each u8 represents 8 shred indices.
 ///
-/// TODO: Remove this once new [`ShredIndexV2`] is fully rolled out
-/// and no longer relies on it for fallback.
-#[cfg(test)]
-#[allow(unused)]
-impl ShredIndexV1 {
-    pub fn num_shreds(&self) -> usize {
-        self.index.len()
-    }
-
-    pub(crate) fn range<R>(&self, bounds: R) -> impl Iterator<Item = &u64>
-    where
-        R: RangeBounds<u64>,
-    {
-        self.index.range(bounds)
-    }
-
-    pub(crate) fn contains(&self, index: u64) -> bool {
-        self.index.contains(&index)
-    }
-
-    pub(crate) fn insert(&mut self, index: u64) {
-        self.index.insert(index);
-    }
-
-    fn remove(&mut self, index: u64) {
-        self.index.remove(&index);
-    }
-}
-
-/// A bitvec (`Vec<u8>`) of shred indices, where each u8 represents 8 shred indices.
-///
-/// The current implementation of [`ShredIndex`] utilizes a [`BTreeSet`] to store
-/// shred indices. While [`BTreeSet`] remains efficient as operations are amortized
-/// over time, the overhead of the B-tree structure becomes significant when frequently
-/// serialized and deserialized. In particular:
-/// - **Tree Traversal**: Serialization requires walking the non-contiguous tree structure.
-/// - **Reconstruction**: Deserialization involves rebuilding the tree in bulk,
-///   including dynamic memory allocations and re-balancing nodes.
-///
-/// In contrast, our bit vec implementation provides:
-/// - **Contiguous Memory**: All bits are stored in a contiguous array of u64 words,
+/// Bit vec implementation provides:
+/// - **Contiguous Memory**: All bits are stored in a contiguous array of words,
 ///   allowing direct indexing and efficient memory access patterns.
 /// - **Direct Range Access**: Can load only the specific words that overlap with a
 ///   requested range, avoiding unnecessary traversal.
 /// - **Simplified Serialization**: The contiguous memory layout allows for efficient
 ///   serialization/deserialization without tree reconstruction.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ShredIndexV2 {
-    #[serde(with = "serde_bytes")]
-    index: Vec<u8>,
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct ShredIndex {
+    index: BitVec<MAX_DATA_SHREDS_PER_SLOT>,
     num_shreds: usize,
 }
 
-impl Default for ShredIndexV2 {
-    fn default() -> Self {
-        Self {
-            index: vec![0; Self::MAX_WORDS_PER_SLOT],
-            num_shreds: 0,
-        }
-    }
-}
-
-type ShredIndexV2Word = u8;
-impl ShredIndexV2 {
-    const SIZE_OF_WORD: usize = std::mem::size_of::<ShredIndexV2Word>();
-    const BITS_PER_WORD: usize = Self::SIZE_OF_WORD * 8;
-    const MAX_WORDS_PER_SLOT: usize = MAX_DATA_SHREDS_PER_SLOT.div_ceil(Self::BITS_PER_WORD);
-
+impl ShredIndex {
     pub fn num_shreds(&self) -> usize {
         self.num_shreds
     }
 
-    fn index_and_mask(index: u64) -> (usize, ShredIndexV2Word) {
-        let word_idx = index as usize / Self::BITS_PER_WORD;
-        let bit_idx = index as usize % Self::BITS_PER_WORD;
-        let mask = 1 << bit_idx;
-        (word_idx, mask as ShredIndexV2Word)
-    }
-
     #[cfg(test)]
     fn remove(&mut self, index: u64) {
-        assert!(
-            index < MAX_DATA_SHREDS_PER_SLOT as u64,
-            "index out of bounds. {index} >= {MAX_DATA_SHREDS_PER_SLOT}"
-        );
-
-        let (word_idx, mask) = Self::index_and_mask(index);
-
-        if self.index[word_idx] & mask != 0 {
-            self.index[word_idx] ^= mask;
+        if self.index.remove_unchecked(index as usize) {
             self.num_shreds -= 1;
         }
     }
 
     #[allow(unused)]
     pub(crate) fn contains(&self, idx: u64) -> bool {
-        if idx >= MAX_DATA_SHREDS_PER_SLOT as u64 {
-            return false;
-        }
-        let (word_idx, mask) = Self::index_and_mask(idx);
-        (self.index[word_idx] & mask) != 0
+        self.index.contains(idx as usize)
     }
 
     pub(crate) fn insert(&mut self, idx: u64) {
-        if idx >= MAX_DATA_SHREDS_PER_SLOT as u64 {
-            return;
-        }
-        let (word_idx, mask) = Self::index_and_mask(idx);
-        if self.index[word_idx] & mask == 0 {
-            self.index[word_idx] |= mask;
+        if let Ok(true) = self.index.insert(idx as usize) {
             self.num_shreds += 1;
         }
     }
 
-    /// Provides an iterator over the set shred indices within a specified range.
-    ///
-    /// # Algorithm
-    /// 1. Divide the specified range into 8-bit words (u8).
-    /// 2. For each word:HH
-    ///    - Calculate the base index (position of the word * 8).
-    ///    - Process all set bits in the word.
-    ///    - For words overlapping the range boundaries:
-    ///      - Determine the relevant bit range using boundaries.
-    ///      - Mask out bits outside the range.
-    ///    - Use bit manipulation to iterate over set bits efficiently.
-    ///
-    /// ## Explanation
-    /// Given range `[75..205]`:
-    ///
-    /// Word layout (each word is 8 bits), where each X represents a bit candidate:
-    /// ```text
-    /// Word 9  (72-79):   [..XXXXXX] ← Partial word (start)
-    /// Word 10 (80-87):   [XXXXXXXX] ← Full word (entirely in range)
-    /// ...
-    /// Word 25 (200-207): [XXXXXX..] ← Partial word (end)
-    /// ```
-    ///
-    /// Partial Word 9 (contains start boundary 75):
-    /// - Base index = 72
-    /// - Lower boundary = 75 - 72 = 3
-    /// - Lower mask = `11111000` (right-shift)
-    ///
-    /// Partial Word 25 (contains end boundary 205):
-    /// - Base index = 200
-    /// - Upper boundary = 205 - 200 = 5
-    /// - Upper mask = `00111111` (left-shift)
-    ///
-    /// Final mask = `word & lower_mask & upper_mask`
-    ///
-    /// Bit iteration:
-    /// 1. Apply masks to restrict the bits to the range.
-    /// 2. While bits remain in the masked word:
-    ///    a. Find the lowest set bit (`trailing_zeros`).
-    ///    b. Add the bit's position to the base index.
-    ///    c. Clear the lowest set bit (`n & (n - 1)`).
-    /// ```
     pub(crate) fn range<R>(&self, bounds: R) -> impl Iterator<Item = u64> + '_
     where
         R: RangeBounds<u64>,
     {
-        let start = match bounds.start_bound() {
-            Bound::Included(&n) => n as usize,
-            Bound::Excluded(&n) => n as usize + 1,
-            Bound::Unbounded => 0,
-        };
-        let end = match bounds.end_bound() {
-            Bound::Included(&n) => n as usize + 1,
-            Bound::Excluded(&n) => n as usize,
-            Bound::Unbounded => MAX_DATA_SHREDS_PER_SLOT,
-        };
-
-        let end_word = end
-            .div_ceil(Self::BITS_PER_WORD)
-            .min(Self::MAX_WORDS_PER_SLOT);
-        let start_word = (start / Self::BITS_PER_WORD).min(end_word);
-
-        self.index[start_word..end_word]
-            .iter()
-            .enumerate()
-            .flat_map(move |(word_offset, &word)| {
-                let base_idx = (start_word + word_offset) * Self::BITS_PER_WORD;
-
-                let lower_bound = start.saturating_sub(base_idx);
-                let upper_bound = if base_idx + Self::BITS_PER_WORD > end {
-                    end - base_idx
-                } else {
-                    Self::BITS_PER_WORD
-                };
-
-                let lower_mask = !0 << lower_bound;
-                let upper_mask = !0 >> (Self::BITS_PER_WORD - upper_bound);
-                let mask = word & lower_mask & upper_mask;
-
-                std::iter::from_fn({
-                    let mut remaining = mask;
-                    move || {
-                        if remaining == 0 {
-                            None
-                        } else {
-                            let bit_idx = remaining.trailing_zeros();
-                            // Clear the lowest set bit
-                            remaining &= remaining - 1;
-                            Some(base_idx as u64 + bit_idx as u64)
-                        }
-                    }
-                })
-            })
-    }
-
-    fn iter(&self) -> impl Iterator<Item = u64> + '_ {
-        self.range(0..MAX_DATA_SHREDS_PER_SLOT as u64)
+        let start = bounds.start_bound().map(|&b| b as usize);
+        let end = bounds.end_bound().map(|&b| b as usize);
+        self.index
+            .range((start, end))
+            .iter_ones()
+            .map(|idx| idx as u64)
     }
 }
 
-impl FromIterator<u64> for ShredIndexV2 {
+impl FromIterator<u64> for ShredIndex {
     fn from_iter<T: IntoIterator<Item = u64>>(iter: T) -> Self {
-        let mut index = ShredIndexV2::default();
+        let mut index = ShredIndex::default();
         for idx in iter {
             index.insert(idx);
         }
         index
-    }
-}
-
-impl FromIterator<u64> for ShredIndexV1 {
-    fn from_iter<T: IntoIterator<Item = u64>>(iter: T) -> Self {
-        ShredIndexV1 {
-            index: iter.into_iter().collect(),
-        }
-    }
-}
-
-impl From<ShredIndexV1> for ShredIndexV2 {
-    fn from(value: ShredIndexV1) -> Self {
-        value.index.into_iter().collect()
-    }
-}
-
-impl From<ShredIndexV2> for ShredIndexV1 {
-    fn from(value: ShredIndexV2) -> Self {
-        ShredIndexV1 {
-            index: value.iter().collect(),
-        }
     }
 }
 
@@ -609,7 +446,7 @@ impl SlotMeta {
 
     /// Mark the meta's parent as connected.
     /// If the meta is also full, the meta is now connected as well. Return a
-    /// boolean indicating whether the meta becamed connected from this call.
+    /// boolean indicating whether the meta became connected from this call.
     pub fn set_parent_connected(&mut self) -> bool {
         // Already connected so nothing to do, bail early
         if self.is_connected() {
@@ -786,49 +623,15 @@ impl DuplicateSlotProof {
 }
 
 #[derive(Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
-pub struct TransactionStatusIndexMeta {
-    pub max_slot: Slot,
-    pub frozen: bool,
-}
-
-#[derive(Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct AddressSignatureMeta {
     pub writeable: bool,
 }
 
 /// Performance information about validator execution during a time slice.
 ///
-/// Older versions should only arise as a result of deserialization of entries stored by a previous
-/// version of the validator.  Current version should only produce [`PerfSampleV2`].
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PerfSample {
-    V1(PerfSampleV1),
-    V2(PerfSampleV2),
-}
-
-impl From<PerfSampleV1> for PerfSample {
-    fn from(value: PerfSampleV1) -> PerfSample {
-        PerfSample::V1(value)
-    }
-}
-
-impl From<PerfSampleV2> for PerfSample {
-    fn from(value: PerfSampleV2) -> PerfSample {
-        PerfSample::V2(value)
-    }
-}
-
-/// Version of [`PerfSample`] used before 1.15.x.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-pub struct PerfSampleV1 {
-    pub num_transactions: u64,
-    pub num_slots: u64,
-    pub sample_period_secs: u16,
-}
-
 /// Version of the [`PerfSample`] introduced in 1.15.x.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-pub struct PerfSampleV2 {
+pub struct PerfSample {
     // `PerfSampleV1` part
     pub num_transactions: u64,
     pub num_slots: u64,
@@ -836,11 +639,6 @@ pub struct PerfSampleV2 {
 
     // New fields.
     pub num_non_vote_transactions: u64,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
-pub struct ProgramCost {
-    pub cost: u64,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -876,9 +674,8 @@ impl OptimisticSlotMetaVersioned {
 mod test {
     use {
         super::*,
-        bincode::Options,
         proptest::prelude::*,
-        rand::{seq::SliceRandom, thread_rng},
+        rand::{prelude::IndexedRandom as _, rng},
     };
 
     #[test]
@@ -901,7 +698,7 @@ mod test {
             config: erasure_config,
             first_received_coding_index: 0,
         };
-        let mut rng = thread_rng();
+        let mut rng = rng();
         let mut index = Index::new(0);
 
         let data_indexes = 0..erasure_config.num_data as u64;
@@ -948,100 +745,18 @@ mod test {
         (range.clone(), range).prop_map(
             // Avoid descending (empty) ranges
             |(start, end)| {
-                if start > end {
-                    end..start
-                } else {
-                    start..end
-                }
+                if start > end { end..start } else { start..end }
             },
         )
     }
 
     proptest! {
-        #[test]
-        fn shred_index_legacy_compat(
-            shreds in rand_range(0..MAX_DATA_SHREDS_PER_SLOT as u64),
-            range in rand_range(0..MAX_DATA_SHREDS_PER_SLOT as u64)
-        ) {
-            let mut legacy = ShredIndexV1::default();
-            let mut v2 = ShredIndexV2::default();
-
-            for i in shreds {
-                v2.insert(i);
-                legacy.insert(i);
-            }
-
-            for &i in legacy.index.iter() {
-                assert!(v2.contains(i));
-            }
-
-            assert_eq!(v2.num_shreds(), legacy.num_shreds());
-
-            assert_eq!(
-                v2.range(range.clone()).sum::<u64>(),
-                legacy.range(range).sum::<u64>()
-            );
-
-            assert_eq!(ShredIndexV2::from(legacy.clone()), v2.clone());
-            assert_eq!(ShredIndexV1::from(v2), legacy);
-        }
-
-        /// Property: [`Index`] cannot be deserialized from [`IndexV2`].
-        ///
-        /// # Failure cases
-        /// 1. Empty [`IndexV2`]
-        ///     - [`ShredIndex`] deserialization should fail due to trailing bytes of `num_shreds`.
-        /// 2. Non-empty [`IndexV2`]
-        ///     - Encoded length of [`ShredIndexV2::index`] (`Vec<u8>`) will be relative to a sequence of `u8`,
-        ///       resulting in not enough bytes when deserialized into sequence of `u64`.
-        #[test]
-        fn test_legacy_collision(
-            coding_indices in rand_range(0..MAX_DATA_SHREDS_PER_SLOT as u64),
-            data_indices in rand_range(0..MAX_DATA_SHREDS_PER_SLOT as u64),
-            slot in 0..u64::MAX
-        ) {
-            let index = IndexV2 {
-                coding: coding_indices.into_iter().collect(),
-                data: data_indices.into_iter().collect(),
-                slot,
-            };
-            let config = bincode::DefaultOptions::new().with_fixint_encoding().reject_trailing_bytes();
-            let legacy = config.deserialize::<IndexV1>(&config.serialize(&index).unwrap());
-            prop_assert!(legacy.is_err());
-        }
-
-        /// Property: [`IndexV2`] cannot be deserialized from [`Index`].
-        ///
-        /// # Failure cases
-        /// 1. Empty [`Index`]
-        ///     - [`ShredIndexV2`] deserialization should fail due to missing `num_shreds` (not enough bytes).
-        /// 2. Non-empty [`Index`]
-        ///     - Encoded length of [`ShredIndex::index`] (`BTreeSet<u64>`) will be relative to a sequence of `u64`,
-        ///       resulting in trailing bytes when deserialized into sequence of `u8`.
-        #[test]
-        fn test_legacy_collision_inverse(
-            coding_indices in rand_range(0..MAX_DATA_SHREDS_PER_SLOT as u64),
-            data_indices in rand_range(0..MAX_DATA_SHREDS_PER_SLOT as u64),
-            slot in 0..u64::MAX
-        ) {
-            let index = IndexV1 {
-                coding: coding_indices.into_iter().collect(),
-                data: data_indices.into_iter().collect(),
-                slot,
-            };
-            let config = bincode::DefaultOptions::new()
-                .with_fixint_encoding()
-                .reject_trailing_bytes();
-            let v2 = config.deserialize::<IndexV2>(&config.serialize(&index).unwrap());
-            prop_assert!(v2.is_err());
-        }
-
         // Property: range queries should return correct indices
         #[test]
         fn range_query_correctness(
             indices in rand_range(0..MAX_DATA_SHREDS_PER_SLOT as u64),
         ) {
-            let mut index = ShredIndexV2::default();
+            let mut index = ShredIndex::default();
 
             for idx in indices.clone() {
                 index.insert(idx);
@@ -1055,8 +770,8 @@ mod test {
     }
 
     #[test]
-    fn test_shred_index_v2_range_bounds() {
-        let mut index = ShredIndexV2::default();
+    fn test_shred_index_range_bounds() {
+        let mut index = ShredIndex::default();
 
         index.insert(10);
         index.insert(20);
@@ -1086,15 +801,14 @@ mod test {
             let result: Vec<_> = index.range((start_bound, end_bound)).collect();
             assert_eq!(
                 result, expected,
-                "Failed for bounds: start={:?}, end={:?}",
-                start_bound, end_bound
+                "Failed for bounds: start={start_bound:?}, end={end_bound:?}"
             );
         }
     }
 
     #[test]
-    fn test_shred_index_v2_boundary_conditions() {
-        let mut index = ShredIndexV2::default();
+    fn test_shred_index_boundary_conditions() {
+        let mut index = ShredIndex::default();
 
         // First possible index
         index.insert(0);
@@ -1199,7 +913,7 @@ mod test {
             bincode::serialize(&with_flags).unwrap()
         );
 
-        // Dserializing WithBool into WithFlags succeeds
+        // Deserializing WithBool into WithFlags succeeds
         assert_eq!(
             with_flags,
             bincode::deserialize::<WithFlags>(&bincode::serialize(&with_bool).unwrap()).unwrap()
@@ -1231,30 +945,6 @@ mod test {
         let mut expected = SlotMeta::new_orphan(5);
         expected.next_slots = vec![6, 7];
         assert_eq!(slot_meta, expected);
-    }
-
-    // `PerfSampleV2` should contain `PerfSampleV1` as a prefix, in order for the column to be
-    // backward and forward compatible.
-    #[test]
-    fn perf_sample_v1_is_prefix_of_perf_sample_v2() {
-        let v2 = PerfSampleV2 {
-            num_transactions: 4190143848,
-            num_slots: 3607325588,
-            sample_period_secs: 31263,
-            num_non_vote_transactions: 4056116066,
-        };
-
-        let v2_bytes = bincode::serialize(&v2).expect("`PerfSampleV2` can be serialized");
-
-        let actual: PerfSampleV1 = bincode::deserialize(&v2_bytes)
-            .expect("Bytes encoded as `PerfSampleV2` can be decoded as `PerfSampleV1`");
-        let expected = PerfSampleV1 {
-            num_transactions: v2.num_transactions,
-            num_slots: v2.num_slots,
-            sample_period_secs: v2.sample_period_secs,
-        };
-
-        assert_eq!(actual, expected);
     }
 
     #[test]

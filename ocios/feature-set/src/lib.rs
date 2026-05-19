@@ -1,3 +1,4 @@
+#![cfg(feature = "agave-unstable-api")]
 #![cfg_attr(feature = "frozen-abi", feature(min_specialization))]
 
 use {
@@ -6,6 +7,7 @@ use {
     solana_hash::Hash,
     solana_pubkey::Pubkey,
     solana_sha256_hasher::Hasher,
+    solana_svm_feature_set::SVMFeatureSet,
     std::sync::LazyLock,
 };
 
@@ -97,6 +99,84 @@ impl FeatureSet {
     pub fn new_warmup_cooldown_rate_epoch(&self, epoch_schedule: &EpochSchedule) -> Option<u64> {
         self.activated_slot(&reduce_stake_warmup_cooldown::id())
             .map(|slot| epoch_schedule.get_epoch(slot))
+    }
+
+    pub fn runtime_features(&self) -> SVMFeatureSet {
+        SVMFeatureSet {
+            move_precompile_verification_to_svm: self
+                .is_active(&move_precompile_verification_to_svm::id()),
+            syscall_parameter_address_restrictions: self
+                .is_active(&syscall_parameter_address_restrictions::id()),
+            virtual_address_space_adjustments: self
+                .is_active(&virtual_address_space_adjustments::id()),
+            account_data_direct_mapping: self.is_active(&account_data_direct_mapping::id()),
+            enable_bpf_loader_set_authority_checked_ix: self
+                .is_active(&enable_bpf_loader_set_authority_checked_ix::id()),
+            enable_loader_v4: self.is_active(&enable_loader_v4::id()),
+            deplete_cu_meter_on_vm_failure: self.is_active(&deplete_cu_meter_on_vm_failure::id()),
+            abort_on_invalid_curve: self.is_active(&abort_on_invalid_curve::id()),
+            blake3_syscall_enabled: self.is_active(&blake3_syscall_enabled::id()),
+            curve25519_syscall_enabled: self.is_active(&curve25519_syscall_enabled::id()),
+            disable_deploy_of_alloc_free_syscall: self
+                .is_active(&disable_deploy_of_alloc_free_syscall::id()),
+            disable_fees_sysvar: self.is_active(&disable_fees_sysvar::id()),
+            disable_sbpf_v0_execution: self.is_active(&disable_sbpf_v0_execution::id()),
+            enable_alt_bn128_compression_syscall: self
+                .is_active(&enable_alt_bn128_compression_syscall::id()),
+            enable_alt_bn128_syscall: self.is_active(&enable_alt_bn128_syscall::id()),
+            enable_big_mod_exp_syscall: self.is_active(&enable_big_mod_exp_syscall::id()),
+            enable_get_epoch_stake_syscall: self.is_active(&enable_get_epoch_stake_syscall::id()),
+            enable_poseidon_syscall: self.is_active(&enable_poseidon_syscall::id()),
+            enable_sbpf_v1_deployment_and_execution: self
+                .is_active(&enable_sbpf_v1_deployment_and_execution::id()),
+            enable_sbpf_v2_deployment_and_execution: self
+                .is_active(&enable_sbpf_v2_deployment_and_execution::id()),
+            enable_sbpf_v3_deployment_and_execution: self
+                .is_active(&enable_sbpf_v3_deployment_and_execution::id()),
+            get_sysvar_syscall_enabled: self.is_active(&get_sysvar_syscall_enabled::id()),
+            last_restart_slot_sysvar: self.is_active(&last_restart_slot_sysvar::id()),
+            reenable_sbpf_v0_execution: self.is_active(&reenable_sbpf_v0_execution::id()),
+            remaining_compute_units_syscall_enabled: self
+                .is_active(&remaining_compute_units_syscall_enabled::id()),
+            remove_bpf_loader_incorrect_program_id: self
+                .is_active(&remove_bpf_loader_incorrect_program_id::id()),
+            move_stake_and_move_lamports_ixs: self
+                .is_active(&move_stake_and_move_lamports_ixs::id()),
+            deprecate_legacy_vote_ixs: self.is_active(&deprecate_legacy_vote_ixs::id()),
+            simplify_alt_bn128_syscall_error_codes: self
+                .is_active(&simplify_alt_bn128_syscall_error_codes::id()),
+            fix_alt_bn128_multiplication_input_length: self
+                .is_active(&fix_alt_bn128_multiplication_input_length::id()),
+            increase_tx_account_lock_limit: self.is_active(&increase_tx_account_lock_limit::id()),
+            enable_extend_program_checked: self.is_active(&enable_extend_program_checked::id()),
+            formalize_loaded_transaction_data_size: self
+                .is_active(&formalize_loaded_transaction_data_size::id()),
+            disable_zk_elgamal_proof_program: self
+                .is_active(&disable_zk_elgamal_proof_program::id()),
+            reenable_zk_elgamal_proof_program: self
+                .is_active(&reenable_zk_elgamal_proof_program::id()),
+            delay_commission_updates: self.is_active(&delay_commission_updates::id()),
+            raise_cpi_nesting_limit_to_8: self.is_active(&raise_cpi_nesting_limit_to_8::id()),
+            provide_instruction_data_offset_in_vm_r2: self
+                .is_active(&provide_instruction_data_offset_in_vm_r2::id()),
+            increase_cpi_account_info_limit: self.is_active(&increase_cpi_account_info_limit::id()),
+            vote_state_v4: self.is_active(&vote_state_v4::id()),
+            poseidon_enforce_padding: self.is_active(&poseidon_enforce_padding::id()),
+            fix_alt_bn128_pairing_length_check: self
+                .is_active(&fix_alt_bn128_pairing_length_check::id()),
+            alt_bn128_little_endian: self.is_active(&alt_bn128_little_endian::id()),
+            create_account_allow_prefund: self.is_active(&create_account_allow_prefund::id()),
+            bls_pubkey_management_in_vote_account: self
+                .is_active(&bls_pubkey_management_in_vote_account::id()),
+            enable_alt_bn128_g2_syscalls: self.is_active(&enable_alt_bn128_g2_syscalls::id()),
+            commission_rate_in_basis_points: self.is_active(&commission_rate_in_basis_points::id()),
+            custom_commission_collector: self.is_active(&custom_commission_collector::id()),
+            enable_bls12_381_syscall: self.is_active(&enable_bls12_381_syscall::id()),
+            block_revenue_sharing: self.is_active(&block_revenue_sharing::id()),
+            vote_account_initialize_v2: self.is_active(&vote_account_initialize_v2::id()),
+            direct_account_pointers_in_program_input: self
+                .is_active(&direct_account_pointers_in_program_input::id()),
+        }
     }
 }
 
@@ -436,9 +516,6 @@ pub mod fix_recent_blockhashes {
 pub mod update_rewards_from_cached_accounts {
     solana_pubkey::declare_id!("28s7i3htzhahXQKqmS2ExzbEoUypg9krwvtK2M9UWXh9");
 }
-pub mod enable_partitioned_epoch_reward {
-    solana_pubkey::declare_id!("9bn2vTJUsUcnpiZWbu2woSKtTGW3ErZC9ERv88SDqQjK");
-}
 
 pub mod partitioned_epoch_rewards_superfeature {
     solana_pubkey::declare_id!("PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8");
@@ -470,7 +547,7 @@ pub mod stake_raise_minimum_delegation_to_1_sol {
 }
 
 pub mod stake_minimum_delegation_for_rewards {
-    solana_pubkey::declare_id!("G6ANXD6ptCSyNd9znZm7j4dEczAJCfx7Cy43oBx3rKHJ");
+    solana_pubkey::declare_id!("MinimumDe1egat1onForRewardsWi11BeDe1eted111");
 }
 
 pub mod add_set_compute_unit_price_ix {
@@ -693,8 +770,16 @@ pub mod apply_cost_tracker_during_replay {
     solana_pubkey::declare_id!("2ry7ygxiYURULZCrypHhveanvP5tzZ4toRwVp89oCNSj");
 }
 
-pub mod bpf_account_data_direct_mapping {
-    solana_pubkey::declare_id!("1ncomp1ete111111111111111111111111111111111");
+pub mod syscall_parameter_address_restrictions {
+    solana_pubkey::declare_id!("EDGMC5kxFxGk4ixsNkGt8bW7QL5hDMXnbwaZvYMwNfzF");
+}
+
+pub mod virtual_address_space_adjustments {
+    solana_pubkey::declare_id!("7VgiehxNxu53KdxgLspGQY8myE6f7UokaWa4jsGcaSz");
+}
+
+pub mod account_data_direct_mapping {
+    solana_pubkey::declare_id!("CR3dVN2Yoo95Y96kLSTaziWDAQT2MNEpiWh5cqVq2pNE");
 }
 
 pub mod add_set_tx_loaded_accounts_data_size_instruction {
@@ -749,7 +834,7 @@ pub mod reduce_stake_warmup_cooldown {
     solana_pubkey::declare_id!("GwtDQBghCTBgmX2cpEGNPxTEBUTQRaDMGTr5qychdGMj");
 }
 
-mod revise_turbine_epoch_stakes {
+pub mod revise_turbine_epoch_stakes {
     solana_pubkey::declare_id!("BTWmtJC8U5ZLMbBUUA1k6As62sYjPEjAiNAT55xYGdJU");
 }
 
@@ -954,15 +1039,11 @@ pub mod enable_sbpf_v2_deployment_and_execution {
 }
 
 pub mod enable_sbpf_v3_deployment_and_execution {
-    solana_pubkey::declare_id!("C8XZNs1bfzaiT3YDeXZJ7G5swQWQv7tVzDnCxtHvnSpw");
+    solana_pubkey::declare_id!("5cC3foj77CWun58pC51ebHFUWavHWKarWyR5UUik7dnC");
 }
 
 pub mod remove_accounts_executable_flag_checks {
     solana_pubkey::declare_id!("FXs1zh47QbNnhXcnB6YiAQoJ4sGB91tKF3UFHLcKT7PM");
-}
-
-pub mod lift_cpi_caller_restriction {
-    solana_pubkey::declare_id!("HcW8ZjBezYYgvcbxNJwqv1t484Y2556qJsfNDWvJGZRH");
 }
 
 pub mod disable_account_loader_special_case {
@@ -1005,8 +1086,24 @@ pub mod drop_unchained_merkle_shreds {
     solana_pubkey::declare_id!("5KLGJSASDVxKPjLCDWNtnABLpZjsQSrYZ8HKwcEdAMC8");
 }
 
+pub mod relax_intrabatch_account_locks {
+    solana_pubkey::declare_id!("4WeHX6QoXCCwqbSFgi6dxnB6QsPo6YApaNTH7P4MLQ99");
+}
+
+pub mod create_slashing_program {
+    solana_pubkey::declare_id!("sProgVaNWkYdP2eTRAy1CPrgb3b9p8yXCASrPEqo6VJ");
+}
+
 pub mod disable_partitioned_rent_collection {
     solana_pubkey::declare_id!("2B2SBNbUcr438LtGXNcJNBP2GBSxjx81F945SdSkUSfC");
+}
+
+pub mod enable_vote_address_leader_schedule {
+    solana_pubkey::declare_id!("5JsG4NWH8Jbrqdd8uL6BNwnyZK3dQSoieRXG5vmofj9y");
+}
+
+pub mod require_static_nonce_account {
+    solana_pubkey::declare_id!("7VVhpg5oAjAmnmz1zCcSHb2Z9ecZB2FQqpnEwReka9Zm");
 }
 
 pub mod raise_block_limits_to_60m {
@@ -1017,8 +1114,38 @@ pub mod mask_out_rent_epoch_in_vm_serialization {
     solana_pubkey::declare_id!("RENtePQcDLrAbxAsP3k8dwVcnNYQ466hi2uKvALjnXx");
 }
 
+pub mod enshrine_slashing_program {
+    solana_pubkey::declare_id!("sProgVaNWkYdP2eTRAy1CPrgb3b9p8yXCASrPEqo6VJ");
+}
+
 pub mod enable_extend_program_checked {
     solana_pubkey::declare_id!("2oMRZEDWT2tqtYMofhmmfQ8SsjqUFzT6sYXppQDavxwz");
+}
+
+pub mod formalize_loaded_transaction_data_size {
+    solana_pubkey::declare_id!("DeS7sR48ZcFTUmt5FFEVDr1v1bh73aAbZiZq3SYr8Eh8");
+}
+
+pub mod alpenglow {
+    #[cfg(feature = "dev-context-only-utils")]
+    use {
+        solana_keypair::{Keypair, Signer},
+        std::sync::LazyLock,
+    };
+
+    // Used to activate alpenglow in local-cluster tests without exposing the actual feature's private key
+    #[cfg(feature = "dev-context-only-utils")]
+    pub static TEST_KEYPAIR: LazyLock<Keypair> = LazyLock::new(|| {
+        let keypair = Keypair::from_base58_string("2Vzd6oTWU4RtM5UmsSyBH3tAhPSi1sKqMeMC8bF1jzHHLBMRhEWtrfmBV4EmwQbGSwkunk5Wy67kXNAL1ZL1xQhR");
+        assert_eq!(keypair.pubkey(), super::alpenglow::id());
+        keypair
+    });
+
+    #[cfg(not(feature = "dev-context-only-utils"))]
+    solana_pubkey::declare_id!("mustRekeyVm2QHYB3JPefBiU4BY3Z6JkW2k3Scw5GWP");
+
+    #[cfg(feature = "dev-context-only-utils")]
+    solana_pubkey::declare_id!("8KpruRFrT59jQ9NfFX9DU6j8a1hW7y6xchvZNQ5rxD4P");
 }
 
 pub mod disable_zk_elgamal_proof_program {
@@ -1026,242 +1153,1220 @@ pub mod disable_zk_elgamal_proof_program {
 }
 
 pub mod reenable_zk_elgamal_proof_program {
-    solana_pubkey::declare_id!("zkemPXcuM3G4wpMDZ36Cpw34EjUpvm1nuioiSGbGZPR");
+    solana_pubkey::declare_id!("zkexuyPRdyTVbZqEAREueqL2xvvoBhRgth9xGSc1tMN");
+}
+
+pub mod raise_block_limits_to_100m {
+    solana_pubkey::declare_id!("P1BCUMpAC7V2GRBRiJCNUgpMyWZhoqt3LKo712ePqsz");
+}
+
+pub mod raise_account_cu_limit {
+    solana_pubkey::declare_id!("htsptAwi2yRoZH83SKaUXykeZGtZHgxkS2QwW1pssR8");
+}
+
+pub mod delay_commission_updates {
+    solana_pubkey::declare_id!("76dHtohc2s5dR3ahJyBxs7eJJVipFkaPdih9CLgTTb4B");
+}
+
+pub mod raise_cpi_nesting_limit_to_8 {
+    solana_pubkey::declare_id!("6TkHkRmP7JZy1fdM6fg5uXn76wChQBWGokHBJzrLB3mj");
+}
+
+pub mod enforce_fixed_fec_set {
+    solana_pubkey::declare_id!("fixfecLZYMfkGzwq6NJA11Yw6KYztzXiK9QcL3K78in");
+}
+
+pub mod provide_instruction_data_offset_in_vm_r2 {
+    solana_pubkey::declare_id!("5xXZc66h4UdB6Yq7FzdBxBiRAFMMScMLwHxk2QZDaNZL");
+}
+
+pub mod create_account_allow_prefund {
+    solana_pubkey::declare_id!("6sPDzwyARRExKH52LECxcGoqziH8G7SZofwuxi8Ja331");
+}
+
+pub mod static_instruction_limit {
+    solana_pubkey::declare_id!("64ixypL1HPu8WtJhNSMb9mSgfFaJvsANuRkTbHyuLfnx");
+}
+
+pub mod discard_unexpected_data_complete_shreds {
+    solana_pubkey::declare_id!("dcomRRWHXP1FVWPqi9Mm4oxJhF4ehC795SvAtUdA9os");
+}
+
+pub mod vote_state_v4 {
+    solana_pubkey::declare_id!("Gx4XFcrVMt4HUvPzTpTSVkdDVgcDSjKhDN1RqRS6KDuZ");
+
+    pub mod stake_program_buffer {
+        solana_pubkey::declare_id!("BM11F4hqrpinQs28sEZfzQ2fYddivYs4NEAHF6QMjkJF");
+    }
+}
+
+pub mod switch_to_chacha8_turbine {
+    solana_pubkey::declare_id!("CHaChatUnR3s6cPyPMMGNJa3VdQQ8PNH2JqdD4LpCKnB");
+}
+
+pub mod increase_cpi_account_info_limit {
+    solana_pubkey::declare_id!("H6iVbVaDZgDphcPbcZwc5LoznMPWQfnJ1AM7L1xzqvt5");
+}
+
+pub mod deprecate_rent_exemption_threshold {
+    solana_pubkey::declare_id!("rent6iVy6PDoViPBeJ6k5EJQrkj62h7DPyLbWGHwjrC");
+}
+
+pub mod poseidon_enforce_padding {
+    solana_pubkey::declare_id!("poUdAqRXXsNmfqAZ6UqpjbeYgwBygbfQLEvWSqVhSnb");
+}
+
+pub mod fix_alt_bn128_pairing_length_check {
+    solana_pubkey::declare_id!("bnYzodLwmybj7e1HAe98yZrdJTd7we69eMMLgCXqKZm");
+}
+
+pub mod replace_spl_token_with_p_token {
+    use super::Pubkey;
+
+    solana_pubkey::declare_id!("ptokFjwyJtrwCa9Kgo9xoDS59V4QccBGEaRFnRPnSdP");
+
+    pub const SPL_TOKEN_PROGRAM_ID: Pubkey =
+        Pubkey::from_str_const("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+
+    pub const PTOKEN_PROGRAM_BUFFER: Pubkey =
+        Pubkey::from_str_const("ptok6rngomXrDbWf5v5Mkmu5CEbB51hzSCPDoj9DrvF");
+}
+
+pub mod alt_bn128_little_endian {
+    solana_pubkey::declare_id!("bn2oPgpkzQPT3tohMaAsMVGjhDmmDa4jCaVPqCFmtxM");
+}
+
+pub mod bls_pubkey_management_in_vote_account {
+    solana_pubkey::declare_id!("2uxQgtKa2ECHGs67Zdj7dgmzn2w9HiqhdcedwCWfYzzq");
+}
+
+pub mod relax_programdata_account_check_migration {
+    solana_pubkey::declare_id!("rexav5eNTUSNT1K2N7cfRjnthwhcP5BC25v2tA4rW4h");
+}
+
+pub mod enable_alt_bn128_g2_syscalls {
+    solana_pubkey::declare_id!("bn1hKNURMGQaQoEVxahcEAcqiX3NwRs6hgKKNSLeKxH");
+}
+
+pub mod commission_rate_in_basis_points {
+    solana_pubkey::declare_id!("CommissionRate1nBasisPoints1111111111111111");
+}
+
+pub mod custom_commission_collector {
+    solana_pubkey::declare_id!("CustomCommissionCo11ector111111111111111111");
+}
+
+pub mod enable_bls12_381_syscall {
+    solana_pubkey::declare_id!("b1sgUiJ3qu7hYm3tNDyyqZNQd6gLGJmJppnLNa93PCQ");
+}
+
+// SIMD-0437 feature gates
+pub mod set_lamports_per_byte_to_6333 {
+    solana_pubkey::declare_id!("4a6f7o7iTcA8hRDCrPLkSatnt5Ykxiu36wo5p1Tt12wC");
+
+    pub const LAMPORTS_PER_BYTE: u64 = 6333;
+}
+
+pub mod set_lamports_per_byte_to_5080 {
+    solana_pubkey::declare_id!("61BtM7BkDEE8Yq5fskEVAQT9mYA8qCejJWoLe5apqg81");
+
+    pub const LAMPORTS_PER_BYTE: u64 = 5080;
+}
+
+pub mod set_lamports_per_byte_to_2575 {
+    solana_pubkey::declare_id!("Ftxb3ZKq7aNqgxDBbP7EonvR2RszZk9ctjdsTX38kQaz");
+
+    pub const LAMPORTS_PER_BYTE: u64 = 2575;
+}
+
+pub mod set_lamports_per_byte_to_1322 {
+    solana_pubkey::declare_id!("GsUBNYNDPdMLHPD37TToHzrzcNcjpC9w5n1EcJk5iTaM");
+
+    pub const LAMPORTS_PER_BYTE: u64 = 1322;
+}
+
+pub mod set_lamports_per_byte_to_696 {
+    solana_pubkey::declare_id!("mZdnRh9T2EbDNvqKjkCR3bvo5c816tJaojtE9Xs7iuY");
+
+    pub const LAMPORTS_PER_BYTE: u64 = 696;
+}
+
+pub mod remove_simple_vote_from_cost_model {
+    solana_pubkey::declare_id!("2GCrNXbzmt4xrwdcKS2RdsLzsgu4V5zHAemW57pcHT6a");
+}
+
+pub mod limit_instruction_accounts {
+    solana_pubkey::declare_id!("6aHuNsUmwSzCEMjrBzBCYaxHAyAcQBjVES92JigHBDuC");
+}
+
+pub mod block_revenue_sharing {
+    solana_pubkey::declare_id!("B1ockRevenueSharing111111111111111111111111");
+}
+
+pub mod vote_account_initialize_v2 {
+    solana_pubkey::declare_id!("VoteAccount1nitia1izeV211111111111111111111");
+}
+
+pub mod validate_chained_block_id {
+    solana_pubkey::declare_id!("vcmrbYbiMVKaq1snKP6eCacNDcr6qZvpCNUjmk6gxvZ");
+}
+
+pub mod validator_admission_ticket {
+    solana_pubkey::declare_id!("VAT9huvhPjRN9cyrPytq9rwvEJ3J4ADtjdncgZRyANJ");
+}
+
+pub mod direct_account_pointers_in_program_input {
+    solana_pubkey::declare_id!("ptr9umikaeAS7ZBBp2fsfRhie16F1V2jCKA2y6gXNAK");
+}
+
+pub mod upgrade_bpf_stake_program_to_v5 {
+    solana_pubkey::declare_id!("STk5Xj8hdAx3sTzmtJ3QysKkq6X2A3yj73JtxttiRyk");
+
+    pub mod buffer {
+        solana_pubkey::declare_id!("4EBQBjw1kqF1dqUBb6fc5Ji4tCEQgNf9ESGGX3smwXwh");
+    }
 }
 
 pub static FEATURE_NAMES: LazyLock<AHashMap<Pubkey, &'static str>> = LazyLock::new(|| {
     [
         (secp256k1_program_enabled::id(), "secp256k1 program"),
-        (deprecate_rewards_sysvar::id(), "deprecate unused rewards sysvar"),
+        (
+            deprecate_rewards_sysvar::id(),
+            "deprecate unused rewards sysvar",
+        ),
         (pico_inflation::id(), "pico inflation"),
-        (full_inflation::devnet_and_testnet::id(), "full inflation on devnet and testnet"),
+        (
+            full_inflation::devnet_and_testnet::id(),
+            "full inflation on devnet and testnet",
+        ),
         (spl_token_v2_multisig_fix::id(), "spl-token multisig fix"),
-        (no_overflow_rent_distribution::id(), "no overflow rent distribution"),
-        (filter_stake_delegation_accounts::id(), "filter stake_delegation_accounts #14062"),
-        (require_custodian_for_locked_stake_authorize::id(), "require custodian to authorize withdrawer change for locked stake"),
-        (spl_token_v2_self_transfer_fix::id(), "spl-token self-transfer fix"),
-        (full_inflation::mainnet::certusone::enable::id(), "full inflation enabled by Certus One"),
-        (full_inflation::mainnet::certusone::vote::id(), "community vote allowing Certus One to enable full inflation"),
-        (warp_timestamp_again::id(), "warp timestamp again, adjust bounding to 25% fast 80% slow #15204"),
+        (
+            no_overflow_rent_distribution::id(),
+            "no overflow rent distribution",
+        ),
+        (
+            filter_stake_delegation_accounts::id(),
+            "filter stake_delegation_accounts #14062",
+        ),
+        (
+            require_custodian_for_locked_stake_authorize::id(),
+            "require custodian to authorize withdrawer change for locked stake",
+        ),
+        (
+            spl_token_v2_self_transfer_fix::id(),
+            "spl-token self-transfer fix",
+        ),
+        (
+            full_inflation::mainnet::certusone::enable::id(),
+            "full inflation enabled by Certus One",
+        ),
+        (
+            full_inflation::mainnet::certusone::vote::id(),
+            "community vote allowing Certus One to enable full inflation",
+        ),
+        (
+            warp_timestamp_again::id(),
+            "warp timestamp again, adjust bounding to 25% fast 80% slow #15204",
+        ),
         (check_init_vote_data::id(), "check initialized Vote data"),
-        (secp256k1_recover_syscall_enabled::id(), "secp256k1_recover syscall"),
-        (system_transfer_zero_check::id(), "perform all checks for transfers of 0 lamports"),
+        (
+            secp256k1_recover_syscall_enabled::id(),
+            "secp256k1_recover syscall",
+        ),
+        (
+            system_transfer_zero_check::id(),
+            "perform all checks for transfers of 0 lamports",
+        ),
         (blake3_syscall_enabled::id(), "blake3 syscall"),
-        (dedupe_config_program_signers::id(), "dedupe config program signers"),
-        (verify_tx_signatures_len::id(), "prohibit extra transaction signatures"),
-        (vote_stake_checked_instructions::id(), "vote/state program checked instructions #18345"),
-        (rent_for_sysvars::id(), "collect rent from accounts owned by sysvars"),
-        (libsecp256k1_0_5_upgrade_enabled::id(), "upgrade libsecp256k1 to v0.5.0"),
+        (
+            dedupe_config_program_signers::id(),
+            "dedupe config program signers",
+        ),
+        (
+            verify_tx_signatures_len::id(),
+            "prohibit extra transaction signatures",
+        ),
+        (
+            vote_stake_checked_instructions::id(),
+            "vote/state program checked instructions #18345",
+        ),
+        (
+            rent_for_sysvars::id(),
+            "collect rent from accounts owned by sysvars",
+        ),
+        (
+            libsecp256k1_0_5_upgrade_enabled::id(),
+            "upgrade libsecp256k1 to v0.5.0",
+        ),
         (tx_wide_compute_cap::id(), "transaction wide compute cap"),
-        (spl_token_v2_set_authority_fix::id(), "spl-token set_authority fix"),
-        (merge_nonce_error_into_system_error::id(), "merge NonceError into SystemError"),
+        (
+            spl_token_v2_set_authority_fix::id(),
+            "spl-token set_authority fix",
+        ),
+        (
+            merge_nonce_error_into_system_error::id(),
+            "merge NonceError into SystemError",
+        ),
         (disable_fees_sysvar::id(), "disable fees sysvar"),
-        (stake_merge_with_unmatched_credits_observed::id(), "allow merging active stakes with unmatched credits_observed #18985"),
-        (zk_token_sdk_enabled::id(), "enable Zk Token proof program and syscalls"),
-        (curve25519_syscall_enabled::id(), "enable curve25519 syscalls"),
-        (versioned_tx_message_enabled::id(), "enable versioned transaction message processing"),
-        (libsecp256k1_fail_on_bad_count::id(), "fail libsecp256k1_verify if count appears wrong"),
-        (libsecp256k1_fail_on_bad_count2::id(), "fail libsecp256k1_verify if count appears wrong"),
-        (instructions_sysvar_owned_by_sysvar::id(), "fix owner for instructions sysvar"),
-        (stake_program_advance_activating_credits_observed::id(), "Enable advancing credits observed for activation epoch #19309"),
-        (credits_auto_rewind::id(), "Auto rewind stake's credits_observed if (accidental) vote recreation is detected #22546"),
-        (demote_program_write_locks::id(), "demote program write locks to readonly, except when upgradeable loader present #19593 #20265"),
-        (ed25519_program_enabled::id(), "enable builtin ed25519 signature verify program"),
-        (return_data_syscall_enabled::id(), "enable sol_{set,get}_return_data syscall"),
-        (reduce_required_deploy_balance::id(), "reduce required payer balance for program deploys"),
-        (sol_log_data_syscall_enabled::id(), "enable sol_log_data syscall"),
-        (stakes_remove_delegation_if_inactive::id(), "remove delegations from stakes cache when inactive"),
-        (do_support_realloc::id(), "support account data reallocation"),
-        (prevent_calling_precompiles_as_programs::id(), "prevent calling precompiles as programs"),
-        (optimize_epoch_boundary_updates::id(), "optimize epoch boundary updates"),
-        (remove_native_loader::id(), "remove support for the native loader"),
-        (send_to_tpu_vote_port::id(), "send votes to the tpu vote port"),
+        (
+            stake_merge_with_unmatched_credits_observed::id(),
+            "allow merging active stakes with unmatched credits_observed #18985",
+        ),
+        (
+            zk_token_sdk_enabled::id(),
+            "enable Zk Token proof program and syscalls",
+        ),
+        (
+            curve25519_syscall_enabled::id(),
+            "enable curve25519 syscalls",
+        ),
+        (
+            versioned_tx_message_enabled::id(),
+            "enable versioned transaction message processing",
+        ),
+        (
+            libsecp256k1_fail_on_bad_count::id(),
+            "fail libsecp256k1_verify if count appears wrong",
+        ),
+        (
+            libsecp256k1_fail_on_bad_count2::id(),
+            "fail libsecp256k1_verify if count appears wrong",
+        ),
+        (
+            instructions_sysvar_owned_by_sysvar::id(),
+            "fix owner for instructions sysvar",
+        ),
+        (
+            stake_program_advance_activating_credits_observed::id(),
+            "Enable advancing credits observed for activation epoch #19309",
+        ),
+        (
+            credits_auto_rewind::id(),
+            "Auto rewind stake's credits_observed if (accidental) vote recreation is detected \
+             #22546",
+        ),
+        (
+            demote_program_write_locks::id(),
+            "demote program write locks to readonly, except when upgradeable loader present \
+             #19593 #20265",
+        ),
+        (
+            ed25519_program_enabled::id(),
+            "enable builtin ed25519 signature verify program",
+        ),
+        (
+            return_data_syscall_enabled::id(),
+            "enable sol_{set,get}_return_data syscall",
+        ),
+        (
+            reduce_required_deploy_balance::id(),
+            "reduce required payer balance for program deploys",
+        ),
+        (
+            sol_log_data_syscall_enabled::id(),
+            "enable sol_log_data syscall",
+        ),
+        (
+            stakes_remove_delegation_if_inactive::id(),
+            "remove delegations from stakes cache when inactive",
+        ),
+        (
+            do_support_realloc::id(),
+            "support account data reallocation",
+        ),
+        (
+            prevent_calling_precompiles_as_programs::id(),
+            "prevent calling precompiles as programs",
+        ),
+        (
+            optimize_epoch_boundary_updates::id(),
+            "optimize epoch boundary updates",
+        ),
+        (
+            remove_native_loader::id(),
+            "remove support for the native loader",
+        ),
+        (
+            send_to_tpu_vote_port::id(),
+            "send votes to the tpu vote port",
+        ),
         (requestable_heap_size::id(), "Requestable heap frame size"),
         (disable_fee_calculator::id(), "deprecate fee calculator"),
-        (add_compute_budget_program::id(), "Add compute_budget_program"),
+        (
+            add_compute_budget_program::id(),
+            "Add compute_budget_program",
+        ),
         (nonce_must_be_writable::id(), "nonce must be writable"),
         (spl_token_v3_3_0_release::id(), "spl-token v3.3.0 release"),
         (leave_nonce_on_success::id(), "leave nonce as is on success"),
-        (reject_empty_instruction_without_program::id(), "fail instructions which have native_loader as program_id directly"),
-        (fixed_memcpy_nonoverlapping_check::id(), "use correct check for nonoverlapping regions in memcpy syscall"),
-        (reject_non_rent_exempt_vote_withdraws::id(), "fail vote withdraw instructions which leave the account non-rent-exempt"),
-        (evict_invalid_stakes_cache_entries::id(), "evict invalid stakes cache entries on epoch boundaries"),
-        (allow_votes_to_directly_update_vote_state::id(), "enable direct vote state update"),
-        (max_tx_account_locks::id(), "enforce max number of locked accounts per transaction"),
-        (require_rent_exempt_accounts::id(), "require all new transaction accounts with data to be rent-exempt"),
-        (filter_votes_outside_slot_hashes::id(), "filter vote slots older than the slot hashes history"),
+        (
+            reject_empty_instruction_without_program::id(),
+            "fail instructions which have native_loader as program_id directly",
+        ),
+        (
+            fixed_memcpy_nonoverlapping_check::id(),
+            "use correct check for nonoverlapping regions in memcpy syscall",
+        ),
+        (
+            reject_non_rent_exempt_vote_withdraws::id(),
+            "fail vote withdraw instructions which leave the account non-rent-exempt",
+        ),
+        (
+            evict_invalid_stakes_cache_entries::id(),
+            "evict invalid stakes cache entries on epoch boundaries",
+        ),
+        (
+            allow_votes_to_directly_update_vote_state::id(),
+            "enable direct vote state update",
+        ),
+        (
+            max_tx_account_locks::id(),
+            "enforce max number of locked accounts per transaction",
+        ),
+        (
+            require_rent_exempt_accounts::id(),
+            "require all new transaction accounts with data to be rent-exempt",
+        ),
+        (
+            filter_votes_outside_slot_hashes::id(),
+            "filter vote slots older than the slot hashes history",
+        ),
         (update_syscall_base_costs::id(), "update syscall base costs"),
-        (stake_deactivate_delinquent_instruction::id(), "enable the deactivate delinquent stake instruction #23932"),
-        (vote_withdraw_authority_may_change_authorized_voter::id(), "vote account withdraw authority may change the authorized voter #22521"),
-        (spl_associated_token_account_v1_0_4::id(), "SPL Associated Token Account Program release version 1.0.4, tied to token 3.3.0 #22648"),
-        (reject_vote_account_close_unless_zero_credit_epoch::id(), "fail vote account withdraw to 0 unless account earned 0 credits in last completed epoch"),
-        (add_get_processed_sibling_instruction_syscall::id(), "add add_get_processed_sibling_instruction_syscall"),
-        (bank_transaction_count_fix::id(), "fixes Bank::transaction_count to include all committed transactions, not just successful ones"),
-        (disable_bpf_deprecated_load_instructions::id(), "disable ldabs* and ldind* SBF instructions"),
-        (disable_bpf_unresolved_symbols_at_runtime::id(), "disable reporting of unresolved SBF symbols at runtime"),
-        (record_instruction_in_transaction_context_push::id(), "move the CPI stack overflow check to the end of push"),
+        (
+            stake_deactivate_delinquent_instruction::id(),
+            "enable the deactivate delinquent stake instruction #23932",
+        ),
+        (
+            vote_withdraw_authority_may_change_authorized_voter::id(),
+            "vote account withdraw authority may change the authorized voter #22521",
+        ),
+        (
+            spl_associated_token_account_v1_0_4::id(),
+            "SPL Associated Token Account Program release version 1.0.4, tied to token 3.3.0 \
+             #22648",
+        ),
+        (
+            reject_vote_account_close_unless_zero_credit_epoch::id(),
+            "fail vote account withdraw to 0 unless account earned 0 credits in last completed \
+             epoch",
+        ),
+        (
+            add_get_processed_sibling_instruction_syscall::id(),
+            "add add_get_processed_sibling_instruction_syscall",
+        ),
+        (
+            bank_transaction_count_fix::id(),
+            "fixes Bank::transaction_count to include all committed transactions, not just \
+             successful ones",
+        ),
+        (
+            disable_bpf_deprecated_load_instructions::id(),
+            "disable ldabs* and ldind* SBF instructions",
+        ),
+        (
+            disable_bpf_unresolved_symbols_at_runtime::id(),
+            "disable reporting of unresolved SBF symbols at runtime",
+        ),
+        (
+            record_instruction_in_transaction_context_push::id(),
+            "move the CPI stack overflow check to the end of push",
+        ),
         (syscall_saturated_math::id(), "syscalls use saturated math"),
-        (check_physical_overlapping::id(), "check physical overlapping regions"),
-        (limit_secp256k1_recovery_id::id(), "limit secp256k1 recovery id"),
-        (disable_deprecated_loader::id(), "disable the deprecated BPF loader"),
-        (check_slice_translation_size::id(), "check size when translating slices"),
-        (stake_split_uses_rent_sysvar::id(), "stake split instruction uses rent sysvar"),
-        (add_get_minimum_delegation_instruction_to_stake_program::id(), "add GetMinimumDelegation instruction to stake program"),
-        (error_on_syscall_bpf_function_hash_collisions::id(), "error on bpf function hash collisions"),
+        (
+            check_physical_overlapping::id(),
+            "check physical overlapping regions",
+        ),
+        (
+            limit_secp256k1_recovery_id::id(),
+            "limit secp256k1 recovery id",
+        ),
+        (
+            disable_deprecated_loader::id(),
+            "disable the deprecated BPF loader",
+        ),
+        (
+            check_slice_translation_size::id(),
+            "check size when translating slices",
+        ),
+        (
+            stake_split_uses_rent_sysvar::id(),
+            "stake split instruction uses rent sysvar",
+        ),
+        (
+            add_get_minimum_delegation_instruction_to_stake_program::id(),
+            "add GetMinimumDelegation instruction to stake program",
+        ),
+        (
+            error_on_syscall_bpf_function_hash_collisions::id(),
+            "error on bpf function hash collisions",
+        ),
         (reject_callx_r10::id(), "Reject bpf callx r10 instructions"),
-        (drop_redundant_turbine_path::id(), "drop redundant turbine path"),
-        (executables_incur_cpi_data_cost::id(), "Executables incur CPI data costs"),
-        (fix_recent_blockhashes::id(), "stop adding hashes for skipped slots to recent blockhashes"),
-        (update_rewards_from_cached_accounts::id(), "update rewards from cached accounts"),
-        (enable_partitioned_epoch_reward::id(), "enable partitioned rewards at epoch boundary #32166"),
-        (spl_token_v3_4_0::id(), "SPL Token Program version 3.4.0 release #24740"),
-        (spl_associated_token_account_v1_1_0::id(), "SPL Associated Token Account Program version 1.1.0 release #24741"),
-        (default_units_per_instruction::id(), "Default max tx-wide compute units calculated per instruction"),
-        (stake_allow_zero_undelegated_amount::id(), "Allow zero-lamport undelegated amount for initialized stakes #24670"),
-        (require_static_program_ids_in_transaction::id(), "require static program ids in versioned transactions"),
-        (stake_raise_minimum_delegation_to_1_sol::id(), "Raise minimum stake delegation to 1.0 SOL #24357"),
-        (stake_minimum_delegation_for_rewards::id(), "stakes must be at least the minimum delegation to earn rewards"),
-        (add_set_compute_unit_price_ix::id(), "add compute budget ix for setting a compute unit price"),
-        (disable_deploy_of_alloc_free_syscall::id(), "disable new deployments of deprecated sol_alloc_free_ syscall"),
-        (include_account_index_in_rent_error::id(), "include account index in rent tx error #25190"),
-        (add_shred_type_to_shred_seed::id(), "add shred-type to shred seed #25556"),
-        (warp_timestamp_with_a_vengeance::id(), "warp timestamp again, adjust bounding to 150% slow #25666"),
-        (separate_nonce_from_blockhash::id(), "separate durable nonce and blockhash domains #25744"),
+        (
+            drop_redundant_turbine_path::id(),
+            "drop redundant turbine path",
+        ),
+        (
+            executables_incur_cpi_data_cost::id(),
+            "Executables incur CPI data costs",
+        ),
+        (
+            fix_recent_blockhashes::id(),
+            "stop adding hashes for skipped slots to recent blockhashes",
+        ),
+        (
+            update_rewards_from_cached_accounts::id(),
+            "update rewards from cached accounts",
+        ),
+        (
+            spl_token_v3_4_0::id(),
+            "SPL Token Program version 3.4.0 release #24740",
+        ),
+        (
+            spl_associated_token_account_v1_1_0::id(),
+            "SPL Associated Token Account Program version 1.1.0 release #24741",
+        ),
+        (
+            default_units_per_instruction::id(),
+            "Default max tx-wide compute units calculated per instruction",
+        ),
+        (
+            stake_allow_zero_undelegated_amount::id(),
+            "Allow zero-lamport undelegated amount for initialized stakes #24670",
+        ),
+        (
+            require_static_program_ids_in_transaction::id(),
+            "require static program ids in versioned transactions",
+        ),
+        (
+            stake_raise_minimum_delegation_to_1_sol::id(),
+            "Raise minimum stake delegation to 1.0 SOL #24357",
+        ),
+        (
+            stake_minimum_delegation_for_rewards::id(),
+            "stakes must be at least the minimum delegation to earn rewards",
+        ),
+        (
+            add_set_compute_unit_price_ix::id(),
+            "add compute budget ix for setting a compute unit price",
+        ),
+        (
+            disable_deploy_of_alloc_free_syscall::id(),
+            "disable new deployments of deprecated sol_alloc_free_ syscall",
+        ),
+        (
+            include_account_index_in_rent_error::id(),
+            "include account index in rent tx error #25190",
+        ),
+        (
+            add_shred_type_to_shred_seed::id(),
+            "add shred-type to shred seed #25556",
+        ),
+        (
+            warp_timestamp_with_a_vengeance::id(),
+            "warp timestamp again, adjust bounding to 150% slow #25666",
+        ),
+        (
+            separate_nonce_from_blockhash::id(),
+            "separate durable nonce and blockhash domains #25744",
+        ),
         (enable_durable_nonce::id(), "enable durable nonce #25744"),
-        (vote_state_update_credit_per_dequeue::id(), "Calculate vote credits for VoteStateUpdate per vote dequeue to match credit awards for Vote instruction"),
+        (
+            vote_state_update_credit_per_dequeue::id(),
+            "Calculate vote credits for VoteStateUpdate per vote dequeue to match credit awards \
+             for Vote instruction",
+        ),
         (quick_bail_on_panic::id(), "quick bail on panic"),
         (nonce_must_be_authorized::id(), "nonce must be authorized"),
-        (nonce_must_be_advanceable::id(), "durable nonces must be advanceable"),
-        (vote_authorize_with_seed::id(), "An instruction you can use to change a vote accounts authority when the current authority is a derived key #25860"),
-        (preserve_rent_epoch_for_rent_exempt_accounts::id(), "preserve rent epoch for rent exempt accounts #26479"),
-        (enable_bpf_loader_extend_program_ix::id(), "enable bpf upgradeable loader ExtendProgram instruction #25234"),
-        (skip_rent_rewrites::id(), "skip rewriting rent exempt accounts during rent collection #26491"),
-        (enable_early_verification_of_account_modifications::id(), "enable early verification of account modifications #25899"),
-        (disable_rehash_for_rent_epoch::id(), "on accounts hash calculation, do not try to rehash accounts #28934"),
-        (account_hash_ignore_slot::id(), "ignore slot when calculating an account hash #28420"),
-        (set_exempt_rent_epoch_max::id(), "set rent epoch to Epoch::MAX for rent-exempt accounts #28683"),
-        (on_load_preserve_rent_epoch_for_rent_exempt_accounts::id(), "on bank load account, do not try to fix up rent_epoch #28541"),
-        (prevent_crediting_accounts_that_end_rent_paying::id(), "prevent crediting rent paying accounts #26606"),
-        (cap_bpf_program_instruction_accounts::id(), "enforce max number of accounts per bpf program instruction #26628"),
-        (loosen_cpi_size_restriction::id(), "loosen cpi size restrictions #26641"),
-        (use_default_units_in_fee_calculation::id(), "use default units per instruction in fee calculation #26785"),
-        (compact_vote_state_updates::id(), "Compact vote state updates to lower block size"),
-        (incremental_snapshot_only_incremental_hash_calculation::id(), "only hash accounts in incremental snapshot during incremental snapshot creation #26799"),
-        (disable_cpi_setting_executable_and_rent_epoch::id(), "disable setting is_executable and_rent_epoch in CPI #26987"),
-        (relax_authority_signer_check_for_lookup_table_creation::id(), "relax authority signer check for lookup table creation #27205"),
-        (stop_sibling_instruction_search_at_parent::id(), "stop the search in get_processed_sibling_instruction when the parent instruction is reached #27289"),
-        (vote_state_update_root_fix::id(), "fix root in vote state updates #27361"),
-        (cap_accounts_data_allocations_per_transaction::id(), "cap accounts data allocations per transaction #27375"),
-        (epoch_accounts_hash::id(), "enable epoch accounts hash calculation #27539"),
-        (remove_deprecated_request_unit_ix::id(), "remove support for RequestUnitsDeprecated instruction #27500"),
-        (increase_tx_account_lock_limit::id(), "increase tx account lock limit to 128 #27241"),
-        (limit_max_instruction_trace_length::id(), "limit max instruction trace length #27939"),
-        (check_syscall_outputs_do_not_overlap::id(), "check syscall outputs do_not overlap #28600"),
-        (enable_bpf_loader_set_authority_checked_ix::id(), "enable bpf upgradeable loader SetAuthorityChecked instruction #28424"),
-        (enable_alt_bn128_syscall::id(), "add alt_bn128 syscalls #27961"),
-        (simplify_alt_bn128_syscall_error_codes::id(), "simplify alt_bn128 syscall error codes SIMD-0129"),
-        (enable_program_redeployment_cooldown::id(), "enable program redeployment cooldown #29135"),
-        (commission_updates_only_allowed_in_first_half_of_epoch::id(), "validator commission updates are only allowed in the first half of an epoch #29362"),
-        (enable_turbine_fanout_experiments::id(), "enable turbine fanout experiments #29393"),
-        (disable_turbine_fanout_experiments::id(), "disable turbine fanout experiments #29393"),
-        (move_serialized_len_ptr_in_cpi::id(), "cpi ignore serialized_len_ptr #29592"),
-        (update_hashes_per_tick::id(), "Update desired hashes per tick on epoch boundary"),
-        (enable_big_mod_exp_syscall::id(), "add big_mod_exp syscall #28503"),
-        (disable_builtin_loader_ownership_chains::id(), "disable builtin loader ownership chains #29956"),
-        (cap_transaction_accounts_data_size::id(), "cap transaction accounts data size up to a limit #27839"),
-        (remove_congestion_multiplier_from_fee_calculation::id(), "Remove congestion multiplier from transaction fee calculation #29881"),
-        (enable_request_heap_frame_ix::id(), "Enable transaction to request heap frame using compute budget instruction #30076"),
-        (prevent_rent_paying_rent_recipients::id(), "prevent recipients of rent rewards from ending in rent-paying state #30151"),
-        (delay_visibility_of_program_deployment::id(), "delay visibility of program upgrades #30085"),
-        (apply_cost_tracker_during_replay::id(), "apply cost tracker to blocks during replay #29595"),
-        (add_set_tx_loaded_accounts_data_size_instruction::id(), "add compute budget instruction for setting account data size per transaction #30366"),
-        (switch_to_new_elf_parser::id(), "switch to new ELF parser #30497"),
-        (round_up_heap_size::id(), "round up heap size when calculating heap cost #30679"),
-        (remove_bpf_loader_incorrect_program_id::id(), "stop incorrectly throwing IncorrectProgramId in bpf_loader #30747"),
-        (include_loaded_accounts_data_size_in_fee_calculation::id(), "include transaction loaded accounts data size in base fee calculation #30657"),
-        (native_programs_consume_cu::id(), "Native program should consume compute units #30620"),
-        (simplify_writable_program_account_check::id(), "Simplify checks performed for writable upgradeable program accounts #30559"),
-        (stop_truncating_strings_in_syscalls::id(), "Stop truncating strings in syscalls #31029"),
-        (clean_up_delegation_errors::id(), "Return InsufficientDelegation instead of InsufficientFunds or InsufficientStake where applicable #31206"),
-        (vote_state_add_vote_latency::id(), "replace Lockout with LandedVote (including vote latency) in vote state #31264"),
-        (checked_arithmetic_in_fee_validation::id(), "checked arithmetic in fee validation #31273"),
-        (bpf_account_data_direct_mapping::id(), "use memory regions to map account data into the rbpf vm instead of copying the data"),
-        (last_restart_slot_sysvar::id(), "enable new sysvar last_restart_slot"),
-        (reduce_stake_warmup_cooldown::id(), "reduce stake warmup cooldown from 25% to 9%"),
-        (revise_turbine_epoch_stakes::id(), "revise turbine epoch stakes"),
+        (
+            nonce_must_be_advanceable::id(),
+            "durable nonces must be advanceable",
+        ),
+        (
+            vote_authorize_with_seed::id(),
+            "An instruction you can use to change a vote accounts authority when the current \
+             authority is a derived key #25860",
+        ),
+        (
+            preserve_rent_epoch_for_rent_exempt_accounts::id(),
+            "preserve rent epoch for rent exempt accounts #26479",
+        ),
+        (
+            enable_bpf_loader_extend_program_ix::id(),
+            "enable bpf upgradeable loader ExtendProgram instruction #25234",
+        ),
+        (skip_rent_rewrites::id(), "SIMD-0183: Skip rent rewrites"),
+        (
+            enable_early_verification_of_account_modifications::id(),
+            "enable early verification of account modifications #25899",
+        ),
+        (
+            disable_rehash_for_rent_epoch::id(),
+            "on accounts hash calculation, do not try to rehash accounts #28934",
+        ),
+        (
+            account_hash_ignore_slot::id(),
+            "ignore slot when calculating an account hash #28420",
+        ),
+        (
+            set_exempt_rent_epoch_max::id(),
+            "set rent epoch to Epoch::MAX for rent-exempt accounts #28683",
+        ),
+        (
+            on_load_preserve_rent_epoch_for_rent_exempt_accounts::id(),
+            "on bank load account, do not try to fix up rent_epoch #28541",
+        ),
+        (
+            prevent_crediting_accounts_that_end_rent_paying::id(),
+            "prevent crediting rent paying accounts #26606",
+        ),
+        (
+            cap_bpf_program_instruction_accounts::id(),
+            "enforce max number of accounts per bpf program instruction #26628",
+        ),
+        (
+            loosen_cpi_size_restriction::id(),
+            "loosen cpi size restrictions #26641",
+        ),
+        (
+            use_default_units_in_fee_calculation::id(),
+            "use default units per instruction in fee calculation #26785",
+        ),
+        (
+            compact_vote_state_updates::id(),
+            "Compact vote state updates to lower block size",
+        ),
+        (
+            incremental_snapshot_only_incremental_hash_calculation::id(),
+            "only hash accounts in incremental snapshot during incremental snapshot creation \
+             #26799",
+        ),
+        (
+            disable_cpi_setting_executable_and_rent_epoch::id(),
+            "disable setting is_executable and_rent_epoch in CPI #26987",
+        ),
+        (
+            relax_authority_signer_check_for_lookup_table_creation::id(),
+            "relax authority signer check for lookup table creation #27205",
+        ),
+        (
+            stop_sibling_instruction_search_at_parent::id(),
+            "stop the search in get_processed_sibling_instruction when the parent instruction is \
+             reached #27289",
+        ),
+        (
+            vote_state_update_root_fix::id(),
+            "fix root in vote state updates #27361",
+        ),
+        (
+            cap_accounts_data_allocations_per_transaction::id(),
+            "cap accounts data allocations per transaction #27375",
+        ),
+        (
+            epoch_accounts_hash::id(),
+            "enable epoch accounts hash calculation #27539",
+        ),
+        (
+            remove_deprecated_request_unit_ix::id(),
+            "remove support for RequestUnitsDeprecated instruction #27500",
+        ),
+        (
+            increase_tx_account_lock_limit::id(),
+            "increase tx account lock limit to 128 #27241",
+        ),
+        (
+            limit_max_instruction_trace_length::id(),
+            "limit max instruction trace length #27939",
+        ),
+        (
+            check_syscall_outputs_do_not_overlap::id(),
+            "check syscall outputs do_not overlap #28600",
+        ),
+        (
+            enable_bpf_loader_set_authority_checked_ix::id(),
+            "enable bpf upgradeable loader SetAuthorityChecked instruction #28424",
+        ),
+        (
+            enable_alt_bn128_syscall::id(),
+            "add alt_bn128 syscalls #27961",
+        ),
+        (
+            simplify_alt_bn128_syscall_error_codes::id(),
+            "SIMD-0129: simplify alt_bn128 syscall error codes",
+        ),
+        (
+            enable_program_redeployment_cooldown::id(),
+            "enable program redeployment cooldown #29135",
+        ),
+        (
+            commission_updates_only_allowed_in_first_half_of_epoch::id(),
+            "validator commission updates are only allowed in the first half of an epoch #29362",
+        ),
+        (
+            enable_turbine_fanout_experiments::id(),
+            "enable turbine fanout experiments #29393",
+        ),
+        (
+            disable_turbine_fanout_experiments::id(),
+            "disable turbine fanout experiments #29393",
+        ),
+        (
+            move_serialized_len_ptr_in_cpi::id(),
+            "cpi ignore serialized_len_ptr #29592",
+        ),
+        (
+            update_hashes_per_tick::id(),
+            "Update desired hashes per tick on epoch boundary",
+        ),
+        (
+            enable_big_mod_exp_syscall::id(),
+            "add big_mod_exp syscall #28503",
+        ),
+        (
+            disable_builtin_loader_ownership_chains::id(),
+            "disable builtin loader ownership chains #29956",
+        ),
+        (
+            cap_transaction_accounts_data_size::id(),
+            "cap transaction accounts data size up to a limit #27839",
+        ),
+        (
+            remove_congestion_multiplier_from_fee_calculation::id(),
+            "Remove congestion multiplier from transaction fee calculation #29881",
+        ),
+        (
+            enable_request_heap_frame_ix::id(),
+            "Enable transaction to request heap frame using compute budget instruction #30076",
+        ),
+        (
+            prevent_rent_paying_rent_recipients::id(),
+            "prevent recipients of rent rewards from ending in rent-paying state #30151",
+        ),
+        (
+            delay_visibility_of_program_deployment::id(),
+            "delay visibility of program upgrades #30085",
+        ),
+        (
+            apply_cost_tracker_during_replay::id(),
+            "apply cost tracker to blocks during replay #29595",
+        ),
+        (
+            add_set_tx_loaded_accounts_data_size_instruction::id(),
+            "add compute budget instruction for setting account data size per transaction #30366",
+        ),
+        (
+            switch_to_new_elf_parser::id(),
+            "switch to new ELF parser #30497",
+        ),
+        (
+            round_up_heap_size::id(),
+            "round up heap size when calculating heap cost #30679",
+        ),
+        (
+            remove_bpf_loader_incorrect_program_id::id(),
+            "stop incorrectly throwing IncorrectProgramId in bpf_loader #30747",
+        ),
+        (
+            include_loaded_accounts_data_size_in_fee_calculation::id(),
+            "include transaction loaded accounts data size in base fee calculation #30657",
+        ),
+        (
+            native_programs_consume_cu::id(),
+            "Native program should consume compute units #30620",
+        ),
+        (
+            simplify_writable_program_account_check::id(),
+            "Simplify checks performed for writable upgradeable program accounts #30559",
+        ),
+        (
+            stop_truncating_strings_in_syscalls::id(),
+            "Stop truncating strings in syscalls #31029",
+        ),
+        (
+            clean_up_delegation_errors::id(),
+            "Return InsufficientDelegation instead of InsufficientFunds or InsufficientStake \
+             where applicable #31206",
+        ),
+        (
+            vote_state_add_vote_latency::id(),
+            "replace Lockout with LandedVote (including vote latency) in vote state #31264",
+        ),
+        (
+            checked_arithmetic_in_fee_validation::id(),
+            "checked arithmetic in fee validation #31273",
+        ),
+        (
+            syscall_parameter_address_restrictions::id(),
+            "SIMD-0459: Syscall Parameter Address Restrictions",
+        ),
+        (
+            virtual_address_space_adjustments::id(),
+            "SIMD-0460: Virtual Address Space Adjustments",
+        ),
+        (
+            account_data_direct_mapping::id(),
+            "enable account data direct mapping",
+        ),
+        (
+            last_restart_slot_sysvar::id(),
+            "SIMD-0047: Enable new sysvar last_restart_slot",
+        ),
+        (
+            reduce_stake_warmup_cooldown::id(),
+            "reduce stake warmup cooldown from 25% to 9%",
+        ),
+        (
+            revise_turbine_epoch_stakes::id(),
+            "revise turbine epoch stakes",
+        ),
         (enable_poseidon_syscall::id(), "Enable Poseidon syscall"),
-        (timely_vote_credits::id(), "use timeliness of votes in determining credits to award"),
-        (remaining_compute_units_syscall_enabled::id(), "enable the remaining_compute_units syscall"),
-        (enable_loader_v4::id(), "Enable Loader-v4 SIMD-0167"),
-        (require_rent_exempt_split_destination::id(), "Require stake split destination account to be rent exempt"),
-        (better_error_codes_for_tx_lamport_check::id(), "better error codes for tx lamport check #33353"),
-        (enable_alt_bn128_compression_syscall::id(), "add alt_bn128 compression syscalls"),
-        (update_hashes_per_tick2::id(), "Update desired hashes per tick to 2.8M"),
-        (update_hashes_per_tick3::id(), "Update desired hashes per tick to 4.4M"),
-        (update_hashes_per_tick4::id(), "Update desired hashes per tick to 7.6M"),
-        (update_hashes_per_tick5::id(), "Update desired hashes per tick to 9.2M"),
-        (update_hashes_per_tick6::id(), "Update desired hashes per tick to 10M"),
-        (validate_fee_collector_account::id(), "validate fee collector account #33888"),
-        (disable_rent_fees_collection::id(), "Disable rent fees collection #33945"),
-        (enable_zk_transfer_with_fee::id(), "enable Zk Token proof program transfer with fee"),
+        (
+            timely_vote_credits::id(),
+            "use timeliness of votes in determining credits to award",
+        ),
+        (
+            remaining_compute_units_syscall_enabled::id(),
+            "enable the remaining_compute_units syscall",
+        ),
+        (enable_loader_v4::id(), "SIMD-0167: Enable Loader-v4"),
+        (
+            require_rent_exempt_split_destination::id(),
+            "Require stake split destination account to be rent exempt",
+        ),
+        (
+            better_error_codes_for_tx_lamport_check::id(),
+            "better error codes for tx lamport check #33353",
+        ),
+        (
+            enable_alt_bn128_compression_syscall::id(),
+            "add alt_bn128 compression syscalls",
+        ),
+        (
+            update_hashes_per_tick2::id(),
+            "Update desired hashes per tick to 2.8M",
+        ),
+        (
+            update_hashes_per_tick3::id(),
+            "Update desired hashes per tick to 4.4M",
+        ),
+        (
+            update_hashes_per_tick4::id(),
+            "Update desired hashes per tick to 7.6M",
+        ),
+        (
+            update_hashes_per_tick5::id(),
+            "Update desired hashes per tick to 9.2M",
+        ),
+        (
+            update_hashes_per_tick6::id(),
+            "Update desired hashes per tick to 10M",
+        ),
+        (
+            validate_fee_collector_account::id(),
+            "validate fee collector account #33888",
+        ),
+        (
+            disable_rent_fees_collection::id(),
+            "SIMD-0084: Disable rent fees collection",
+        ),
+        (
+            enable_zk_transfer_with_fee::id(),
+            "enable Zk Token proof program transfer with fee",
+        ),
         (drop_legacy_shreds::id(), "drops legacy shreds #34328"),
-        (allow_commission_decrease_at_any_time::id(), "Allow commission decrease at any time in epoch #33843"),
-        (consume_blockstore_duplicate_proofs::id(), "consume duplicate proofs from blockstore in consensus #34372"),
-        (add_new_reserved_account_keys::id(), "add new unwritable reserved accounts #34899"),
-        (index_erasure_conflict_duplicate_proofs::id(), "generate duplicate proofs for index and erasure conflicts #34360"),
-        (merkle_conflict_duplicate_proofs::id(), "generate duplicate proofs for merkle root conflicts #34270"),
-        (disable_bpf_loader_instructions::id(), "disable bpf loader management instructions #34194"),
-        (enable_zk_proof_from_account::id(), "Enable zk token proof program to read proof from accounts instead of instruction data #34750"),
-        (curve25519_restrict_msm_length::id(), "restrict curve25519 multiscalar multiplication vector lengths #34763"),
-        (cost_model_requested_write_lock_cost::id(), "cost model uses number of requested write locks #34819"),
-        (enable_gossip_duplicate_proof_ingestion::id(), "enable gossip duplicate proof ingestion #32963"),
-        (enable_chained_merkle_shreds::id(), "Enable chained Merkle shreds #34916"),
-        (remove_rounding_in_fee_calculation::id(), "Removing unwanted rounding in fee calculation #34982"),
-        (deprecate_unused_legacy_vote_plumbing::id(), "Deprecate unused legacy vote tx plumbing"),
-        (enable_tower_sync_ix::id(), "Enable tower sync vote instruction"),
-        (chained_merkle_conflict_duplicate_proofs::id(), "generate duplicate proofs for chained merkle root conflicts"),
-        (reward_full_priority_fee::id(), "Reward full priority fee to validators #34731"),
-        (abort_on_invalid_curve::id(), "Abort when elliptic curve syscalls invoked on invalid curve id SIMD-0137"),
-        (get_sysvar_syscall_enabled::id(), "Enable syscall for fetching Sysvar bytes #615"),
-        (migrate_feature_gate_program_to_core_bpf::id(), "Migrate Feature Gate program to Core BPF (programify) #1003"),
+        (
+            allow_commission_decrease_at_any_time::id(),
+            "Allow commission decrease at any time in epoch #33843",
+        ),
+        (
+            consume_blockstore_duplicate_proofs::id(),
+            "consume duplicate proofs from blockstore in consensus #34372",
+        ),
+        (
+            add_new_reserved_account_keys::id(),
+            "SIMD-0105: Maintain Dynamic Set of Reserved Account Keys",
+        ),
+        (
+            index_erasure_conflict_duplicate_proofs::id(),
+            "generate duplicate proofs for index and erasure conflicts #34360",
+        ),
+        (
+            merkle_conflict_duplicate_proofs::id(),
+            "generate duplicate proofs for merkle root conflicts #34270",
+        ),
+        (
+            disable_bpf_loader_instructions::id(),
+            "disable bpf loader management instructions #34194",
+        ),
+        (
+            enable_zk_proof_from_account::id(),
+            "Enable zk token proof program to read proof from accounts instead of instruction \
+             data #34750",
+        ),
+        (
+            curve25519_restrict_msm_length::id(),
+            "restrict curve25519 multiscalar multiplication vector lengths #34763",
+        ),
+        (
+            cost_model_requested_write_lock_cost::id(),
+            "cost model uses number of requested write locks #34819",
+        ),
+        (
+            enable_gossip_duplicate_proof_ingestion::id(),
+            "enable gossip duplicate proof ingestion #32963",
+        ),
+        (
+            enable_chained_merkle_shreds::id(),
+            "Enable chained Merkle shreds #34916",
+        ),
+        (
+            remove_rounding_in_fee_calculation::id(),
+            "Removing unwanted rounding in fee calculation #34982",
+        ),
+        (
+            deprecate_unused_legacy_vote_plumbing::id(),
+            "Deprecate unused legacy vote tx plumbing",
+        ),
+        (
+            enable_tower_sync_ix::id(),
+            "Enable tower sync vote instruction",
+        ),
+        (
+            chained_merkle_conflict_duplicate_proofs::id(),
+            "generate duplicate proofs for chained merkle root conflicts",
+        ),
+        (
+            reward_full_priority_fee::id(),
+            "SIMD-0096: Reward full priority fee to validators",
+        ),
+        (
+            abort_on_invalid_curve::id(),
+            "SIMD-0137: Abort when elliptic curve syscalls invoked on invalid curve id",
+        ),
+        (
+            get_sysvar_syscall_enabled::id(),
+            "SIMD-0127: Enable syscall for fetching Sysvar bytes",
+        ),
+        (
+            migrate_feature_gate_program_to_core_bpf::id(),
+            "SIMD-0089: Migrate Feature Gate program to Core BPF (programify)",
+        ),
         (vote_only_full_fec_sets::id(), "vote only full fec sets"),
-        (migrate_config_program_to_core_bpf::id(), "Migrate Config program to Core BPF #1378"),
-        (enable_get_epoch_stake_syscall::id(), "Enable syscall: sol_get_epoch_stake #884"),
-        (migrate_address_lookup_table_program_to_core_bpf::id(), "Migrate Address Lookup Table program to Core BPF #1651"),
-        (zk_elgamal_proof_program_enabled::id(), "Enable ZkElGamalProof program SIMD-0153"),
-        (verify_retransmitter_signature::id(), "Verify retransmitter signature #1840"),
-        (move_stake_and_move_lamports_ixs::id(), "Enable MoveStake and MoveLamports stake program instructions #1610"),
-        (ed25519_precompile_verify_strict::id(), "Use strict verification in ed25519 precompile SIMD-0152"),
-        (vote_only_retransmitter_signed_fec_sets::id(), "vote only on retransmitter signed fec sets"),
-        (move_precompile_verification_to_svm::id(), "SIMD-0159: Move precompile verification into SVM"),
-        (enable_transaction_loading_failure_fees::id(), "Enable fees for some additional transaction failures SIMD-0082"),
-        (enable_turbine_extended_fanout_experiments::id(), "enable turbine extended fanout experiments #"),
-        (deprecate_legacy_vote_ixs::id(), "Deprecate legacy vote instructions"),
-        (partitioned_epoch_rewards_superfeature::id(), "replaces enable_partitioned_epoch_reward to enable partitioned rewards at epoch boundary SIMD-0118"),
-        (disable_sbpf_v0_execution::id(), "Disables execution of SBPFv1 programs SIMD-0161"),
-        (reenable_sbpf_v0_execution::id(), "Re-enables execution of SBPFv1 programs"),
-        (enable_sbpf_v1_deployment_and_execution::id(), "Enables deployment and execution of SBPFv1 programs SIMD-0161"),
-        (enable_sbpf_v2_deployment_and_execution::id(), "Enables deployment and execution of SBPFv2 programs SIMD-0161"),
-        (enable_sbpf_v3_deployment_and_execution::id(), "Enables deployment and execution of SBPFv3 programs SIMD-0161"),
-        (remove_accounts_executable_flag_checks::id(), "Remove checks of accounts is_executable flag SIMD-0162"),
-        (lift_cpi_caller_restriction::id(), "Lift the restriction in CPI that the caller must have the callee as an instruction account #2202"),
-        (disable_account_loader_special_case::id(), "Disable account loader special case #3513"),
-        (accounts_lt_hash::id(), "enables lattice-based accounts hash SIMD-0215"),
-        (snapshots_lt_hash::id(), "snapshots use lattice-based accounts hash SIMD-0220"),
-        (remove_accounts_delta_hash::id(), "removes accounts delta hash SIMD-0223"),
-        (enable_secp256r1_precompile::id(), "Enable secp256r1 precompile SIMD-0075"),
-        (migrate_stake_program_to_core_bpf::id(), "Migrate Stake program to Core BPF SIMD-0196 #3655"),
-        (deplete_cu_meter_on_vm_failure::id(), "Deplete compute meter for vm errors SIMD-0182 #3993"),
-        (reserve_minimal_cus_for_builtin_instructions::id(), "Reserve minimal CUs for builtin instructions SIMD-170 #2562"),
-        (raise_block_limits_to_50m::id(), "Raise block limit to 50M SIMD-0207"),
-        (fix_alt_bn128_multiplication_input_length::id(), "fix alt_bn128 multiplication input length SIMD-0222 #3686"),
-        (drop_unchained_merkle_shreds::id(), "drops unchained Merkle shreds #2149"),
-        (disable_partitioned_rent_collection::id(), "SIMD-0175: Disable partitioned rent collection"),
-        (raise_block_limits_to_60m::id(), "Raise block limit to 60M SIMD-0256"),
-        (mask_out_rent_epoch_in_vm_serialization::id(), "SIMD-0267: Sets rent_epoch to a constant in the VM"),
-        (enable_extend_program_checked::id(), "Enable ExtendProgramChecked instruction"),
-        (disable_zk_elgamal_proof_program::id(), "Disables zk-elgamal-proof program"),
-        (reenable_zk_elgamal_proof_program::id(), "Re-enables zk-elgamal-proof program"),
+        (
+            migrate_config_program_to_core_bpf::id(),
+            "SIMD-0140: Migrate Config program to Core BPF",
+        ),
+        (
+            enable_get_epoch_stake_syscall::id(),
+            "SIMD-0133: Enable syscall: sol_get_epoch_stake",
+        ),
+        (
+            migrate_address_lookup_table_program_to_core_bpf::id(),
+            "SIMD-0128: Migrate Address Lookup Table program to Core BPF",
+        ),
+        (
+            zk_elgamal_proof_program_enabled::id(),
+            "SIMD-0153: Enable ZkElGamalProof program",
+        ),
+        (
+            verify_retransmitter_signature::id(),
+            "Verify retransmitter signature #1840",
+        ),
+        (
+            move_stake_and_move_lamports_ixs::id(),
+            "Enable MoveStake and MoveLamports stake program instructions #1610",
+        ),
+        (
+            ed25519_precompile_verify_strict::id(),
+            "SIMD-0152: Use strict verification in ed25519 precompile",
+        ),
+        (
+            vote_only_retransmitter_signed_fec_sets::id(),
+            "vote only on retransmitter signed fec sets",
+        ),
+        (
+            move_precompile_verification_to_svm::id(),
+            "SIMD-0159: Move precompile verification into SVM",
+        ),
+        (
+            enable_transaction_loading_failure_fees::id(),
+            "SIMD-0082: Enable fees for some additional transaction failures",
+        ),
+        (
+            enable_turbine_extended_fanout_experiments::id(),
+            "enable turbine extended fanout experiments #",
+        ),
+        (
+            deprecate_legacy_vote_ixs::id(),
+            "Deprecate legacy vote instructions",
+        ),
+        (
+            partitioned_epoch_rewards_superfeature::id(),
+            "SIMD-0118: replaces enable_partitioned_epoch_reward to enable partitioned rewards at \
+             epoch boundary",
+        ),
+        (
+            disable_sbpf_v0_execution::id(),
+            "SIMD-0161: Disables execution of SBPFv0 programs",
+        ),
+        (
+            reenable_sbpf_v0_execution::id(),
+            "Re-enables execution of SBPFv0 programs",
+        ),
+        (
+            enable_sbpf_v1_deployment_and_execution::id(),
+            "SIMD-0166: Enable deployment and execution of SBPFv1 programs",
+        ),
+        (
+            enable_sbpf_v2_deployment_and_execution::id(),
+            "SIMD-0173 and SIMD-0174: Enable deployment and execution of SBPFv2 programs",
+        ),
+        (
+            enable_sbpf_v3_deployment_and_execution::id(),
+            "SIMD-0178, SIMD-0189 and SIMD-0377: Enable deployment and execution of SBPFv3 \
+             programs",
+        ),
+        (
+            remove_accounts_executable_flag_checks::id(),
+            "SIMD-0162: Remove checks of accounts is_executable flag",
+        ),
+        (
+            disable_account_loader_special_case::id(),
+            "Disable account loader special case #3513",
+        ),
+        (
+            accounts_lt_hash::id(),
+            "SIMD-0215: enables lattice-based accounts hash",
+        ),
+        (
+            snapshots_lt_hash::id(),
+            "SIMD-0220: snapshots use lattice-based accounts hash",
+        ),
+        (
+            remove_accounts_delta_hash::id(),
+            "SIMD-0223: removes accounts delta hash",
+        ),
+        (
+            enable_secp256r1_precompile::id(),
+            "SIMD-0075: Enable secp256r1 precompile",
+        ),
+        (
+            migrate_stake_program_to_core_bpf::id(),
+            "SIMD-0196: Migrate Stake program to Core BPF #3655",
+        ),
+        (
+            deplete_cu_meter_on_vm_failure::id(),
+            "SIMD-0182: Deplete compute meter for vm errors #3993",
+        ),
+        (
+            reserve_minimal_cus_for_builtin_instructions::id(),
+            "SIMD-0170: Reserve minimal CUs for builtin instructions #2562",
+        ),
+        (
+            raise_block_limits_to_50m::id(),
+            "SIMD-0207: Raise block limit to 50M",
+        ),
+        (
+            fix_alt_bn128_multiplication_input_length::id(),
+            "SIMD-0222: fix alt_bn128 multiplication input length #3686",
+        ),
+        (
+            drop_unchained_merkle_shreds::id(),
+            "drops unchained Merkle shreds #2149",
+        ),
+        (
+            relax_intrabatch_account_locks::id(),
+            "SIMD-0083: Allow batched transactions to read/write and write/write the same accounts",
+        ),
+        (
+            create_slashing_program::id(),
+            "SIMD-0204: creates an enshrined slashing program",
+        ),
+        (
+            disable_partitioned_rent_collection::id(),
+            "SIMD-0175: Disable partitioned rent collection #4562",
+        ),
+        (
+            enable_vote_address_leader_schedule::id(),
+            "SIMD-0180: Enable vote address leader schedule #4573",
+        ),
+        (
+            require_static_nonce_account::id(),
+            "SIMD-0242: Static Nonce Account Only",
+        ),
+        (
+            raise_block_limits_to_60m::id(),
+            "SIMD-0256: Raise block limit to 60M",
+        ),
+        (
+            mask_out_rent_epoch_in_vm_serialization::id(),
+            "SIMD-0267: Sets rent_epoch to a constant in the VM",
+        ),
+        (
+            enshrine_slashing_program::id(),
+            "SIMD-0204: Slashable event verification",
+        ),
+        (
+            enable_extend_program_checked::id(),
+            "Enable ExtendProgramChecked instruction",
+        ),
+        (
+            formalize_loaded_transaction_data_size::id(),
+            "SIMD-0186: Loaded transaction data size specification",
+        ),
+        (
+            alpenglow::id(),
+            "SIMD-0326: Alpenglow: new consensus algorithm",
+        ),
+        (
+            disable_zk_elgamal_proof_program::id(),
+            "Disables zk-elgamal-proof program",
+        ),
+        (
+            reenable_zk_elgamal_proof_program::id(),
+            "Re-enables zk-elgamal-proof program",
+        ),
+        (
+            raise_block_limits_to_100m::id(),
+            "SIMD-0286: Raise block limit to 100M",
+        ),
+        (
+            raise_account_cu_limit::id(),
+            "SIMD-0306: Raise account CU limit to 40% max",
+        ),
+        (
+            raise_cpi_nesting_limit_to_8::id(),
+            "SIMD-0268: Raise CPI nesting limit from 4 to 8",
+        ),
+        (
+            enforce_fixed_fec_set::id(),
+            "SIMD-0317: Enforce 32 data + 32 coding shreds",
+        ),
+        (
+            provide_instruction_data_offset_in_vm_r2::id(),
+            "SIMD-0321: Provide instruction data offset in VM r2",
+        ),
+        (
+            create_account_allow_prefund::id(),
+            "SIMD-0312: Enable CreateAccountAllowPrefund system program instruction",
+        ),
+        (
+            static_instruction_limit::id(),
+            "SIMD-0160: static instruction limit",
+        ),
+        (
+            discard_unexpected_data_complete_shreds::id(),
+            "SIMD-0337: Markers for Alpenglow Fast Leader Handover, DATA_COMPLETE_SHRED placement \
+             rules",
+        ),
+        (vote_state_v4::id(), "SIMD-0185: Vote State v4"),
+        (
+            switch_to_chacha8_turbine::id(),
+            "SIMD-0332: Reduce ChaCha rounds for Turbine from 20 to 8",
+        ),
+        (
+            delay_commission_updates::id(),
+            "SIMD-0249: Delay Commission Updates",
+        ),
+        (
+            increase_cpi_account_info_limit::id(),
+            "SIMD-0339: Increase CPI Account Infos Limit",
+        ),
+        (
+            deprecate_rent_exemption_threshold::id(),
+            "SIMD-0194: Deprecate rent exemption threshold",
+        ),
+        (
+            poseidon_enforce_padding::id(),
+            "SIMD-0359: Enforce padding in Poseidon hash inputs",
+        ),
+        (
+            fix_alt_bn128_pairing_length_check::id(),
+            "SIMD-0334: Fix alt_bn128_pairing length check",
+        ),
+        (
+            replace_spl_token_with_p_token::id(),
+            "SIMD-0266: Efficient Token program",
+        ),
+        (
+            alt_bn128_little_endian::id(),
+            "SIMD-0284: Add little-endian compatibility for alt_bn128",
+        ),
+        (
+            bls_pubkey_management_in_vote_account::id(),
+            "SIMD-0387: BLS Pubkey Management in Vote Account",
+        ),
+        (
+            relax_programdata_account_check_migration::id(),
+            "SIMD-0444: Relax program data account check in migration",
+        ),
+        (
+            enable_alt_bn128_g2_syscalls::id(),
+            "SIMD-0302: Add alt_bn128 G2 syscalls",
+        ),
+        (
+            commission_rate_in_basis_points::id(),
+            "SIMD-0291: Commission Rate in Basis Points",
+        ),
+        (
+            custom_commission_collector::id(),
+            "SIMD-0232: Custom Commission Collector",
+        ),
+        (
+            enable_bls12_381_syscall::id(),
+            "SIMD-0388: BLS12-381 syscalls",
+        ),
+        (
+            set_lamports_per_byte_to_6333::id(),
+            "SIMD-0437-1: Set lamports per byte to 6333",
+        ),
+        (
+            set_lamports_per_byte_to_5080::id(),
+            "SIMD-0437-2: Set lamports per byte to 5080",
+        ),
+        (
+            set_lamports_per_byte_to_2575::id(),
+            "SIMD-0437-3: Set lamports per byte to 2575",
+        ),
+        (
+            set_lamports_per_byte_to_1322::id(),
+            "SIMD-0437-4: Set lamports per byte to 1322",
+        ),
+        (
+            set_lamports_per_byte_to_696::id(),
+            "SIMD-0437-5: Set lamports per byte to 696",
+        ),
+        (
+            remove_simple_vote_from_cost_model::id(),
+            "stop use static SimpleVote transaction cost, issue #10227",
+        ),
+        (
+            limit_instruction_accounts::id(),
+            "SIMD-0406: Maximum instruction accounts",
+        ),
+        (
+            block_revenue_sharing::id(),
+            "SIMD-0123: Block Revenue Sharing",
+        ),
+        (
+            vote_account_initialize_v2::id(),
+            "SIMD-0464: Vote Account Initialize V2",
+        ),
+        (
+            validate_chained_block_id::id(),
+            "SIMD-0340: Validate chained block ID",
+        ),
+        (
+            validator_admission_ticket::id(),
+            "SIMD-0357: Alpenglow VAT implementation",
+        ),
+        (
+            direct_account_pointers_in_program_input::id(),
+            "SIMD-0449: Direct Account Pointers in Program Input",
+        ),
+        (
+            upgrade_bpf_stake_program_to_v5::id(),
+            "SIMD-0490: Upgrade BPF Stake Program to v5.0.0",
+        ),
         /*************** ADD NEW FEATURES HERE ***************/
     ]
     .iter()
@@ -1286,7 +2391,7 @@ pub struct FullInflationFeaturePair {
     pub enable_id: Pubkey, // Feature to enable full inflation by the candidate
 }
 
-/// Set of feature pairs that once enabled will trigger full inflationi
+/// Set of feature pairs that once enabled will trigger full inflation
 pub static FULL_INFLATION_FEATURE_PAIRS: LazyLock<AHashSet<FullInflationFeaturePair>> =
     LazyLock::new(|| {
         [FullInflationFeaturePair {

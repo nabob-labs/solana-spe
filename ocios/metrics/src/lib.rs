@@ -1,12 +1,12 @@
+#![cfg(feature = "agave-unstable-api")]
 #![allow(clippy::arithmetic_side_effects)]
 pub mod counter;
 pub mod datapoint;
 pub mod metrics;
-pub mod poh_timing_point;
 pub use crate::metrics::{flush, query, set_host_id, set_panic_hook, submit};
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
     Arc,
+    atomic::{AtomicU64, Ordering},
 };
 
 // To track an external counter which cannot be reset and is always increasing

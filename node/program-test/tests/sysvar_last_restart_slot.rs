@@ -1,16 +1,17 @@
 use {
-    solana_program_test::{processor, ProgramTest, ProgramTestContext},
-    solana_sdk::{
-        account_info::AccountInfo,
-        clock::Slot,
-        entrypoint::ProgramResult,
-        instruction::{AccountMeta, Instruction},
-        msg,
-        pubkey::Pubkey,
-        signature::Signer,
-        sysvar::{last_restart_slot, last_restart_slot::LastRestartSlot, Sysvar},
-        transaction::Transaction,
+    solana_account_info::AccountInfo,
+    solana_clock::Slot,
+    solana_instruction::{AccountMeta, Instruction},
+    solana_msg::msg,
+    solana_program_error::ProgramResult,
+    solana_program_test::{ProgramTest, ProgramTestContext, processor},
+    solana_pubkey::Pubkey,
+    solana_signer::Signer,
+    solana_sysvar::{
+        Sysvar, SysvarSerialize,
+        last_restart_slot::{self, LastRestartSlot},
     },
+    solana_transaction::Transaction,
 };
 
 // program to check both syscall and sysvar

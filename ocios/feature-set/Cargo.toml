@@ -1,7 +1,7 @@
 [package]
 name = "agave-feature-set"
-version = { workspace = true }
 description = "Solana runtime feature declarations"
+version = { workspace = true }
 authors = { workspace = true }
 repository = { workspace = true }
 homepage = { workspace = true }
@@ -10,7 +10,9 @@ edition = { workspace = true }
 readme = false
 
 [features]
+agave-unstable-api = []
 frozen-abi = ["dep:solana-frozen-abi", "dep:solana-frozen-abi-macro"]
+dev-context-only-utils = []
 
 [dependencies]
 ahash = { workspace = true }
@@ -22,8 +24,10 @@ solana-frozen-abi-macro = { workspace = true, optional = true, features = [
     "frozen-abi",
 ] }
 solana-hash = { workspace = true }
+solana-keypair = { workspace = true }
 solana-pubkey = { workspace = true, default-features = false }
-solana-sha256-hasher = { workspace = true }
+solana-sha256-hasher = { workspace = true, features = ["sha2"] }
+solana-svm-feature-set = { workspace = true }
 
 [lints]
 workspace = true

@@ -1,9 +1,10 @@
 use {
     agave_transaction_view::bytes::{optimized_read_compressed_u16, read_compressed_u16},
-    bincode::{serialize_into, DefaultOptions, Options},
-    criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput},
+    bincode::{DefaultOptions, Options, serialize_into},
+    criterion::{Criterion, Throughput, criterion_group, criterion_main},
     solana_packet::PACKET_DATA_SIZE,
-    solana_short_vec::{decode_shortu16_len, ShortU16},
+    solana_short_vec::{ShortU16, decode_shortu16_len},
+    std::hint::black_box,
 };
 
 fn setup() -> Vec<(u16, usize, Vec<u8>)> {
@@ -55,12 +56,8 @@ fn bench_u16_parsing(c: &mut Criterion) {
 fn decode_shortu16_len_iter(values_serialized_lengths_and_buffers: &[(u16, usize, Vec<u8>)]) {
     for (value, serialized_len, buffer) in values_serialized_lengths_and_buffers.iter() {
         let (read_value, bytes_read) = decode_shortu16_len(black_box(buffer)).unwrap();
-        assert_eq!(read_value, *value as usize, "Value mismatch for: {}", value);
-        assert_eq!(
-            bytes_read, *serialized_len,
-            "Offset mismatch for: {}",
-            value
-        );
+        assert_eq!(read_value, *value as usize, "Value mismatch for: {value}");
+        assert_eq!(bytes_read, *serialized_len, "Offset mismatch for: {value}");
     }
 }
 
@@ -68,8 +65,8 @@ fn read_compressed_u16_iter(values_serialized_lengths_and_buffers: &[(u16, usize
     for (value, serialized_len, buffer) in values_serialized_lengths_and_buffers.iter() {
         let mut offset = 0;
         let read_value = read_compressed_u16(black_box(buffer), &mut offset).unwrap();
-        assert_eq!(read_value, *value, "Value mismatch for: {}", value);
-        assert_eq!(offset, *serialized_len, "Offset mismatch for: {}", value);
+        assert_eq!(read_value, *value, "Value mismatch for: {value}");
+        assert_eq!(offset, *serialized_len, "Offset mismatch for: {value}");
     }
 }
 
@@ -79,8 +76,8 @@ fn optimized_read_compressed_u16_iter(
     for (value, serialized_len, buffer) in values_serialized_lengths_and_buffers.iter() {
         let mut offset = 0;
         let read_value = optimized_read_compressed_u16(black_box(buffer), &mut offset).unwrap();
-        assert_eq!(read_value, *value, "Value mismatch for: {}", value);
-        assert_eq!(offset, *serialized_len, "Offset mismatch for: {}", value);
+        assert_eq!(read_value, *value, "Value mismatch for: {value}");
+        assert_eq!(offset, *serialized_len, "Offset mismatch for: {value}");
     }
 }
 

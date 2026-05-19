@@ -5,12 +5,10 @@ use {
     },
     crossbeam_channel::Sender,
     log::error,
+    solana_clock::{Epoch, Slot},
     solana_ledger::{blockstore::Blockstore, leader_schedule_cache::LeaderScheduleCache},
+    solana_pubkey::Pubkey,
     solana_runtime::bank_forks::BankForks,
-    solana_sdk::{
-        clock::{Epoch, Slot},
-        pubkey::Pubkey,
-    },
     std::{
         cmp::Reverse,
         collections::HashMap,
@@ -60,9 +58,15 @@ impl DuplicateShredHandlerTrait for DuplicateShredHandler {
         let pubkey = shred_data.from;
         if let Err(error) = self.handle_shred_data(shred_data) {
             if error.is_non_critical() {
-                info!("Received invalid duplicate shred proof from {pubkey} for slot {slot}: {error:?}");
+                info!(
+                    "Received invalid duplicate shred proof from {pubkey} for slot {slot}: \
+                     {error:?}"
+                );
             } else {
-                error!("Unable to process duplicate shred proof from {pubkey} for slot {slot}: {error:?}");
+                error!(
+                    "Unable to process duplicate shred proof from {pubkey} for slot {slot}: \
+                     {error:?}"
+                );
             }
         }
     }
@@ -134,12 +138,12 @@ impl DuplicateShredHandler {
         // the duplicate slot proof in blockstore
         if entry.iter().flatten().count() == usize::from(num_chunks) {
             let chunks = std::mem::take(entry).into_iter().flatten();
-            let pubkey = self
+            let slot_leader = self
                 .leader_schedule_cache
                 .slot_leader_at(slot, /*bank:*/ None)
                 .ok_or(Error::UnknownSlotLeader(slot))?;
             let (shred1, shred2) =
-                duplicate_shred::into_shreds(&pubkey, chunks, self.shred_version)?;
+                duplicate_shred::into_shreds(&slot_leader.id, chunks, self.shred_version)?;
             if !self.blockstore.has_duplicate_shreds_in_slot(slot) {
                 self.blockstore.store_duplicate_slot(
                     slot,
@@ -183,7 +187,7 @@ impl DuplicateShredHandler {
                     }
             });
         }
-        if self.buffer.len() < BUFFER_CAPACITY {
+        if self.buffer.len() <= BUFFER_CAPACITY {
             return;
         }
         // Lookup stake for each entry.
@@ -232,16 +236,15 @@ mod tests {
         },
         crossbeam_channel::unbounded,
         itertools::Itertools,
+        solana_keypair::Keypair,
         solana_ledger::{
-            genesis_utils::{create_genesis_config_with_leader, GenesisConfigInfo},
+            genesis_utils::{GenesisConfigInfo, create_genesis_config_with_leader},
             get_tmp_ledger_path_auto_delete,
             shred::Shredder,
         },
-        solana_runtime::{accounts_background_service::AbsRequestSender, bank::Bank},
-        solana_sdk::{
-            signature::{Keypair, Signer},
-            timing::timestamp,
-        },
+        solana_runtime::bank::Bank,
+        solana_signer::Signer,
+        solana_time_utils::timestamp,
     };
 
     fn create_duplicate_proof(
@@ -256,7 +259,7 @@ mod tests {
             Some(Error::InvalidSignature) => Arc::new(Keypair::new()),
             _ => keypair,
         };
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let shredder = Shredder::new(slot, slot - 1, 0, shred_version).unwrap();
         let next_shred_index = 353;
         let shred1 = new_rand_shred(&mut rng, next_shred_index, &shredder, &my_keypair);
@@ -286,7 +289,7 @@ mod tests {
 
     #[test]
     fn test_handle_mixed_entries() {
-        solana_logger::setup();
+        agave_logger::setup();
 
         let ledger_path = get_tmp_ledger_path_auto_delete!();
         let blockstore = Arc::new(Blockstore::open(ledger_path.path()).unwrap());
@@ -300,12 +303,10 @@ mod tests {
         {
             let mut bank_forks = bank_forks_arc.write().unwrap();
             let bank0 = bank_forks.get(0).unwrap();
-            bank_forks.insert(Bank::new_from_parent(bank0.clone(), &Pubkey::default(), 9));
-            bank_forks
-                .set_root(9, &AbsRequestSender::default(), None)
-                .unwrap();
+            bank_forks.insert(Bank::new_from_parent(bank0, &Pubkey::default(), 9));
+            bank_forks.set_root(9, None, None);
         }
-        blockstore.set_roots([0, 9].iter()).unwrap();
+        assert!(blockstore.set_roots([0, 9].iter()).is_ok());
         let leader_schedule_cache = Arc::new(LeaderScheduleCache::new_from_bank(
             &bank_forks_arc.read().unwrap().working_bank(),
         ));
@@ -357,14 +358,15 @@ mod tests {
             Error::SlotMismatch,
             Error::InvalidDuplicateShreds,
         ] {
-            match create_duplicate_proof(
+            let proof_result = create_duplicate_proof(
                 my_keypair.clone(),
                 None,
                 start_slot + 2,
                 Some(error),
                 DUPLICATE_SHRED_MAX_PAYLOAD_SIZE,
                 shred_version,
-            ) {
+            );
+            match proof_result {
                 Err(_) => (),
                 Ok(chunks) => {
                     for chunk in chunks {
@@ -379,7 +381,7 @@ mod tests {
 
     #[test]
     fn test_reject_abuses() {
-        solana_logger::setup();
+        agave_logger::setup();
 
         let ledger_path = get_tmp_ledger_path_auto_delete!();
         let blockstore = Arc::new(Blockstore::open(ledger_path.path()).unwrap());
@@ -393,10 +395,8 @@ mod tests {
         {
             let mut bank_forks = bank_forks_arc.write().unwrap();
             let bank0 = bank_forks.get(0).unwrap();
-            bank_forks.insert(Bank::new_from_parent(bank0.clone(), &Pubkey::default(), 9));
-            bank_forks
-                .set_root(9, &AbsRequestSender::default(), None)
-                .unwrap();
+            bank_forks.insert(Bank::new_from_parent(bank0, &Pubkey::default(), 9));
+            bank_forks.set_root(9, None, None);
         }
         blockstore.set_roots([0, 9].iter()).unwrap();
         let leader_schedule_cache = Arc::new(LeaderScheduleCache::new_from_bank(

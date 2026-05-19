@@ -1,30 +1,30 @@
 use {
-    criterion::{black_box, criterion_group, criterion_main, Criterion},
+    criterion::{Criterion, criterion_group, criterion_main},
     rand::{Rng, SeedableRng},
     rand_chacha::ChaChaRng,
     solana_gossip::weighted_shuffle::WeightedShuffle,
-    std::iter::repeat_with,
+    std::{hint::black_box, iter::repeat_with},
 };
 
 fn make_weights<R: Rng>(rng: &mut R) -> Vec<u64> {
-    repeat_with(|| rng.gen_range(1..10_000))
+    repeat_with(|| rng.random_range(1..10_000))
         .take(4_000)
         .collect()
 }
 
 fn bench_weighted_shuffle_new(c: &mut Criterion) {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     c.bench_function("bench_weighted_shuffle_new", |b| {
         b.iter(|| {
             let weights = make_weights(&mut rng);
-            black_box(WeightedShuffle::<u64>::new("", &weights));
+            black_box(WeightedShuffle::new("", &weights));
         })
     });
 }
 
 fn bench_weighted_shuffle_shuffle(c: &mut Criterion) {
     let mut seed = [0u8; 32];
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let weights = make_weights(&mut rng);
     let weighted_shuffle = WeightedShuffle::new("", weights);
     c.bench_function("bench_weighted_shuffle_shuffle", |b| {

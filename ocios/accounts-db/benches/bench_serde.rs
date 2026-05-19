@@ -1,10 +1,15 @@
 use {
-    criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput},
+    criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main},
     serde::{Deserialize, Serialize},
+    solana_account::Account,
+    solana_clock::Epoch,
     solana_pubkey::Pubkey,
-    solana_sdk::{account::Account, clock::Epoch},
     std::mem,
 };
+
+#[cfg(not(any(target_env = "msvc", target_os = "freebsd")))]
+#[global_allocator]
+static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
 const KB: usize = 1024;
 const MB: usize = KB * KB;
